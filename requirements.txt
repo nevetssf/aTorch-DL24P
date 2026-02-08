@@ -1,0 +1,6 @@
+pyside6>=6.6.0
+pyqtgraph>=0.13.0
+pyserial>=3.5
+numpy>=1.24.0
+pandas>=2.0.0
+hidapi>=0.14.0

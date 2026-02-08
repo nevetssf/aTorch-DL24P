@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atorch-dl24p"
+version = "0.1.0"
+description = "Control and logging application for aTorch DL24P electronic load"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Steve"}
+]
+keywords = ["atorch", "dl24p", "electronic-load", "battery-testing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pyside6>=6.6.0",
+    "pyqtgraph>=0.13.0",
+    "pyserial>=3.5",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-qt>=4.2.0",
+    "pyinstaller>=6.0.0",
+]
+
+[project.scripts]
+atorch = "atorch.main:main"
+
+[project.gui-scripts]
+atorch-gui = "atorch.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["atorch*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
