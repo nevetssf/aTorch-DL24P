@@ -139,11 +139,16 @@ class MainWindow(QMainWindow):
         splitter.setSizes([250, 700, 250])
         main_layout.addWidget(splitter, stretch=3)
 
-        # Bottom tabs: Automation and History
+        # Bottom section: Test Automation group with tabs
+        from PySide6.QtWidgets import QGroupBox
+        automation_group = QGroupBox("Test Automation")
+        automation_group_layout = QVBoxLayout(automation_group)
+        automation_group_layout.setContentsMargins(4, 4, 4, 4)
+
         bottom_tabs = QTabWidget()
 
         self.automation_panel = AutomationPanel(None, self.database)  # test_runner set on connect
-        bottom_tabs.addTab(self.automation_panel, "Test Automation")
+        bottom_tabs.addTab(self.automation_panel, "Battery Capacity")
 
         self.history_panel = HistoryPanel(self.database)
         self.history_panel.session_selected.connect(self._on_history_session_selected)
@@ -153,9 +158,11 @@ class MainWindow(QMainWindow):
         self.automation_panel.start_test_requested.connect(self._on_automation_start)
         self.automation_panel.pause_test_requested.connect(self._on_automation_pause)
         self.automation_panel.resume_test_requested.connect(self._on_automation_resume)
+        self.automation_panel.apply_settings_requested.connect(self._on_apply_settings)
 
-        bottom_tabs.setMaximumHeight(250)
-        main_layout.addWidget(bottom_tabs, stretch=1)
+        automation_group_layout.addWidget(bottom_tabs)
+        automation_group.setMaximumHeight(440)
+        main_layout.addWidget(automation_group, stretch=1)
 
         # Connect signals
         self.status_updated.connect(self._update_ui_status)
@@ -482,10 +489,17 @@ class MainWindow(QMainWindow):
             f"Loaded: {session.name} ({len(session.readings)} readings)"
         )
 
-    @Slot(float, float, int)
-    def _on_automation_start(self, current_a: float, voltage_cutoff: float, duration_s: int) -> None:
-        """Handle test start request from automation panel."""
-        if current_a == 0 and voltage_cutoff == 0:
+    @Slot(int, float, float, int)
+    def _on_automation_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
+        """Handle test start request from automation panel.
+
+        Args:
+            discharge_type: 0=CC, 1=CP, 2=CR
+            value: Current (A), Power (W), or Resistance (Ω) depending on type
+            voltage_cutoff: Voltage cutoff in V
+            duration_s: Duration in seconds (0 for no limit)
+        """
+        if discharge_type == 0 and value == 0 and voltage_cutoff == 0:
             # Stop request - turn off logging
             if self._logging_enabled:
                 self.status_panel.log_switch.setChecked(False)
@@ -502,15 +516,29 @@ class MainWindow(QMainWindow):
         # Clear device counters (mAh, Wh, time)
         self.device.reset_counters()
 
-        # Set current in control panel and device
-        self.control_panel.current_spin.setValue(current_a)
-        self.device.set_current(current_a)
+        # Set mode and value based on discharge type
+        mode_names = ["CC", "CP", "CR"]
+        if discharge_type == 0:  # Constant Current
+            self.control_panel.mode_btn_group.button(0).setChecked(True)  # CC button
+            self.control_panel.current_spin.setValue(value)
+            self.device.set_current(value)
+            mode_str = f"{value}A"
+        elif discharge_type == 1:  # Constant Power
+            self.control_panel.mode_btn_group.button(1).setChecked(True)  # CP button
+            self.control_panel.power_spin.setValue(value)
+            self.device.set_power(value)
+            mode_str = f"{value}W"
+        elif discharge_type == 2:  # Constant Resistance
+            self.control_panel.mode_btn_group.button(3).setChecked(True)  # CR button
+            self.control_panel.resistance_spin.setValue(value)
+            self.device.set_resistance(value)
+            mode_str = f"{value}Ω"
 
         # Set voltage cutoff in control panel and device
         self.control_panel.cutoff_spin.setValue(voltage_cutoff)
         self.device.set_voltage_cutoff(voltage_cutoff)
 
-        # Set duration if specified (timed test) - convert to hours/minutes
+        # Set duration if specified - convert to hours/minutes
         if duration_s > 0:
             hours = duration_s // 3600
             minutes = (duration_s % 3600) // 60
@@ -523,6 +551,8 @@ class MainWindow(QMainWindow):
         if not self._logging_enabled:
             self.status_panel.log_switch.setChecked(True)
             self._toggle_logging(True)
+
+        self.statusbar.showMessage(f"Test started: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V")
 
         self.statusbar.showMessage(f"Test started: {current_a}A, cutoff {voltage_cutoff}V")
 
@@ -566,6 +596,66 @@ class MainWindow(QMainWindow):
             self.control_panel.power_switch.setChecked(True)
 
         self.statusbar.showMessage("Test resumed")
+
+    @Slot(int, float, float, int)
+    def _on_apply_settings(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
+        """Apply test configuration settings to the device without starting a test.
+
+        Args:
+            discharge_type: 0=CC, 1=CP, 2=CR
+            value: Current (A), Power (W), or Resistance (Ω) depending on type
+            voltage_cutoff: Voltage cutoff in V
+            duration_s: Duration in seconds (0 for no limit)
+        """
+        if not self.device or not self.device.is_connected:
+            self.statusbar.showMessage("Cannot apply settings: device not connected")
+            return
+
+        mode_names = ["CC", "CP", "CR"]
+
+        # Set mode and value based on discharge type
+        # GUI button IDs: 0=CC, 1=CP, 2=CV, 3=CR
+        if discharge_type == 0:  # Constant Current
+            self.control_panel.mode_btn_group.button(0).setChecked(True)
+            self.control_panel.current_spin.setValue(value)
+            self.device.set_mode(0, value)  # Set mode with value
+            mode_str = f"{value}A"
+        elif discharge_type == 1:  # Constant Power
+            self.control_panel.mode_btn_group.button(1).setChecked(True)
+            self.control_panel.power_spin.setValue(value)
+            self.device.set_mode(1, value)  # Set mode with value
+            mode_str = f"{value}W"
+        elif discharge_type == 2:  # Constant Resistance
+            self.control_panel.mode_btn_group.button(3).setChecked(True)
+            self.control_panel.resistance_spin.setValue(value)
+            self.device.set_mode(3, value)  # Set mode with value
+            mode_str = f"{value}Ω"
+
+        # Update mode controls in control panel
+        self.control_panel._current_mode = discharge_type if discharge_type < 2 else 3
+        self.control_panel._update_mode_controls()
+
+        # Set voltage cutoff
+        self.control_panel.cutoff_spin.setValue(voltage_cutoff)
+        self.device.set_voltage_cutoff(voltage_cutoff)
+
+        # Set duration (or clear if 0)
+        if duration_s > 0:
+            hours = duration_s // 3600
+            minutes = (duration_s % 3600) // 60
+            self.control_panel.discharge_hours_spin.setValue(hours)
+            self.control_panel.discharge_mins_spin.setValue(minutes)
+            if hasattr(self.device, 'set_discharge_time'):
+                self.device.set_discharge_time(hours, minutes)
+            time_str = f", time limit {hours}h {minutes}m"
+        else:
+            self.control_panel.discharge_hours_spin.setValue(0)
+            self.control_panel.discharge_mins_spin.setValue(0)
+            if hasattr(self.device, 'set_discharge_time'):
+                self.device.set_discharge_time(0, 0)
+            time_str = ""
+
+        self.statusbar.showMessage(f"Applied: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V{time_str}")
 
     def _on_device_status(self, status: DeviceStatus) -> None:
         """Handle device status update (called from device thread)."""
