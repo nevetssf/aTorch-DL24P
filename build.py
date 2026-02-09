@@ -21,6 +21,7 @@ def build():
         "--windowed",
         "--onefile",
         "--clean",
+        "-y",  # Overwrite output directory without confirmation
     ]
 
     # Add hidden imports
@@ -33,10 +34,16 @@ def build():
         "pandas",
         "serial",
         "serial.tools.list_ports",
+        "hid",
     ]
 
     for imp in hidden_imports:
         cmd.append(f"--hidden-import={imp}")
+
+    # Add data files (resources directory)
+    resources_dir = Path("resources")
+    if resources_dir.exists():
+        cmd.append(f"--add-data={resources_dir}:resources")
 
     # Platform-specific options
     if system == "Darwin":
@@ -53,8 +60,8 @@ def build():
         # Add version info
         cmd.append("--version-file=version_info.txt")
 
-    # Add the main script
-    cmd.append("atorch/main.py")
+    # Add the launcher script (handles package imports for frozen builds)
+    cmd.append("run_atorch.py")
 
     print(f"Building for {system}...")
     print(f"Command: {' '.join(cmd)}")

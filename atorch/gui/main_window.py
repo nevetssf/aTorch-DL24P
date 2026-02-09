@@ -554,8 +554,6 @@ class MainWindow(QMainWindow):
 
         self.statusbar.showMessage(f"Test started: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V")
 
-        self.statusbar.showMessage(f"Test started: {current_a}A, cutoff {voltage_cutoff}V")
-
     @Slot()
     def _on_automation_pause(self) -> None:
         """Handle pause request from automation panel - stop logging and load, keep data."""
