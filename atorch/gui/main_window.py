@@ -76,6 +76,7 @@ class MainWindow(QMainWindow):
 
         # Current session for manual logging
         self._current_session: Optional[TestSession] = None
+        self._last_completed_session: Optional[TestSession] = None  # Keep last session for export
         self._logging_enabled = False
         self._logging_start_time: Optional[datetime] = None  # Track when logging started
         self._prev_load_on = False  # Track previous load state for cutoff detection
@@ -163,9 +164,9 @@ class MainWindow(QMainWindow):
         # Connect control panel signals
         self.control_panel.connect_requested.connect(self._connect_device)
         self.control_panel.disconnect_requested.connect(self._disconnect_device)
-        self.control_panel.logging_toggled.connect(self._toggle_logging)
-        self.control_panel.clear_requested.connect(self._clear_data)
-        self.control_panel.save_requested.connect(self._export_session_with_name)
+        self.status_panel.logging_toggled.connect(self._toggle_logging)
+        self.status_panel.clear_requested.connect(self._clear_data)
+        self.status_panel.save_requested.connect(self._export_session_with_name)
 
     def _create_menus(self) -> None:
         """Create application menus."""
@@ -294,7 +295,7 @@ class MainWindow(QMainWindow):
 
         # Stop logging if active
         if self._logging_enabled:
-            self.control_panel.log_switch.setChecked(False)
+            self.status_panel.log_switch.setChecked(False)
             self._toggle_logging(False)
 
         # Stop the test (update automation panel UI)
@@ -328,9 +329,12 @@ class MainWindow(QMainWindow):
             # End session
             self._current_session.end_time = datetime.now()
             self.database.update_session(self._current_session)
+            num_readings = len(self._current_session.readings)
             self.statusbar.showMessage(
-                f"Logged {len(self._current_session.readings)} readings"
+                f"Logged {num_readings} readings - click 'Save Data...' to export"
             )
+            # Keep reference to last session for export
+            self._last_completed_session = self._current_session
             self._current_session = None
             self._logging_enabled = False
             self._logging_start_time = None
@@ -362,6 +366,9 @@ class MainWindow(QMainWindow):
     def _export_session_with_name(self, battery_name: str = "") -> None:
         """Export current or selected session with optional battery name."""
         session = self._current_session
+        if not session:
+            # Try the last completed session (from a finished test)
+            session = self._last_completed_session
         if not session:
             # Try to get selected from history
             session = self.history_panel.selected_session
@@ -440,15 +447,16 @@ class MainWindow(QMainWindow):
         if current_a == 0 and voltage_cutoff == 0:
             # Stop request - turn off logging
             if self._logging_enabled:
-                self.control_panel.log_switch.setChecked(False)
+                self.status_panel.log_switch.setChecked(False)
                 self._toggle_logging(False)
             return
 
         if not self.device or not self.device.is_connected:
             return
 
-        # Clear data before starting new test
+        # Clear data and previous session before starting new test
         self._clear_data()
+        self._last_completed_session = None
 
         # Clear device counters (mAh, Wh, time)
         self.device.reset_counters()
@@ -472,7 +480,7 @@ class MainWindow(QMainWindow):
 
         # Start logging (which also turns on the load)
         if not self._logging_enabled:
-            self.control_panel.log_switch.setChecked(True)
+            self.status_panel.log_switch.setChecked(True)
             self._toggle_logging(True)
 
         self.statusbar.showMessage(f"Test started: {current_a}A, cutoff {voltage_cutoff}V")
@@ -487,7 +495,7 @@ class MainWindow(QMainWindow):
             self._current_session = None
             self._logging_enabled = False
             self._logging_start_time = None
-            self.control_panel.log_switch.setChecked(False)
+            self.status_panel.log_switch.setChecked(False)
 
         # Turn off load
         if self.device and self.device.is_connected:
@@ -509,7 +517,7 @@ class MainWindow(QMainWindow):
             )
             self.database.create_session(self._current_session)
             self._logging_enabled = True
-            self.control_panel.log_switch.setChecked(True)
+            self.status_panel.log_switch.setChecked(True)
 
         # Turn on load
         if self.device and self.device.is_connected:
@@ -565,11 +573,14 @@ class MainWindow(QMainWindow):
         # Check this BEFORE adding data to prevent extra data points
         if self._logging_enabled and self._prev_load_on and not status.load_on:
             # Load turned off while logging - stop logging immediately
+            num_readings = len(self._current_session.readings) if self._current_session else 0
             self._logging_enabled = False  # Stop immediately to prevent more data
-            self.control_panel.log_switch.setChecked(False)
+            self.status_panel.log_switch.setChecked(False)
             # Also stop the automation test
             self.automation_panel._update_ui_stopped()
-            self.statusbar.showMessage("Test stopped: voltage cutoff reached")
+            self.statusbar.showMessage(
+                f"Test complete: {num_readings} readings - click 'Save Data...' to export"
+            )
 
         self._prev_load_on = status.load_on
 
@@ -589,6 +600,7 @@ class MainWindow(QMainWindow):
     def _update_ui_connection(self, connected: bool) -> None:
         """Update UI for connection state change."""
         self.control_panel.set_connected(connected)
+        self.status_panel.set_connected(connected)
 
         # Update menu actions
         self.connect_action.setEnabled(not connected)

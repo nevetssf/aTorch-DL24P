@@ -47,6 +47,7 @@ class DeviceStatus:
     minutes: int
     seconds: int
     load_on: bool
+    ureg: bool  # Unregulated - no load present
     overcurrent: bool
     overvoltage: bool
     overtemperature: bool
@@ -238,6 +239,7 @@ class AtorchProtocol:
             minutes=minutes,
             seconds=seconds,
             load_on=load_on,
+            ureg=False,  # TODO: Parse from flags if available in serial protocol
             overcurrent=overcurrent,
             overvoltage=overvoltage,
             overtemperature=overtemperature,

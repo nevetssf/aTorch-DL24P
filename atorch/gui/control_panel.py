@@ -128,9 +128,6 @@ class ControlPanel(QWidget):
 
     connect_requested = Signal(str)  # connection_type
     disconnect_requested = Signal()
-    logging_toggled = Signal(bool)
-    clear_requested = Signal()  # Request to clear accumulated data
-    save_requested = Signal(str)  # Request to save/export data, passes battery name
 
     def __init__(self, device: Device, test_runner: TestRunner):
         super().__init__()
@@ -407,54 +404,6 @@ class ControlPanel(QWidget):
         display_layout.addLayout(timeout_layout)
         layout.addWidget(display_group)
 
-        # Logging group
-        log_group = QGroupBox("Data Logging")
-        log_layout = QVBoxLayout(log_group)
-
-        # Logging toggle switch
-        logging_layout = QHBoxLayout()
-        logging_layout.addWidget(QLabel("Logging:"))
-        logging_layout.addStretch()
-
-        self.log_label_off = QLabel("OFF")
-        self.log_label_off.setStyleSheet("font-weight: bold; color: #666;")
-        logging_layout.addWidget(self.log_label_off)
-
-        self.log_switch = ToggleSwitch()
-        self.log_switch.setEnabled(False)
-        self.log_switch.toggled.connect(self._on_logging_toggled)
-        logging_layout.addWidget(self.log_switch)
-
-        self.log_label_on = QLabel("ON")
-        self.log_label_on.setStyleSheet("font-weight: bold; color: #666;")
-        logging_layout.addWidget(self.log_label_on)
-
-        logging_layout.addStretch()
-        log_layout.addLayout(logging_layout)
-
-        # Battery name row
-        name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Battery Name:"))
-        self.battery_name_edit = QLineEdit()
-        self.battery_name_edit.setPlaceholderText("Optional")
-        name_layout.addWidget(self.battery_name_edit)
-        log_layout.addLayout(name_layout)
-
-        # Save and Clear buttons row
-        save_layout = QHBoxLayout()
-        self.save_btn = QPushButton("Save Data...")
-        self.save_btn.setEnabled(False)
-        self.save_btn.clicked.connect(self._on_save_clicked)
-        save_layout.addWidget(self.save_btn)
-
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setEnabled(False)
-        self.clear_btn.clicked.connect(self._on_clear_clicked)
-        save_layout.addWidget(self.clear_btn)
-        log_layout.addLayout(save_layout)
-
-        layout.addWidget(log_group)
-
         # Spacer
         layout.addStretch()
 
@@ -510,9 +459,6 @@ class ControlPanel(QWidget):
         self.set_timeout_btn.setEnabled(connected and is_usb_hid)
 
         self.reset_btn.setEnabled(connected)
-        self.log_switch.setEnabled(connected)
-        self.clear_btn.setEnabled(connected)
-        self.save_btn.setEnabled(connected)
 
         # Enable/disable preset buttons
         for i in range(self.preset_btns.count()):
@@ -523,8 +469,6 @@ class ControlPanel(QWidget):
         if not connected:
             self.power_switch.setChecked(False)
             self._update_power_labels(False)
-            self.log_switch.setChecked(False)
-            self._update_logging_labels(False)
 
     def update_status(self, status: DeviceStatus) -> None:
         """Update UI with device status."""
@@ -671,33 +615,6 @@ class ControlPanel(QWidget):
         else:
             self.device.turn_off()
         self._update_power_labels(checked)
-
-    def _update_logging_labels(self, is_on: bool) -> None:
-        """Update logging label styling based on state."""
-        if is_on:
-            self.log_label_on.setStyleSheet("font-weight: bold; color: #4CAF50;")
-            self.log_label_off.setStyleSheet("font-weight: bold; color: #666;")
-        else:
-            self.log_label_on.setStyleSheet("font-weight: bold; color: #666;")
-            self.log_label_off.setStyleSheet("font-weight: bold; color: #666;")
-
-    @Slot(bool)
-    def _on_logging_toggled(self, checked: bool) -> None:
-        """Handle logging toggle switch."""
-        self._update_logging_labels(checked)
-        # Save button stays enabled (to save accumulated data), clear button always enabled when connected
-        self.logging_toggled.emit(checked)
-
-    @Slot()
-    def _on_clear_clicked(self) -> None:
-        """Handle clear button click."""
-        self.clear_requested.emit()
-
-    @Slot()
-    def _on_save_clicked(self) -> None:
-        """Handle save button click."""
-        battery_name = self.battery_name_edit.text().strip()
-        self.save_requested.emit(battery_name)
 
     @Slot()
     def _on_current_value_changed(self) -> None:

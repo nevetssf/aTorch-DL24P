@@ -661,6 +661,9 @@ class USBHIDDevice:
 
         flags = payload[44:48]
 
+        # Debug: log full payload to find load on/off state
+        self._debug("INFO", f"Full payload: {payload.hex()}")
+
         # Voltage is at offset 47 as big-endian uint16 / 100
         voltage = get_uint16_be(47) / 100.0
 
@@ -680,8 +683,11 @@ class USBHIDDevice:
             current = 0.0
             power = 0.0
 
-        # Load on/off based on whether significant current is flowing
-        load_on = current > 0.01
+        # Load on/off from counters response (byte 48)
+        load_on = counters.get('load_on', False) if counters else False
+
+        # UREG (Unregulated) - load is on but no current flowing (no load/battery present)
+        ureg = (load_on and current < 0.01)
 
         # Extract runtime from counters
         runtime_s = counters.get('runtime', 0) if counters else 0
@@ -718,6 +724,7 @@ class USBHIDDevice:
             minutes=minutes,
             seconds=seconds,
             load_on=load_on,
+            ureg=ureg,
             overcurrent=False,
             overvoltage=False,
             overtemperature=False,
@@ -763,8 +770,11 @@ class USBHIDDevice:
         # Calculate energy from capacity and voltage (approximation)
         energy_wh = (capacity_uah / 1000.0) * (voltage_mv / 1000.0) / 1000.0
 
+        # Load on/off flag at byte 48 (0x00 = off, 0x01 = on)
+        load_on = payload[48] == 0x01 if len(payload) > 48 else False
+
         # Debug: log the raw values
-        self._debug("PARSE", f"Counters: V={voltage_mv}mV I={current_ma}mA P={power_raw} C={capacity_uah}µAh MosT={mosfet_temp_raw} ExtT={ext_temp_raw} Fan={fan_rpm} RT={runtime_s}s")
+        self._debug("PARSE", f"Counters: V={voltage_mv}mV I={current_ma}mA P={power_raw} C={capacity_uah}µAh MosT={mosfet_temp_raw} ExtT={ext_temp_raw} Fan={fan_rpm} RT={runtime_s}s LoadOn={load_on}")
 
         return {
             'voltage_mv': voltage_mv,
@@ -776,6 +786,7 @@ class USBHIDDevice:
             'ext_temp_c': ext_temp_raw / 1000.0,  # External temperature in C
             'fan_rpm': fan_rpm,
             'runtime': runtime_s,
+            'load_on': load_on,
         }
 
     def _poll_loop(self) -> None:
@@ -797,7 +808,7 @@ class USBHIDDevice:
                     status = self._parse_live_data(payload, counters)
 
                     self._last_status = status
-                    self._debug("PARSE", f"Status: {status.voltage:.2f}V {status.current:.3f}A T={status.temperature_c}C")
+                    self._debug("PARSE", f"Status: {status.voltage:.2f}V {status.current:.3f}A T={status.temperature_c}C Load={'ON' if status.load_on else 'OFF'}{' UREG' if status.ureg else ''}")
 
                     if self._status_callback:
                         try:
