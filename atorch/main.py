@@ -7,15 +7,37 @@ from PySide6.QtCore import Qt
 from .gui.main_window import MainWindow
 
 
+def _set_macos_app_name(name: str) -> None:
+    """Set the application name in macOS menu bar."""
+    try:
+        from AppKit import NSApplication, NSApp
+        from Foundation import NSBundle
+
+        # Get the shared application
+        NSApplication.sharedApplication()
+
+        # Modify the bundle info
+        bundle = NSBundle.mainBundle()
+        info = bundle.infoDictionary()
+        info['CFBundleName'] = name
+
+    except ImportError:
+        pass  # PyObjC not available
+
+
 def main():
     """Main entry point."""
+    # Set application name for macOS menu bar (must be before QApplication)
+    _set_macos_app_name("DL24/P")
+
     # Enable high DPI scaling
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
     app = QApplication(sys.argv)
-    app.setApplicationName("aTorch DL24P Control")
+    app.setApplicationName("DL24/P")
+    app.setApplicationDisplayName("DL24/P")
     app.setOrganizationName("aTorch")
     app.setOrganizationDomain("atorch.local")
 

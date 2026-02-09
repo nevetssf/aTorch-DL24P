@@ -259,6 +259,17 @@ class DeviceSettingsDialog(QDialog):
 
         layout.addWidget(display_group)
 
+        # Factory Reset group
+        reset_group = QGroupBox("Factory Reset")
+        reset_layout = QVBoxLayout(reset_group)
+
+        self.restore_defaults_btn = QPushButton("Restore Defaults")
+        self.restore_defaults_btn.setToolTip("Restore device to factory default settings")
+        self.restore_defaults_btn.clicked.connect(self._on_restore_defaults)
+        reset_layout.addWidget(self.restore_defaults_btn)
+
+        layout.addWidget(reset_group)
+
         # Close button
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.close)
@@ -289,3 +300,19 @@ class DeviceSettingsDialog(QDialog):
         value = self.standby_timeout_spin.value()
         if self.device and hasattr(self.device, 'set_standby_timeout'):
             self.device.set_standby_timeout(value)
+
+    def _on_restore_defaults(self) -> None:
+        """Restore device to factory defaults."""
+        from PySide6.QtWidgets import QMessageBox
+
+        reply = QMessageBox.question(
+            self,
+            "Restore Defaults",
+            "Are you sure you want to restore the device to factory default settings?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            if self.device and hasattr(self.device, 'restore_defaults'):
+                self.device.restore_defaults()

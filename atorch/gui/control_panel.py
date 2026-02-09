@@ -236,6 +236,19 @@ class ControlPanel(QWidget):
         self.disconnect_btn.setEnabled(False)  # Disabled when not connected
         self.disconnect_btn.clicked.connect(self._on_disconnect_clicked)
         btn_layout.addWidget(self.disconnect_btn)
+
+        # Communication indicator
+        self.comm_indicator = QLabel("●")
+        self.comm_indicator.setStyleSheet("color: #555555; font-size: 16px;")
+        self.comm_indicator.setToolTip("Communication status")
+        self.comm_indicator.setFixedWidth(20)
+        btn_layout.addWidget(self.comm_indicator)
+
+        # Timer to fade indicator back to grey
+        self._comm_fade_timer = QTimer()
+        self._comm_fade_timer.setSingleShot(True)
+        self._comm_fade_timer.timeout.connect(self._fade_comm_indicator)
+
         conn_layout.addLayout(btn_layout)
 
         layout.addWidget(conn_group)
@@ -560,6 +573,18 @@ class ControlPanel(QWidget):
             # Reset to CC mode when disconnected
             self._current_mode = 0
             self.cc_btn.setChecked(True)
+            # Reset communication indicator
+            self.comm_indicator.setStyleSheet("color: #555555; font-size: 16px;")
+            self._comm_fade_timer.stop()
+
+    def pulse_comm_indicator(self) -> None:
+        """Pulse the communication indicator green to show data received."""
+        self.comm_indicator.setStyleSheet("color: #00FF00; font-size: 16px;")
+        self._comm_fade_timer.start(500)  # Fade after 500ms
+
+    def _fade_comm_indicator(self) -> None:
+        """Fade the communication indicator back to grey."""
+        self.comm_indicator.setStyleSheet("color: #555555; font-size: 16px;")
 
     def update_status(self, status: DeviceStatus) -> None:
         """Update UI with device status."""

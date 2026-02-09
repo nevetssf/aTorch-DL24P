@@ -118,6 +118,7 @@ class PlotPanel(QWidget):
         self._visible = {}
         self._unit_scales = {}  # Current scale factor per series
         self._display_units = {}  # Current display unit per series
+        self._show_points = False  # Whether to show point markers
 
         self._create_ui()
 
@@ -286,6 +287,30 @@ class PlotPanel(QWidget):
             self._data[name].clear()
         self._start_time = None
         self._update_plots()
+
+    def get_elapsed_time(self) -> float:
+        """Get elapsed time from first to last data point in seconds."""
+        if not self._time_data or len(self._time_data) < 1:
+            return 0.0
+        # Time data is relative to start, so last value is the elapsed time
+        return self._time_data[-1]
+
+    def get_points_count(self) -> int:
+        """Get the number of data points."""
+        return len(self._time_data)
+
+    def set_show_points(self, show: bool) -> None:
+        """Toggle visibility of point markers on curves."""
+        self._show_points = show
+        for name, color, _ in self.SERIES_CONFIG:
+            curve = self._curves.get(name)
+            if curve:
+                if show:
+                    curve.setSymbol('o')
+                    curve.setSymbolSize(5)
+                    curve.setSymbolBrush(color)
+                else:
+                    curve.setSymbol(None)
 
     def _update_time_axis_label(self) -> None:
         """Update the X-axis label with appropriate time units."""

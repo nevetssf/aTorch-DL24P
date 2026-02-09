@@ -79,6 +79,7 @@ class MainWindow(QMainWindow):
         self._last_completed_session: Optional[TestSession] = None  # Keep last session for export
         self._logging_enabled = False
         self._logging_start_time: Optional[datetime] = None  # Track when logging started
+        self._accumulated_readings: list[Reading] = []  # Readings accumulated across sessions
         self._prev_load_on = False  # Track previous load state for cutoff detection
 
         # Setup
@@ -165,6 +166,7 @@ class MainWindow(QMainWindow):
         self.control_panel.connect_requested.connect(self._connect_device)
         self.control_panel.disconnect_requested.connect(self._disconnect_device)
         self.status_panel.logging_toggled.connect(self._toggle_logging)
+        self.status_panel.show_points_toggled.connect(self._toggle_show_points)
         self.status_panel.clear_requested.connect(self._clear_data)
         self.status_panel.save_requested.connect(self._export_session_with_name)
 
@@ -351,6 +353,11 @@ class MainWindow(QMainWindow):
                 self.device.turn_off()
                 self.control_panel.power_switch.setChecked(False)
 
+    @Slot(bool)
+    def _toggle_show_points(self, show: bool) -> None:
+        """Toggle visibility of point markers on plot curves."""
+        self.plot_panel.set_show_points(show)
+
     @Slot()
     def _clear_data(self) -> None:
         """Clear accumulated data - turns off load, resets device counters, and clears plots."""
@@ -360,9 +367,11 @@ class MainWindow(QMainWindow):
             self.control_panel.power_switch.setChecked(False)
             # Reset device counters (mAh, Wh, time)
             self.device.reset_counters()
-        # Clear plot data and logging time display
+        # Clear plot data, logging time, points count, and accumulated readings
         self.plot_panel.clear_data()
         self.status_panel.clear_logging_time()
+        self.status_panel.set_points_count(0)
+        self._accumulated_readings.clear()
         self.statusbar.showMessage("Values cleared")
 
     @Slot()
@@ -380,13 +389,24 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _export_session_with_name(self, battery_name: str = "") -> None:
         """Export current or selected session with optional battery name."""
-        session = self._current_session
-        if not session:
-            # Try the last completed session (from a finished test)
-            session = self._last_completed_session
-        if not session:
-            # Try to get selected from history
-            session = self.history_panel.selected_session
+        # Use accumulated readings if available (from Data Logging panel Save button)
+        if self._accumulated_readings:
+            # Create a session with all accumulated readings for export
+            first_reading = self._accumulated_readings[0]
+            session = TestSession(
+                name=battery_name or "Accumulated Data",
+                start_time=first_reading.timestamp,
+                test_type="manual",
+            )
+            session.readings = self._accumulated_readings.copy()
+        else:
+            session = self._current_session
+            if not session:
+                # Try the last completed session (from a finished test)
+                session = self._last_completed_session
+            if not session:
+                # Try to get selected from history
+                session = self.history_panel.selected_session
         if not session:
             QMessageBox.information(
                 self,
@@ -549,12 +569,7 @@ class MainWindow(QMainWindow):
 
     def _on_device_status(self, status: DeviceStatus) -> None:
         """Handle device status update (called from device thread)."""
-        self.status_updated.emit(status)
-
-        # Check alerts
-        self.notifier.check(status)
-
-        # Log if enabled
+        # Log data first (before UI update) if enabled
         if self._logging_enabled and self._current_session:
             reading = Reading(
                 timestamp=datetime.now(),
@@ -569,6 +584,14 @@ class MainWindow(QMainWindow):
             )
             self.database.add_reading(self._current_session.id, reading)
             self._current_session.readings.append(reading)
+            # Also accumulate for cross-session export
+            self._accumulated_readings.append(reading)
+
+        # Update UI
+        self.status_updated.emit(status)
+
+        # Check alerts
+        self.notifier.check(status)
 
     def _on_device_error(self, message: str) -> None:
         """Handle device error."""
@@ -588,6 +611,9 @@ class MainWindow(QMainWindow):
     @Slot(DeviceStatus)
     def _update_ui_status(self, status: DeviceStatus) -> None:
         """Update UI with device status."""
+        # Pulse communication indicator to show data received
+        self.control_panel.pulse_comm_indicator()
+
         self.status_panel.update_status(status)
 
         # Detect if load turned off during logging (e.g., voltage cutoff)
@@ -605,15 +631,16 @@ class MainWindow(QMainWindow):
 
         self._prev_load_on = status.load_on
 
-        # Update logging time based on logged data (last reading - start time)
-        if self._logging_enabled and self._current_session and self._current_session.readings:
-            last_reading = self._current_session.readings[-1]
-            elapsed = (last_reading.timestamp - self._current_session.start_time).total_seconds()
-            self.status_panel.set_logging_time(elapsed)
-
         # Only add data to plot when logging is enabled
         if self._logging_enabled:
             self.plot_panel.add_data_point(status)
+
+        # Update logged time and points count display
+        elapsed = self.plot_panel.get_elapsed_time()
+        if elapsed > 0:
+            self.status_panel.set_logging_time(elapsed)
+        points = self.plot_panel.get_points_count()
+        self.status_panel.set_points_count(points)
 
         self.control_panel.update_status(status)
 

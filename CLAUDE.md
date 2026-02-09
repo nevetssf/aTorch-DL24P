@@ -81,3 +81,23 @@ Profiles saved as JSON in `profiles/` directory.
 - Energy is in mWh at offset 20 of counters response
 - Load on/off flag at byte 48 of counters payload
 - Query commands must NOT include extra data bytes (breaks checksum)
+
+## USB HID Sub-Commands
+
+| Sub-Cmd | Description |
+|---------|-------------|
+| 0x03 | Get live data (mode, value_set, voltage cutoff) |
+| 0x05 | Get counters (voltage, current, capacity, temperature) |
+| 0x21 | Set current/power/voltage/resistance (mode-dependent) |
+| 0x22 | Set voltage cutoff |
+| 0x25 | Power on/off (0x01=on, 0x00=off) |
+| 0x31 | Set discharge time (hours/minutes) |
+| 0x33 | Restore factory defaults |
+| 0x34 | Clear accumulated data (mAh, Wh, time) |
+
+## External Resources
+
+- **DL24 Protocol Documentation**: https://www.improwis.com/projects/sw_dl24/
+  - Covers both PX100 (legacy) and Atorch protocols
+  - Packet structures, checksum calculation, command codes
+  - Hardware architecture details (HC32F030E8PA MCU, RN8209C power measurement)

@@ -427,6 +427,7 @@ class USBHIDDevice:
     SUB_CMD_SET_CUTOFF = 0x22   # Set voltage cutoff
     SUB_CMD_POWER = 0x25      # Turn on/off
     SUB_CMD_SET_DISCHARGE_TIME = 0x31  # Set discharge timeout (hours)
+    SUB_CMD_RESTORE_DEFAULTS = 0x33    # Restore device to factory defaults
     SUB_CMD_CLEAR_DATA = 0x34  # Clear accumulated data (mAh, Wh, time)
 
     # Polling interval (device doesn't push data, we must poll)
@@ -1058,3 +1059,8 @@ class USBHIDDevice:
         """Clear accumulated data (mAh, Wh, time counters)."""
         self._debug("INFO", "Sending clear data command")
         return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_CLEAR_DATA, b'\x00\x00\x00\x00')
+
+    def restore_defaults(self) -> bool:
+        """Restore device to factory default settings."""
+        self._debug("INFO", "Sending restore defaults command")
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_RESTORE_DEFAULTS, b'\x00\x00\x00\x00')
