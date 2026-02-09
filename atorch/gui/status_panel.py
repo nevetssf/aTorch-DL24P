@@ -68,6 +68,7 @@ class StatusPanel(QWidget):
         # Voltage
         readings_layout.addWidget(QLabel("Voltage:"), row, 0)
         self.voltage_label = StatusLabel()
+        self.voltage_label.setStyleSheet("color: #FFC107;")  # Amber
         readings_layout.addWidget(self.voltage_label, row, 1)
         readings_layout.addWidget(UnitLabel("V"), row, 2)
         row += 1
@@ -75,6 +76,7 @@ class StatusPanel(QWidget):
         # Current
         readings_layout.addWidget(QLabel("Current:"), row, 0)
         self.current_label = StatusLabel()
+        self.current_label.setStyleSheet("color: #29B6F6;")  # Light blue
         readings_layout.addWidget(self.current_label, row, 1)
         readings_layout.addWidget(UnitLabel("A"), row, 2)
         row += 1
@@ -82,6 +84,7 @@ class StatusPanel(QWidget):
         # Power
         readings_layout.addWidget(QLabel("Power:"), row, 0)
         self.power_label = StatusLabel()
+        self.power_label.setStyleSheet("color: #EF5350;")  # Red
         readings_layout.addWidget(self.power_label, row, 1)
         readings_layout.addWidget(UnitLabel("W"), row, 2)
         row += 1
@@ -96,6 +99,7 @@ class StatusPanel(QWidget):
         # Capacity
         readings_layout.addWidget(QLabel("Capacity:"), row, 0)
         self.capacity_label = StatusLabel()
+        self.capacity_label.setStyleSheet("color: #AB47BC;")  # Purple
         readings_layout.addWidget(self.capacity_label, row, 1)
         readings_layout.addWidget(UnitLabel("mAh"), row, 2)
         row += 1
@@ -103,8 +107,16 @@ class StatusPanel(QWidget):
         # Energy
         readings_layout.addWidget(QLabel("Energy:"), row, 0)
         self.energy_label = StatusLabel()
+        self.energy_label.setStyleSheet("color: #FF7043;")  # Deep orange
         readings_layout.addWidget(self.energy_label, row, 1)
         readings_layout.addWidget(UnitLabel("Wh"), row, 2)
+        row += 1
+
+        # Clear button for capacity/energy
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.setEnabled(False)
+        self.clear_btn.clicked.connect(self._on_clear_clicked)
+        readings_layout.addWidget(self.clear_btn, row, 0, 1, 3)
         row += 1
 
         # Separator
@@ -117,6 +129,7 @@ class StatusPanel(QWidget):
         # MOSFET Temperature
         readings_layout.addWidget(QLabel("MOSFET:"), row, 0)
         self.temp_label = StatusLabel()
+        self.temp_label.setStyleSheet("color: #26A69A;")  # Teal
         readings_layout.addWidget(self.temp_label, row, 1)
         readings_layout.addWidget(UnitLabel("°C"), row, 2)
         row += 1
@@ -124,6 +137,7 @@ class StatusPanel(QWidget):
         # External Temperature
         readings_layout.addWidget(QLabel("External:"), row, 0)
         self.ext_temp_label = StatusLabel()
+        self.ext_temp_label.setStyleSheet("color: #9CCC65;")  # Light green
         readings_layout.addWidget(self.ext_temp_label, row, 1)
         readings_layout.addWidget(UnitLabel("°C"), row, 2)
         row += 1
@@ -195,18 +209,11 @@ class StatusPanel(QWidget):
         name_layout.addWidget(self.battery_name_edit)
         log_layout.addLayout(name_layout)
 
-        # Save and Clear buttons row
-        save_layout = QHBoxLayout()
+        # Save button
         self.save_btn = QPushButton("Save Data...")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self._on_save_clicked)
-        save_layout.addWidget(self.save_btn)
-
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setEnabled(False)
-        self.clear_btn.clicked.connect(self._on_clear_clicked)
-        save_layout.addWidget(self.clear_btn)
-        log_layout.addLayout(save_layout)
+        log_layout.addWidget(self.save_btn)
 
         # Logging time display
         time_layout = QHBoxLayout()
@@ -266,8 +273,8 @@ class StatusPanel(QWidget):
         self.capacity_label.setText(f"{status.capacity_mah:.0f}")
         self.energy_label.setText(f"{status.energy_wh:.3f}")
 
-        self.temp_label.setText(f"{status.temperature_c}")
-        self.ext_temp_label.setText(f"{status.ext_temperature_c}")
+        self.temp_label.setText(f"{status.temperature_c:.1f}")
+        self.ext_temp_label.setText(f"{status.ext_temperature_c:.1f}")
 
         # Load status
         if status.load_on:

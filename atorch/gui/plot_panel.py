@@ -86,14 +86,16 @@ class PlotPanel(QWidget):
     """Panel for real-time data visualization with independent Y-axes per series."""
 
     # Plot colors and config: (name, color, unit)
+    # Colors chosen for visibility on both dark (#1a1a1a) and light grey backgrounds
+    # Medium luminance, high saturation, distinct hues spread across color wheel
     SERIES_CONFIG = [
-        ("Voltage", "#FFD700", "V"),      # Gold
-        ("Current", "#00BFFF", "A"),      # Deep sky blue
-        ("Power", "#FF6B6B", "W"),        # Coral red
-        ("MOSFET Temp", "#98FB98", "°C"), # Pale green
-        ("Ext Temp", "#90EE90", "°C"),    # Light green
-        ("Capacity", "#DDA0DD", "mAh"),   # Plum
-        ("Energy", "#FFA07A", "Wh"),      # Light salmon
+        ("Voltage", "#FFC107", "V"),      # Amber - warm yellow
+        ("Current", "#29B6F6", "A"),      # Light blue - cool
+        ("Power", "#EF5350", "W"),        # Red - attention
+        ("MOSFET Temp", "#26A69A", "°C"), # Teal - blue-green
+        ("Ext Temp", "#9CCC65", "°C"),    # Light green - yellow-green
+        ("Capacity", "#AB47BC", "mAh"),   # Purple - distinct
+        ("Energy", "#FF7043", "Wh"),      # Deep orange - warm
     ]
 
     def __init__(self, max_points: int = 3600):

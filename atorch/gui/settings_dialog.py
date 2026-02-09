@@ -174,3 +174,118 @@ class SettingsDialog(QDialog):
         self.notifier.add_condition(TestCompleteAlert())
 
         self.accept()
+
+
+class DeviceSettingsDialog(QDialog):
+    """Dialog for device settings (brightness, standby, etc.)."""
+
+    def __init__(self, device, parent=None):
+        super().__init__(parent)
+        self.device = device
+
+        self.setWindowTitle("Device Settings")
+        self.setMinimumWidth(300)
+
+        self._create_ui()
+
+    def _create_ui(self) -> None:
+        """Create the device settings dialog UI."""
+        layout = QVBoxLayout(self)
+
+        # Display group
+        display_group = QGroupBox("Display")
+        display_layout = QVBoxLayout(display_group)
+
+        # Brightness slider
+        from PySide6.QtWidgets import QSlider
+        brightness_layout = QHBoxLayout()
+        brightness_lbl = QLabel("Brightness:")
+        brightness_lbl.setMinimumWidth(70)
+        brightness_layout.addWidget(brightness_lbl)
+
+        self.brightness_slider = QSlider(Qt.Horizontal)
+        self.brightness_slider.setRange(1, 9)
+        self.brightness_slider.setValue(5)
+        self.brightness_slider.setToolTip("Adjust device screen brightness\nRelease slider to apply.")
+        self.brightness_slider.valueChanged.connect(self._on_brightness_label_update)
+        self.brightness_slider.sliderReleased.connect(self._on_brightness_apply)
+        brightness_layout.addWidget(self.brightness_slider)
+
+        self.brightness_label = QLabel("5")
+        self.brightness_label.setMinimumWidth(25)
+        brightness_layout.addWidget(self.brightness_label)
+
+        display_layout.addLayout(brightness_layout)
+
+        # Standby Brightness slider
+        standby_brt_layout = QHBoxLayout()
+        standby_lbl = QLabel("Standby:")
+        standby_lbl.setMinimumWidth(70)
+        standby_brt_layout.addWidget(standby_lbl)
+
+        self.standby_brightness_slider = QSlider(Qt.Horizontal)
+        self.standby_brightness_slider.setRange(1, 9)
+        self.standby_brightness_slider.setValue(3)
+        self.standby_brightness_slider.setToolTip("Adjust standby screen brightness\nRelease slider to apply.")
+        self.standby_brightness_slider.valueChanged.connect(self._on_standby_brightness_label_update)
+        self.standby_brightness_slider.sliderReleased.connect(self._on_standby_brightness_apply)
+        standby_brt_layout.addWidget(self.standby_brightness_slider)
+
+        self.standby_brightness_label = QLabel("3")
+        self.standby_brightness_label.setMinimumWidth(25)
+        standby_brt_layout.addWidget(self.standby_brightness_label)
+
+        display_layout.addLayout(standby_brt_layout)
+
+        # Standby Timeout
+        timeout_layout = QHBoxLayout()
+        timeout_lbl = QLabel("Timeout:")
+        timeout_lbl.setMinimumWidth(70)
+        timeout_layout.addWidget(timeout_lbl)
+
+        self.standby_timeout_spin = QSpinBox()
+        self.standby_timeout_spin.setRange(10, 60)
+        self.standby_timeout_spin.setValue(30)
+        self.standby_timeout_spin.setSuffix(" s")
+        self.standby_timeout_spin.setToolTip("Standby timeout in seconds")
+        timeout_layout.addWidget(self.standby_timeout_spin)
+
+        self.set_timeout_btn = QPushButton("Set")
+        self.set_timeout_btn.setMaximumWidth(50)
+        self.set_timeout_btn.clicked.connect(self._on_set_standby_timeout)
+        timeout_layout.addWidget(self.set_timeout_btn)
+
+        display_layout.addLayout(timeout_layout)
+
+        layout.addWidget(display_group)
+
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+
+    def _on_brightness_label_update(self, value: int) -> None:
+        """Update brightness label while dragging."""
+        self.brightness_label.setText(str(value))
+
+    def _on_brightness_apply(self) -> None:
+        """Apply brightness when slider is released."""
+        value = self.brightness_slider.value()
+        if self.device and hasattr(self.device, 'set_brightness'):
+            self.device.set_brightness(value)
+
+    def _on_standby_brightness_label_update(self, value: int) -> None:
+        """Update standby brightness label while dragging."""
+        self.standby_brightness_label.setText(str(value))
+
+    def _on_standby_brightness_apply(self) -> None:
+        """Apply standby brightness when slider is released."""
+        value = self.standby_brightness_slider.value()
+        if self.device and hasattr(self.device, 'set_standby_brightness'):
+            self.device.set_standby_brightness(value)
+
+    def _on_set_standby_timeout(self) -> None:
+        """Set standby timeout."""
+        value = self.standby_timeout_spin.value()
+        if self.device and hasattr(self.device, 'set_standby_timeout'):
+            self.device.set_standby_timeout(value)

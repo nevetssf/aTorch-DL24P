@@ -575,11 +575,23 @@ class USBHIDDevice:
         packet[1] = self.PROTO_VERSION
         packet[2] = cmd_type
         packet[3] = sub_cmd
+
+        # Put data starting at offset 4
+        data_end = 4
         for i, b in enumerate(data):
-            if i + 4 < 62:
+            if 4 + i < 60:  # Leave room for checksum and trailer
                 packet[4 + i] = b
-        packet[62] = 0xEE
-        packet[63] = 0xFF
+                data_end = 4 + i + 1
+
+        # Calculate checksum: sum of bytes from offset 2 to end of data, XOR with 0x44
+        checksum_data = packet[2:data_end]
+        checksum = (sum(checksum_data) ^ 0x44) & 0xFF
+        packet[data_end] = checksum
+
+        # Add trailer right after checksum
+        packet[data_end + 1] = 0xEE
+        packet[data_end + 2] = 0xFF
+
         return bytes(packet)
 
     def _send_command(self, cmd_type: int, sub_cmd: int, data: bytes = b'') -> bool:
@@ -615,11 +627,14 @@ class USBHIDDevice:
                 response = self._device.read(64, timeout_ms=500)
                 if response:
                     response = bytes(response)
+                    self._debug("RECV", f"Raw response ({len(response)} bytes): {response[:16].hex()}")
                     if response[0] == self.RESP_HEADER and response[1] == self.PROTO_VERSION:
                         self._debug("RECV", f"Resp {response[2]:02x}/{response[3]:02x}", response[:16])
                         return response
                     else:
-                        self._debug("WARN", f"Unexpected response: {response[:8].hex()}")
+                        self._debug("WARN", f"Unexpected header: {response[:8].hex()}")
+                else:
+                    self._debug("WARN", "No response received")
                 return None
 
             except Exception as e:
@@ -628,11 +643,11 @@ class USBHIDDevice:
 
     def _parse_live_data(self, payload: bytes, counters: Optional[dict] = None) -> DeviceStatus:
         """Parse live data response (sub-cmd 0x03) into DeviceStatus."""
-        # Payload structure:
-        # Offset 0-3: current_set (big-endian float, A)
-        # Offset 4-7: unknown (1.0)
-        # Offset 8-11: unknown ratio (~0.99)
-        # Offset 12-15: unknown ratio (~0.98)
+        # Payload structure (from USB capture analysis):
+        # Offset 0-3: value_set (big-endian float) - meaning depends on current mode
+        # Offset 4-7: unknown (possibly another setting)
+        # Offset 8-11: unknown (calibration factor ~0.995)
+        # Offset 12-15: unknown (calibration factor ~0.979)
         # Offset 16-19: voltage cutoff (big-endian float, V)
         # Offset 20-23: temperature (big-endian float, C)
         # Offset 24-27: unknown
@@ -640,7 +655,7 @@ class USBHIDDevice:
         # Offset 32: time limit value (hours or minutes depending on mode)
         # Offset 33: time limit mode? (0x01=hours, 0x02=minutes, 0x00=disabled)
         # Offset 34-43: other settings
-        # Offset 44: flags byte 0 (load on/off)
+        # Offset 44: current mode (0=CC, 1=CP, 2=CV, 3=CR)
         # Offset 45-46: unknown
         # Offset 47-48: voltage (big-endian uint16, divide by 100 for V)
 
@@ -650,7 +665,8 @@ class USBHIDDevice:
         def get_uint16_be(offset: int) -> int:
             return struct.unpack('>H', payload[offset:offset+2])[0]
 
-        current_set = get_float(0)
+        value_set = get_float(0)  # Value for current mode (current/power/voltage/resistance)
+        mode = payload[44]  # Current mode: 0=CC, 1=CP, 2=CV, 3=CR
         voltage_cutoff = get_float(16)  # Voltage cutoff at offset 16
         temperature = int(get_float(20))
 
@@ -730,7 +746,8 @@ class USBHIDDevice:
             overtemperature=False,
             fan_rpm=fan_rpm,
             # Device settings
-            current_set=current_set,
+            mode=mode,
+            value_set=value_set,
             voltage_cutoff=voltage_cutoff,
             time_limit_hours=time_limit_hours,
             time_limit_minutes=time_limit_minutes,
@@ -739,11 +756,17 @@ class USBHIDDevice:
     def _parse_counters(self, payload: bytes) -> dict:
         """Parse counter data response (sub-cmd 0x05)."""
         # Payload structure (little-endian integers):
-        # Offset 0-3: unknown (zeros)
+        # Offset 0-3: zeros when no load connected
         # Offset 4-5: voltage (uint16, mV)
         # Offset 8-9: current (uint16, mA)
-        # Offset 12-13: power (uint16, 0.1mW units - divide by 10000 for W)
-        # Offset 24-27: capacity (uint32, µAh - divide by 1000 for mAh)
+        # Offset 12-13: power (uint16, mW units)
+        # Offset 20-23: energy (uint32, mWh - divide by 1000 for Wh)
+        # Offset 24-27: capacity (uint32, µAh)
+        # Offset 28-31: runtime (uint32, in ~48 ticks/second)
+        # Offset 32-35: external temperature (uint32, milli-°C)
+        # Offset 36-39: MOSFET temperature (uint32, milli-°C)
+        # Offset 40-43: fan speed (uint32, milli-RPM)
+        # Offset 48: load on/off flag (0x00=off, 0x01=on)
 
         def get_uint16_le(offset: int) -> int:
             return struct.unpack('<H', payload[offset:offset+2])[0]
@@ -752,38 +775,44 @@ class USBHIDDevice:
             return struct.unpack('<I', payload[offset:offset+4])[0]
 
         voltage_mv = get_uint16_le(4)
-        current_ma = get_uint16_le(8)   # Current at offset 8
-        power_raw = get_uint16_le(12)   # Power at offset 12 (mW units)
+        current_ma = get_uint16_le(8)
+        power_mw = get_uint16_le(12)
+        energy_mwh = get_uint32_le(20)  # Energy at offset 20 in mWh
         capacity_uah = get_uint32_le(24)
 
-        # Temperatures at offsets 32 (external) and 36 (MOSFET) (uint16, divide by 1000 for C)
-        ext_temp_raw = get_uint16_le(32)
-        mosfet_temp_raw = get_uint16_le(36)
+        # Temperatures in milli-°C (divide by 1000 for °C)
+        ext_temp_mc = get_uint32_le(32)
+        mosfet_temp_mc = get_uint32_le(36)
 
-        # Fan speed at offset 40 (uint16, RPM)
-        fan_rpm = get_uint16_le(40)
+        # Fan speed in milli-RPM (divide by 1000 for RPM)
+        fan_mrpm = get_uint32_le(40)
 
-        # Runtime at offset 28 (uint16, in ~48 ticks/second) - total time load has been on
-        runtime_ticks = get_uint16_le(28)
+        # Runtime in ~48 ticks/second
+        runtime_ticks = get_uint32_le(28)
         runtime_s = runtime_ticks // 48
 
-        # Calculate energy from capacity and voltage (approximation)
-        energy_wh = (capacity_uah / 1000.0) * (voltage_mv / 1000.0) / 1000.0
-
-        # Load on/off flag at byte 48 (0x00 = off, 0x01 = on)
+        # Load on/off flag at byte 48
         load_on = payload[48] == 0x01 if len(payload) > 48 else False
 
-        # Debug: log the raw values
-        self._debug("PARSE", f"Counters: V={voltage_mv}mV I={current_ma}mA P={power_raw} C={capacity_uah}µAh MosT={mosfet_temp_raw} ExtT={ext_temp_raw} Fan={fan_rpm} RT={runtime_s}s LoadOn={load_on}")
+        # Convert temperatures from milli-°C to °C
+        mosfet_temp_c = mosfet_temp_mc / 1000.0
+        ext_temp_c = ext_temp_mc / 1000.0
+        fan_rpm = fan_mrpm // 1000
+
+        # Calculate energy in Wh from mWh
+        energy_wh = energy_mwh / 1000.0
+
+        # Debug: log the parsed values
+        self._debug("PARSE", f"Counters: V={voltage_mv}mV I={current_ma}mA E={energy_mwh}mWh C={capacity_uah}µAh MosT={mosfet_temp_c:.1f}°C ExtT={ext_temp_c:.1f}°C Fan={fan_rpm}RPM RT={runtime_s}s LoadOn={load_on}")
 
         return {
             'voltage_mv': voltage_mv,
             'current_ma': current_ma,
-            'power_w': power_raw / 1000.0,  # Convert from mW to W
+            'power_w': voltage_mv * current_ma / 1000000.0,  # Calculate power from V*I
             'capacity_mah': capacity_uah / 1000.0,  # Convert from µAh to mAh
             'energy_wh': energy_wh,
-            'mosfet_temp_c': mosfet_temp_raw / 1000.0,  # MOSFET temperature in C
-            'ext_temp_c': ext_temp_raw / 1000.0,  # External temperature in C
+            'mosfet_temp_c': mosfet_temp_c,
+            'ext_temp_c': ext_temp_c,
             'fan_rpm': fan_rpm,
             'runtime': runtime_s,
             'load_on': load_on,
@@ -795,14 +824,14 @@ class USBHIDDevice:
 
         while self._running and self._device:
             try:
-                # Request counters first
+                # Request counters first (no data parameter - it breaks the checksum!)
                 counters = None
-                counter_resp = self._send_and_receive(self.CMD_TYPE_QUERY, self.SUB_CMD_COUNTERS, b'\x0b')
+                counter_resp = self._send_and_receive(self.CMD_TYPE_QUERY, self.SUB_CMD_COUNTERS)
                 if counter_resp:
                     counters = self._parse_counters(counter_resp[4:62])
 
-                # Request live data
-                response = self._send_and_receive(self.CMD_TYPE_QUERY, self.SUB_CMD_LIVE_DATA, b'\x0b')
+                # Request live data (no data parameter)
+                response = self._send_and_receive(self.CMD_TYPE_QUERY, self.SUB_CMD_LIVE_DATA)
                 if response:
                     payload = response[4:62]
                     status = self._parse_live_data(payload, counters)
@@ -853,6 +882,81 @@ class USBHIDDevice:
         """Set the load current in CC mode."""
         data = struct.pack('>f', current_a)
         return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data)
+
+    def set_power(self, power_w: float) -> bool:
+        """Set the load power in CP mode.
+
+        Args:
+            power_w: Power in watts
+        """
+        # Use same sub-command as current (0x21) - device uses current mode to interpret value
+        data = struct.pack('>f', power_w)
+        self._debug("INFO", f"Setting power to {power_w}W")
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data)
+
+    def set_voltage(self, voltage_v: float) -> bool:
+        """Set the load voltage in CV mode.
+
+        Args:
+            voltage_v: Voltage in volts
+        """
+        # Use same sub-command as current (0x21) - device uses current mode to interpret value
+        data = struct.pack('>f', voltage_v)
+        self._debug("INFO", f"Setting voltage to {voltage_v}V")
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data)
+
+    def set_resistance(self, resistance_ohm: float) -> bool:
+        """Set the load resistance in CR mode.
+
+        Args:
+            resistance_ohm: Resistance in ohms
+        """
+        # Use same sub-command as current (0x21) - device uses current mode to interpret value
+        data = struct.pack('>f', resistance_ohm)
+        self._debug("INFO", f"Setting resistance to {resistance_ohm}Ω")
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data)
+
+    def set_mode(self, mode: int, value: float = None) -> bool:
+        """Set the load mode and optionally set the value for that mode.
+
+        Args:
+            mode: Mode (0=CC, 1=CP, 2=CV, 3=CR)
+            value: Value to set for the mode (current/power/voltage/resistance)
+
+        From USB capture analysis:
+        - 0x47 = CC (Constant Current)
+        - 0x48 = CV (Constant Voltage)
+        - 0x49 = CR (Constant Resistance)
+        - 0x4A = CP (Constant Power)
+        """
+        # Map UI mode IDs to device sub-commands
+        mode_subcmds = {
+            0: 0x47,  # CC
+            1: 0x4A,  # CP
+            2: 0x48,  # CV
+            3: 0x49,  # CR
+        }
+        mode_names = {0: "CC", 1: "CP", 2: "CV", 3: "CR"}
+        mode_name = mode_names.get(mode, f"Unknown({mode})")
+        subcmd = mode_subcmds.get(mode)
+
+        if subcmd is None:
+            self._debug("ERROR", f"Invalid mode: {mode}")
+            return False
+
+        self._debug("INFO", f"Setting mode to {mode_name} (sub-cmd=0x{subcmd:02X})")
+
+        # Send mode select command
+        data = bytes([0x00, 0x00, 0x00, 0x00])
+        result = self._send_command(self.CMD_TYPE_SET, subcmd, data)
+
+        # If value provided, set it for this mode
+        if result and value is not None:
+            self._debug("INFO", f"Setting {mode_name} value to {value}")
+            value_data = struct.pack('>f', value)
+            result = self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, value_data)
+
+        return result
 
     def set_voltage_cutoff(self, voltage: float) -> bool:
         """Set voltage cutoff threshold.

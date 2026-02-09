@@ -53,7 +53,8 @@ class DeviceStatus:
     overtemperature: bool
     fan_rpm: int  # Approximate fan speed
     # Device settings (read from device)
-    current_set: Optional[float] = None  # Configured current (A)
+    mode: Optional[int] = None  # Current mode (0=CC, 1=CP, 2=CV, 3=CR)
+    value_set: Optional[float] = None  # Configured value for current mode
     voltage_cutoff: Optional[float] = None  # Configured voltage cutoff (V)
     time_limit_hours: Optional[int] = None  # Configured time limit hours
     time_limit_minutes: Optional[int] = None  # Configured time limit minutes

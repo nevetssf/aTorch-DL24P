@@ -156,6 +156,27 @@ class ControlPanel(QWidget):
         self._time_limit_edit_timer.setSingleShot(True)
         self._time_limit_edit_timer.timeout.connect(self._on_time_limit_edit_timeout)
 
+        # Power setting sync state (for CP mode)
+        self._power_user_editing = False
+        self._power_edit_timer = QTimer()
+        self._power_edit_timer.setSingleShot(True)
+        self._power_edit_timer.timeout.connect(self._on_power_edit_timeout)
+
+        # Voltage setting sync state (for CV mode)
+        self._voltage_user_editing = False
+        self._voltage_edit_timer = QTimer()
+        self._voltage_edit_timer.setSingleShot(True)
+        self._voltage_edit_timer.timeout.connect(self._on_voltage_edit_timeout)
+
+        # Resistance setting sync state (for CR mode)
+        self._resistance_user_editing = False
+        self._resistance_edit_timer = QTimer()
+        self._resistance_edit_timer.setSingleShot(True)
+        self._resistance_edit_timer.timeout.connect(self._on_resistance_edit_timeout)
+
+        # Current mode (0=CC, 1=CP, 2=CV, 3=CR)
+        self._current_mode = 0
+
         self._create_ui()
         self._refresh_ports()
 
@@ -220,6 +241,43 @@ class ControlPanel(QWidget):
         control_group = QGroupBox("Load Control")
         control_layout = QVBoxLayout(control_group)
 
+        # Mode selection (CC, CP, CV, CR)
+        mode_layout = QHBoxLayout()
+        self.mode_btn_group = QButtonGroup(self)
+        self.mode_btn_group.setExclusive(True)
+
+        self.cc_btn = QPushButton("CC")
+        self.cc_btn.setCheckable(True)
+        self.cc_btn.setChecked(True)  # Default to CC mode
+        self.cc_btn.setToolTip("Constant Current")
+        self.cc_btn.setEnabled(False)
+        self.mode_btn_group.addButton(self.cc_btn, 0)
+        mode_layout.addWidget(self.cc_btn)
+
+        self.cp_btn = QPushButton("CP")
+        self.cp_btn.setCheckable(True)
+        self.cp_btn.setToolTip("Constant Power")
+        self.cp_btn.setEnabled(False)
+        self.mode_btn_group.addButton(self.cp_btn, 1)
+        mode_layout.addWidget(self.cp_btn)
+
+        self.cv_btn = QPushButton("CV")
+        self.cv_btn.setCheckable(True)
+        self.cv_btn.setToolTip("Constant Voltage")
+        self.cv_btn.setEnabled(False)
+        self.mode_btn_group.addButton(self.cv_btn, 2)
+        mode_layout.addWidget(self.cv_btn)
+
+        self.cr_btn = QPushButton("CR")
+        self.cr_btn.setCheckable(True)
+        self.cr_btn.setToolTip("Constant Resistance")
+        self.cr_btn.setEnabled(False)
+        self.mode_btn_group.addButton(self.cr_btn, 3)
+        mode_layout.addWidget(self.cr_btn)
+
+        self.mode_btn_group.idClicked.connect(self._on_mode_changed)
+        control_layout.addLayout(mode_layout)
+
         # On/Off toggle switch
         power_layout = QHBoxLayout()
         power_layout.addWidget(QLabel("Load:"))
@@ -240,6 +298,12 @@ class ControlPanel(QWidget):
 
         power_layout.addStretch()
         control_layout.addLayout(power_layout)
+
+        # Separator
+        line1 = QFrame()
+        line1.setFrameShape(QFrame.HLine)
+        line1.setFrameShadow(QFrame.Sunken)
+        control_layout.addWidget(line1)
 
         # Current setting
         current_layout = QHBoxLayout()
@@ -270,6 +334,69 @@ class ControlPanel(QWidget):
         self.preset_btns = preset_layout
         control_layout.addLayout(preset_layout)
 
+        # Power setting (for CP mode)
+        power_layout = QHBoxLayout()
+        power_layout.addWidget(QLabel("Power (W):"))
+        self.power_spin = QDoubleSpinBox()
+        self.power_spin.setRange(0.0, 200.0)  # DL24P max is ~180W
+        self.power_spin.setDecimals(1)
+        self.power_spin.setSingleStep(1.0)
+        self.power_spin.setValue(5.0)
+        self.power_spin.setEnabled(False)
+        self.power_spin.valueChanged.connect(self._on_power_value_changed)
+        power_layout.addWidget(self.power_spin)
+
+        self.set_power_btn = QPushButton("Set")
+        self.set_power_btn.setMaximumWidth(50)
+        self.set_power_btn.setEnabled(False)
+        self.set_power_btn.clicked.connect(self._on_set_power)
+        power_layout.addWidget(self.set_power_btn)
+        control_layout.addLayout(power_layout)
+
+        # Voltage setting (for CV mode)
+        voltage_layout = QHBoxLayout()
+        voltage_layout.addWidget(QLabel("Voltage (V):"))
+        self.voltage_spin = QDoubleSpinBox()
+        self.voltage_spin.setRange(0.0, 200.0)
+        self.voltage_spin.setDecimals(2)
+        self.voltage_spin.setSingleStep(0.1)
+        self.voltage_spin.setValue(5.0)
+        self.voltage_spin.setEnabled(False)
+        self.voltage_spin.valueChanged.connect(self._on_voltage_value_changed)
+        voltage_layout.addWidget(self.voltage_spin)
+
+        self.set_voltage_btn = QPushButton("Set")
+        self.set_voltage_btn.setMaximumWidth(50)
+        self.set_voltage_btn.setEnabled(False)
+        self.set_voltage_btn.clicked.connect(self._on_set_voltage)
+        voltage_layout.addWidget(self.set_voltage_btn)
+        control_layout.addLayout(voltage_layout)
+
+        # Resistance setting (for CR mode)
+        resistance_layout = QHBoxLayout()
+        resistance_layout.addWidget(QLabel("Resistance (Ω):"))
+        self.resistance_spin = QDoubleSpinBox()
+        self.resistance_spin.setRange(0.1, 9999.0)
+        self.resistance_spin.setDecimals(1)
+        self.resistance_spin.setSingleStep(1.0)
+        self.resistance_spin.setValue(10.0)
+        self.resistance_spin.setEnabled(False)
+        self.resistance_spin.valueChanged.connect(self._on_resistance_value_changed)
+        resistance_layout.addWidget(self.resistance_spin)
+
+        self.set_resistance_btn = QPushButton("Set")
+        self.set_resistance_btn.setMaximumWidth(50)
+        self.set_resistance_btn.setEnabled(False)
+        self.set_resistance_btn.clicked.connect(self._on_set_resistance)
+        resistance_layout.addWidget(self.set_resistance_btn)
+        control_layout.addLayout(resistance_layout)
+
+        # Separator
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.HLine)
+        line2.setFrameShadow(QFrame.Sunken)
+        control_layout.addWidget(line2)
+
         # Voltage cutoff
         cutoff_layout = QHBoxLayout()
         cutoff_layout.addWidget(QLabel("V Cutoff:"))
@@ -288,6 +415,12 @@ class ControlPanel(QWidget):
         self.set_cutoff_btn.clicked.connect(self._on_set_cutoff)
         cutoff_layout.addWidget(self.set_cutoff_btn)
         control_layout.addLayout(cutoff_layout)
+
+        # Separator
+        line3 = QFrame()
+        line3.setFrameShape(QFrame.HLine)
+        line3.setFrameShadow(QFrame.Sunken)
+        control_layout.addWidget(line3)
 
         # Discharge time (hours and minutes)
         discharge_layout = QHBoxLayout()
@@ -322,87 +455,7 @@ class ControlPanel(QWidget):
         discharge_layout.addWidget(self.set_discharge_btn)
         control_layout.addLayout(discharge_layout)
 
-        # Clear values
-        self.reset_btn = QPushButton("Clear Values")
-        self.reset_btn.setToolTip(
-            "Turns OFF the load and clears accumulated values (mAh, Wh, time)."
-        )
-        self.reset_btn.setEnabled(False)
-        self.reset_btn.clicked.connect(self._on_reset)
-        control_layout.addWidget(self.reset_btn)
-
         layout.addWidget(control_group)
-
-        # Display group (USB HID only)
-        display_group = QGroupBox("Display")
-        display_layout = QVBoxLayout(display_group)
-
-        # Brightness slider
-        brightness_layout = QHBoxLayout()
-        brightness_lbl = QLabel("Brightness:")
-        brightness_lbl.setMinimumWidth(70)
-        brightness_layout.addWidget(brightness_lbl)
-
-        from PySide6.QtWidgets import QSlider
-        self.brightness_slider = QSlider(Qt.Horizontal)
-        self.brightness_slider.setRange(1, 9)  # 1-9 range (from USB capture)
-        self.brightness_slider.setValue(5)  # Default middle
-        self.brightness_slider.setEnabled(False)
-        self.brightness_slider.setToolTip("Adjust device screen brightness (USB HID only)\nRelease slider to apply.")
-        # Only send on release, not while dragging
-        self.brightness_slider.valueChanged.connect(self._on_brightness_label_update)
-        self.brightness_slider.sliderReleased.connect(self._on_brightness_apply)
-        brightness_layout.addWidget(self.brightness_slider)
-
-        self.brightness_label = QLabel("5")
-        self.brightness_label.setMinimumWidth(25)
-        brightness_layout.addWidget(self.brightness_label)
-
-        display_layout.addLayout(brightness_layout)
-
-        # Standby Brightness slider
-        standby_brt_layout = QHBoxLayout()
-        standby_lbl = QLabel("Standby:")
-        standby_lbl.setMinimumWidth(70)
-        standby_brt_layout.addWidget(standby_lbl)
-
-        self.standby_brightness_slider = QSlider(Qt.Horizontal)
-        self.standby_brightness_slider.setRange(1, 9)  # 1-9 range
-        self.standby_brightness_slider.setValue(3)  # Default lower
-        self.standby_brightness_slider.setEnabled(False)
-        self.standby_brightness_slider.setToolTip("Adjust standby screen brightness (USB HID only)\nRelease slider to apply.")
-        self.standby_brightness_slider.valueChanged.connect(self._on_standby_brightness_label_update)
-        self.standby_brightness_slider.sliderReleased.connect(self._on_standby_brightness_apply)
-        standby_brt_layout.addWidget(self.standby_brightness_slider)
-
-        self.standby_brightness_label = QLabel("3")
-        self.standby_brightness_label.setMinimumWidth(25)
-        standby_brt_layout.addWidget(self.standby_brightness_label)
-
-        display_layout.addLayout(standby_brt_layout)
-
-        # Standby Timeout
-        timeout_layout = QHBoxLayout()
-        timeout_lbl = QLabel("Timeout:")
-        timeout_lbl.setMinimumWidth(70)
-        timeout_layout.addWidget(timeout_lbl)
-
-        self.standby_timeout_spin = QSpinBox()
-        self.standby_timeout_spin.setRange(10, 60)  # 10-60 seconds
-        self.standby_timeout_spin.setValue(30)
-        self.standby_timeout_spin.setSuffix(" s")
-        self.standby_timeout_spin.setEnabled(False)
-        self.standby_timeout_spin.setToolTip("Standby timeout in seconds (USB HID only)")
-        timeout_layout.addWidget(self.standby_timeout_spin)
-
-        self.set_timeout_btn = QPushButton("Set")
-        self.set_timeout_btn.setMaximumWidth(50)
-        self.set_timeout_btn.setEnabled(False)
-        self.set_timeout_btn.clicked.connect(self._on_set_standby_timeout)
-        timeout_layout.addWidget(self.set_timeout_btn)
-
-        display_layout.addLayout(timeout_layout)
-        layout.addWidget(display_group)
 
         # Spacer
         layout.addStretch()
@@ -438,8 +491,21 @@ class ControlPanel(QWidget):
         self.disconnect_btn.setEnabled(connected)
 
         self.power_switch.setEnabled(connected)
-        self.current_spin.setEnabled(connected)
-        self.set_current_btn.setEnabled(connected)
+        self.cc_btn.setEnabled(connected)
+        self.cv_btn.setEnabled(connected)
+        self.cp_btn.setEnabled(connected)
+        self.cr_btn.setEnabled(connected)
+
+        # Mode-specific controls will be enabled by _update_mode_controls()
+        # Initialize all to disabled, then enable based on current mode
+        self.current_spin.setEnabled(False)
+        self.set_current_btn.setEnabled(False)
+        self.power_spin.setEnabled(False)
+        self.set_power_btn.setEnabled(False)
+        self.voltage_spin.setEnabled(False)
+        self.set_voltage_btn.setEnabled(False)
+        self.resistance_spin.setEnabled(False)
+        self.set_resistance_btn.setEnabled(False)
 
         # Voltage cutoff now works for USB HID (sub-command 0x29)
         is_usb_hid = self._connection_type == ConnectionType.USB_HID
@@ -452,23 +518,18 @@ class ControlPanel(QWidget):
         self.discharge_mins_spin.setEnabled(connected and is_usb_hid)
         self.set_discharge_btn.setEnabled(connected and is_usb_hid)
 
-        # Brightness sliders and timeout only for USB HID
-        self.brightness_slider.setEnabled(connected and is_usb_hid)
-        self.standby_brightness_slider.setEnabled(connected and is_usb_hid)
-        self.standby_timeout_spin.setEnabled(connected and is_usb_hid)
-        self.set_timeout_btn.setEnabled(connected and is_usb_hid)
+        # Preset buttons handled by _update_mode_controls()
 
-        self.reset_btn.setEnabled(connected)
-
-        # Enable/disable preset buttons
-        for i in range(self.preset_btns.count()):
-            widget = self.preset_btns.itemAt(i).widget()
-            if widget:
-                widget.setEnabled(connected)
+        # Update mode-specific controls (enables current/power/voltage/resistance based on mode)
+        if connected:
+            self._update_mode_controls()
 
         if not connected:
             self.power_switch.setChecked(False)
             self._update_power_labels(False)
+            # Reset to CC mode when disconnected
+            self._current_mode = 0
+            self.cc_btn.setChecked(True)
 
     def update_status(self, status: DeviceStatus) -> None:
         """Update UI with device status."""
@@ -477,21 +538,63 @@ class ControlPanel(QWidget):
             self.power_switch.setChecked(status.load_on)
             self._update_power_labels(status.load_on)
 
-        # Current setting sync logic:
-        # - Always sync when load turns on
-        # - Sync continuously unless user is editing
-        # - User editing pauses sync for 3 seconds or until Set is clicked
-        if status.current_set is not None:
-            # Detect load turning on - always sync current when this happens
-            load_just_turned_on = status.load_on and not self._last_load_on
+        # Detect load turning on - always sync values when this happens
+        load_just_turned_on = status.load_on and not self._last_load_on
 
-            # Sync if: load just turned on, OR user is not editing
-            if load_just_turned_on or not self._current_user_editing:
-                current_val = round(status.current_set, 3)
-                if abs(self.current_spin.value() - current_val) > 0.001:
-                    self.current_spin.blockSignals(True)
-                    self.current_spin.setValue(current_val)
-                    self.current_spin.blockSignals(False)
+        # Sync mode from device
+        # Device mode: 0=CC, 1=CV, 2=CR, 3=CP
+        # GUI mode: 0=CC, 1=CP, 2=CV, 3=CR
+        # Map device mode to the correct button
+        if status.mode is not None:
+            device_mode_to_button = {
+                0: self.cc_btn,  # CC
+                1: self.cv_btn,  # CV
+                2: self.cr_btn,  # CR
+                3: self.cp_btn,  # CP
+            }
+            btn = device_mode_to_button.get(status.mode)
+            if btn and not btn.isChecked():
+                btn.blockSignals(True)
+                btn.setChecked(True)
+                btn.blockSignals(False)
+                # Update internal mode to match GUI button ID
+                self._current_mode = self.mode_btn_group.id(btn)
+                self._update_mode_controls()
+
+        # Sync value for current mode from device
+        # Device mode: 0=CC, 1=CV, 2=CR, 3=CP
+        if status.value_set is not None and status.mode is not None:
+            value = status.value_set
+            device_mode = status.mode
+
+            if device_mode == 0:  # CC mode - sync current
+                if load_just_turned_on or not self._current_user_editing:
+                    current_val = round(value, 3)
+                    if abs(self.current_spin.value() - current_val) > 0.001:
+                        self.current_spin.blockSignals(True)
+                        self.current_spin.setValue(current_val)
+                        self.current_spin.blockSignals(False)
+            elif device_mode == 3:  # CP mode - sync power
+                if load_just_turned_on or not self._power_user_editing:
+                    power_val = round(value, 2)
+                    if abs(self.power_spin.value() - power_val) > 0.01:
+                        self.power_spin.blockSignals(True)
+                        self.power_spin.setValue(power_val)
+                        self.power_spin.blockSignals(False)
+            elif device_mode == 1:  # CV mode - sync voltage
+                if load_just_turned_on or not self._voltage_user_editing:
+                    voltage_val = round(value, 2)
+                    if abs(self.voltage_spin.value() - voltage_val) > 0.01:
+                        self.voltage_spin.blockSignals(True)
+                        self.voltage_spin.setValue(voltage_val)
+                        self.voltage_spin.blockSignals(False)
+            elif device_mode == 2:  # CR mode - sync resistance
+                if load_just_turned_on or not self._resistance_user_editing:
+                    resistance_val = round(value, 2)
+                    if abs(self.resistance_spin.value() - resistance_val) > 0.01:
+                        self.resistance_spin.blockSignals(True)
+                        self.resistance_spin.setValue(resistance_val)
+                        self.resistance_spin.blockSignals(False)
 
         # Track load state for next update
         self._last_load_on = status.load_on
@@ -691,50 +794,113 @@ class ControlPanel(QWidget):
         self._time_limit_user_editing = False
         self._time_limit_edit_timer.stop()
 
-    @Slot()
-    def _on_reset(self) -> None:
-        """Reset counters - turns off load first, then resets."""
-        # Turn off the load
-        self.device.turn_off()
-
-        # Update GUI toggle to OFF
-        self.power_switch.setChecked(False)
-        self._update_power_labels(False)
-
-        # Reset the counters
-        self.device.reset_counters()
-
     @Slot(int)
-    def _on_brightness_label_update(self, value: int) -> None:
-        """Update brightness label while dragging (don't send command yet)."""
-        self.brightness_label.setText(str(value))
+    def _on_mode_changed(self, button_id: int) -> None:
+        """Handle mode button change."""
+        # GUI button IDs: 0=CC, 1=CP, 2=CV, 3=CR
+        self._current_mode = button_id
+        self._update_mode_controls()
+
+        # Get the current value for the selected mode
+        mode_values = {
+            0: self.current_spin.value(),      # CC - current
+            1: self.power_spin.value(),        # CP - power
+            2: self.voltage_spin.value(),      # CV - voltage
+            3: self.resistance_spin.value(),   # CR - resistance
+        }
+        value = mode_values.get(button_id)
+
+        # Send mode change to device (device.set_mode handles the subcmd mapping)
+        if hasattr(self.device, 'set_mode'):
+            self.device.set_mode(button_id, value)
+
+    def _update_mode_controls(self) -> None:
+        """Enable/disable setting controls based on current mode."""
+        if not self._connected:
+            return
+
+        mode = self._current_mode
+        # CC=0: Current enabled
+        # CP=1: Power enabled
+        # CV=2: Voltage enabled
+        # CR=3: Resistance enabled
+
+        self.current_spin.setEnabled(mode == 0)
+        self.set_current_btn.setEnabled(mode == 0)
+        for i in range(self.preset_btns.count()):
+            widget = self.preset_btns.itemAt(i).widget()
+            if widget:
+                widget.setEnabled(mode == 0)
+
+        self.power_spin.setEnabled(mode == 1)
+        self.set_power_btn.setEnabled(mode == 1)
+
+        self.voltage_spin.setEnabled(mode == 2)
+        self.set_voltage_btn.setEnabled(mode == 2)
+
+        self.resistance_spin.setEnabled(mode == 3)
+        self.set_resistance_btn.setEnabled(mode == 3)
 
     @Slot()
-    def _on_brightness_apply(self) -> None:
-        """Apply brightness when slider is released."""
-        value = self.brightness_slider.value()
-        # Only send if we have a USB HID device with set_brightness method
-        if hasattr(self.device, 'set_brightness'):
-            self.device.set_brightness(value)
-
-    @Slot(int)
-    def _on_standby_brightness_label_update(self, value: int) -> None:
-        """Update standby brightness label while dragging."""
-        self.standby_brightness_label.setText(str(value))
+    def _on_power_value_changed(self) -> None:
+        """Handle user changing the power spinbox value."""
+        self._power_user_editing = True
+        self._power_edit_timer.start(3000)  # 3 second timeout
 
     @Slot()
-    def _on_standby_brightness_apply(self) -> None:
-        """Apply standby brightness when slider is released."""
-        value = self.standby_brightness_slider.value()
-        # Only send if we have a USB HID device with set_standby_brightness method
-        if hasattr(self.device, 'set_standby_brightness'):
-            self.device.set_standby_brightness(value)
+    def _on_power_edit_timeout(self) -> None:
+        """Resume power syncing after user stops editing."""
+        self._power_user_editing = False
 
     @Slot()
-    def _on_set_standby_timeout(self) -> None:
-        """Set standby timeout."""
-        value = self.standby_timeout_spin.value()
-        # Only send if we have a USB HID device with set_standby_timeout method
-        if hasattr(self.device, 'set_standby_timeout'):
-            self.device.set_standby_timeout(value)
+    def _on_set_power(self) -> None:
+        """Set the load power (CP mode)."""
+        power = self.power_spin.value()
+        if hasattr(self.device, 'set_power'):
+            self.device.set_power(power)
+        # Stop editing mode - allow immediate sync of confirmed value
+        self._power_user_editing = False
+        self._power_edit_timer.stop()
+
+    @Slot()
+    def _on_voltage_value_changed(self) -> None:
+        """Handle user changing the voltage spinbox value."""
+        self._voltage_user_editing = True
+        self._voltage_edit_timer.start(3000)  # 3 second timeout
+
+    @Slot()
+    def _on_voltage_edit_timeout(self) -> None:
+        """Resume voltage syncing after user stops editing."""
+        self._voltage_user_editing = False
+
+    @Slot()
+    def _on_set_voltage(self) -> None:
+        """Set the load voltage (CV mode)."""
+        voltage = self.voltage_spin.value()
+        if hasattr(self.device, 'set_voltage'):
+            self.device.set_voltage(voltage)
+        # Stop editing mode - allow immediate sync of confirmed value
+        self._voltage_user_editing = False
+        self._voltage_edit_timer.stop()
+
+    @Slot()
+    def _on_resistance_value_changed(self) -> None:
+        """Handle user changing the resistance spinbox value."""
+        self._resistance_user_editing = True
+        self._resistance_edit_timer.start(3000)  # 3 second timeout
+
+    @Slot()
+    def _on_resistance_edit_timeout(self) -> None:
+        """Resume resistance syncing after user stops editing."""
+        self._resistance_user_editing = False
+
+    @Slot()
+    def _on_set_resistance(self) -> None:
+        """Set the load resistance (CR mode)."""
+        resistance = self.resistance_spin.value()
+        if hasattr(self.device, 'set_resistance'):
+            self.device.set_resistance(resistance)
+        # Stop editing mode - allow immediate sync of confirmed value
+        self._resistance_user_editing = False
+        self._resistance_edit_timer.stop()
 

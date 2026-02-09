@@ -37,7 +37,7 @@ from .plot_panel import PlotPanel
 from .status_panel import StatusPanel
 from .automation_panel import AutomationPanel
 from .history_panel import HistoryPanel
-from .settings_dialog import SettingsDialog
+from .settings_dialog import SettingsDialog, DeviceSettingsDialog
 from .debug_window import DebugWindow
 
 
@@ -210,6 +210,14 @@ class MainWindow(QMainWindow):
         self.reset_action.triggered.connect(self._reset_counters)
         device_menu.addAction(self.reset_action)
 
+        device_menu.addSeparator()
+
+        self.device_settings_action = QAction("S&ettings", self)
+        self.device_settings_action.setMenuRole(QAction.NoRole)  # Prevent macOS from moving to app menu
+        self.device_settings_action.setEnabled(False)  # Disabled when not connected
+        self.device_settings_action.triggered.connect(self._show_device_settings)
+        device_menu.addAction(self.device_settings_action)
+
         # View menu
         view_menu = menubar.addMenu("&View")
 
@@ -345,10 +353,17 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _clear_data(self) -> None:
-        """Clear accumulated plot data and logging time."""
+        """Clear accumulated data - turns off load, resets device counters, and clears plots."""
+        if self.device and self.device.is_connected:
+            # Turn off the load
+            self.device.turn_off()
+            self.control_panel.power_switch.setChecked(False)
+            # Reset device counters (mAh, Wh, time)
+            self.device.reset_counters()
+        # Clear plot data and logging time display
         self.plot_panel.clear_data()
         self.status_panel.clear_logging_time()
-        self.statusbar.showMessage("Data cleared")
+        self.statusbar.showMessage("Values cleared")
 
     @Slot()
     def _reset_counters(self) -> None:
@@ -415,6 +430,12 @@ class MainWindow(QMainWindow):
     def _show_settings(self) -> None:
         """Show settings dialog."""
         dialog = SettingsDialog(self.notifier, self)
+        dialog.exec()
+
+    @Slot()
+    def _show_device_settings(self) -> None:
+        """Show device settings dialog."""
+        dialog = DeviceSettingsDialog(self.device, self)
         dialog.exec()
 
     @Slot()
@@ -606,6 +627,7 @@ class MainWindow(QMainWindow):
         self.connect_action.setEnabled(not connected)
         self.disconnect_action.setEnabled(connected)
         self.reset_action.setEnabled(connected)
+        self.device_settings_action.setEnabled(connected)
 
         if not connected:
             self.status_panel.clear()
