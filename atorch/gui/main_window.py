@@ -1,6 +1,8 @@
 """Main application window."""
 
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from PySide6.QtWidgets import (
     QMainWindow,
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFileDialog,
     QTabWidget,
+    QLabel,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent
@@ -39,6 +42,7 @@ from .automation_panel import AutomationPanel
 from .history_panel import HistoryPanel
 from .settings_dialog import SettingsDialog, DeviceSettingsDialog
 from .debug_window import DebugWindow
+from .placeholder_panel import BatteryChargerPanel, CableResistancePanel, ChargerPanel
 
 
 class MainWindow(QMainWindow):
@@ -48,6 +52,7 @@ class MainWindow(QMainWindow):
     connection_changed = Signal(bool)
     test_progress = Signal(TestProgress)
     debug_message = Signal(str, str, bytes)  # event_type, message, data
+    error_occurred = Signal(str)  # error message
 
     DEBUG_LOG_FILE = "/Users/steve/Projects/atorch/debug.log"
 
@@ -119,7 +124,7 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(8)
 
-        # Main content splitter
+        # Main content splitter (horizontal)
         splitter = QSplitter(Qt.Horizontal)
 
         # Left panel: Controls (use serial device as placeholder, actual device set on connect)
@@ -137,37 +142,73 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.status_panel)
 
         splitter.setSizes([250, 700, 250])
-        main_layout.addWidget(splitter, stretch=3)
+        from PySide6.QtWidgets import QSizePolicy
+        splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        main_layout.addWidget(splitter, stretch=1)
 
-        # Bottom section: Test Automation group with tabs
-        from PySide6.QtWidgets import QGroupBox
-        automation_group = QGroupBox("Test Automation")
-        automation_group_layout = QVBoxLayout(automation_group)
-        automation_group_layout.setContentsMargins(4, 4, 4, 4)
+        # Bottom section: Collapsible Test Automation with tabs
+        from PySide6.QtWidgets import QToolButton, QFrame
 
-        bottom_tabs = QTabWidget()
+        # Header with collapse toggle
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)
+
+        self.automation_toggle = QToolButton()
+        self.automation_toggle.setArrowType(Qt.DownArrow)
+        self.automation_toggle.setCheckable(True)
+        self.automation_toggle.setChecked(True)
+        self.automation_toggle.setStyleSheet("QToolButton { border: none; }")
+        self.automation_toggle.clicked.connect(self._toggle_automation_panel)
+        header_layout.addWidget(self.automation_toggle)
+
+        automation_label = QLabel("Test Automation")
+        automation_label.setStyleSheet("font-weight: bold;")
+        header_layout.addWidget(automation_label)
+        header_layout.addStretch()
+
+        main_layout.addLayout(header_layout)
+
+        # Content frame for tabs
+        self.automation_content = QFrame()
+        automation_content_layout = QVBoxLayout(self.automation_content)
+        automation_content_layout.setContentsMargins(0, 4, 0, 0)
+
+        self.bottom_tabs = QTabWidget()
 
         self.automation_panel = AutomationPanel(None, self.database)  # test_runner set on connect
-        bottom_tabs.addTab(self.automation_panel, "Battery Capacity")
+        self.bottom_tabs.addTab(self.automation_panel, "Battery Capacity")
+
+        self.battery_charger_panel = BatteryChargerPanel()
+        self.bottom_tabs.addTab(self.battery_charger_panel, "Battery Charger")
+
+        self.cable_resistance_panel = CableResistancePanel()
+        self.bottom_tabs.addTab(self.cable_resistance_panel, "Cable Resistance")
+
+        self.charger_panel = ChargerPanel()
+        self.bottom_tabs.addTab(self.charger_panel, "Charger")
 
         self.history_panel = HistoryPanel(self.database)
         self.history_panel.session_selected.connect(self._on_history_session_selected)
-        bottom_tabs.addTab(self.history_panel, "History")
+        self.bottom_tabs.addTab(self.history_panel, "History")
 
         # Connect automation panel signals
         self.automation_panel.start_test_requested.connect(self._on_automation_start)
         self.automation_panel.pause_test_requested.connect(self._on_automation_pause)
         self.automation_panel.resume_test_requested.connect(self._on_automation_resume)
         self.automation_panel.apply_settings_requested.connect(self._on_apply_settings)
+        self.automation_panel.manual_save_requested.connect(self._on_manual_save)
 
-        automation_group_layout.addWidget(bottom_tabs)
-        automation_group.setMaximumHeight(440)
-        main_layout.addWidget(automation_group, stretch=1)
+        automation_content_layout.addWidget(self.bottom_tabs)
+        self.automation_content.setFixedHeight(380)
+        self.automation_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        main_layout.addWidget(self.automation_content, stretch=0)
 
         # Connect signals
         self.status_updated.connect(self._update_ui_status)
         self.connection_changed.connect(self._update_ui_connection)
         self.test_progress.connect(self.automation_panel.update_progress)
+        self.error_occurred.connect(self._show_error_message)
 
         # Connect control panel signals
         self.control_panel.connect_requested.connect(self._connect_device)
@@ -453,6 +494,83 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Export Error", str(e))
 
+    def _save_test_json(self, filename: Optional[str] = None) -> Optional[str]:
+        """Save test data to JSON file.
+
+        Saves test configuration, battery info, and all logged readings.
+
+        Args:
+            filename: Optional filename to use. If None, uses the filename from automation panel.
+
+        Returns:
+            Path to saved file, or None if save failed
+        """
+        # Get test configuration and battery info from automation panel
+        test_config = self.automation_panel.get_test_config()
+        battery_info = self.automation_panel.get_battery_info()
+
+        # Use provided filename or get from automation panel
+        if filename is None:
+            filename = self.automation_panel.filename_edit.text().strip()
+            if not filename:
+                filename = self.automation_panel.generate_test_filename()
+        # Ensure .json extension
+        if not filename.endswith('.json'):
+            filename += '.json'
+
+        # Create output directory if needed
+        output_dir = Path.home() / ".atorch" / "test_data"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / filename
+
+        # Build test data structure
+        readings_data = []
+        for reading in self._accumulated_readings:
+            readings_data.append({
+                "timestamp": reading.timestamp.isoformat(),
+                "voltage": reading.voltage,
+                "current": reading.current,
+                "power": reading.power,
+                "energy_wh": reading.energy_wh,
+                "capacity_mah": reading.capacity_mah,
+                "temperature_c": reading.temperature_c,
+                "ext_temperature_c": reading.ext_temperature_c,
+                "runtime_seconds": reading.runtime_seconds,
+            })
+
+        # Calculate summary statistics
+        if readings_data:
+            final_reading = readings_data[-1]
+            first_reading = readings_data[0]
+            summary = {
+                "total_readings": len(readings_data),
+                "start_time": first_reading["timestamp"],
+                "end_time": final_reading["timestamp"],
+                "final_voltage": final_reading["voltage"],
+                "final_capacity_mah": final_reading["capacity_mah"],
+                "final_energy_wh": final_reading["energy_wh"],
+                "total_runtime_seconds": final_reading["runtime_seconds"],
+            }
+        else:
+            summary = {
+                "total_readings": 0,
+            }
+
+        test_data = {
+            "test_config": test_config,
+            "battery_info": battery_info,
+            "summary": summary,
+            "readings": readings_data,
+        }
+
+        try:
+            with open(output_path, 'w') as f:
+                json.dump(test_data, f, indent=2)
+            return str(output_path)
+        except Exception as e:
+            self.statusbar.showMessage(f"Failed to save test data: {e}")
+            return None
+
     @Slot()
     def _show_settings(self) -> None:
         """Show settings dialog."""
@@ -500,8 +618,20 @@ class MainWindow(QMainWindow):
             duration_s: Duration in seconds (0 for no limit)
         """
         if discharge_type == 0 and value == 0 and voltage_cutoff == 0:
-            # Stop request - turn off logging
+            # Stop request - save data and turn off logging
             if self._logging_enabled:
+                num_readings = len(self._accumulated_readings)
+                # Save test data to JSON if auto-save is enabled
+                if self.automation_panel.autosave_checkbox.isChecked():
+                    saved_path = self._save_test_json()
+                    if saved_path:
+                        self.statusbar.showMessage(
+                            f"Test aborted: {num_readings} readings saved to {saved_path}"
+                        )
+                else:
+                    self.statusbar.showMessage(
+                        f"Test aborted: {num_readings} readings - click Save to export"
+                    )
                 self.status_panel.log_switch.setChecked(False)
                 self._toggle_logging(False)
             return
@@ -595,6 +725,21 @@ class MainWindow(QMainWindow):
 
         self.statusbar.showMessage("Test resumed")
 
+    @Slot(str)
+    def _on_manual_save(self, filename: str) -> None:
+        """Handle manual save request from automation panel.
+
+        Args:
+            filename: The filename to save as
+        """
+        if not self._accumulated_readings:
+            self.statusbar.showMessage("No data to save")
+            return
+
+        saved_path = self._save_test_json(filename)
+        if saved_path:
+            self.statusbar.showMessage(f"Saved: {saved_path}")
+
     @Slot(int, float, float, int)
     def _on_apply_settings(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
         """Apply test configuration settings to the device without starting a test.
@@ -656,7 +801,38 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage(f"Applied: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V{time_str}")
 
     def _on_device_status(self, status: DeviceStatus) -> None:
-        """Handle device status update (called from device thread)."""
+        """Handle device status update (called from device thread).
+
+        IMPORTANT: This runs in a background thread - only emit signals here,
+        do NOT access GUI elements or perform database operations directly.
+        """
+        # Emit signal to handle on main thread
+        self.status_updated.emit(status)
+
+    def _on_device_error(self, message: str) -> None:
+        """Handle device error (called from device thread)."""
+        # Emit signal to handle on main thread
+        self.error_occurred.emit(message)
+
+    @Slot(str)
+    def _show_error_message(self, message: str) -> None:
+        """Show error message in status bar (runs on main thread)."""
+        self.statusbar.showMessage(f"Error: {message}")
+
+    def _on_test_progress(self, progress: TestProgress) -> None:
+        """Handle test progress update."""
+        self.test_progress.emit(progress)
+
+    def _on_test_complete(self, session: TestSession) -> None:
+        """Handle test completion."""
+        self.history_panel.refresh()
+        self.statusbar.showMessage(
+            f"Test complete: {session.final_capacity_mah:.0f}mAh / {session.final_energy_wh:.2f}Wh"
+        )
+
+    @Slot(DeviceStatus)
+    def _update_ui_status(self, status: DeviceStatus) -> None:
+        """Update UI with device status (runs on main thread via signal)."""
         # Log data first (before UI update) if enabled
         if self._logging_enabled and self._current_session:
             reading = Reading(
@@ -675,30 +851,14 @@ class MainWindow(QMainWindow):
             # Also accumulate for cross-session export
             self._accumulated_readings.append(reading)
 
-        # Update UI
-        self.status_updated.emit(status)
-
         # Check alerts
         self.notifier.check(status)
 
-    def _on_device_error(self, message: str) -> None:
-        """Handle device error."""
-        self.statusbar.showMessage(f"Error: {message}")
+        # Update test progress bar in automation panel
+        if self._logging_enabled:
+            elapsed = self.plot_panel.get_elapsed_time()
+            self.automation_panel.update_test_progress(elapsed, status.capacity_mah)
 
-    def _on_test_progress(self, progress: TestProgress) -> None:
-        """Handle test progress update."""
-        self.test_progress.emit(progress)
-
-    def _on_test_complete(self, session: TestSession) -> None:
-        """Handle test completion."""
-        self.history_panel.refresh()
-        self.statusbar.showMessage(
-            f"Test complete: {session.final_capacity_mah:.0f}mAh / {session.final_energy_wh:.2f}Wh"
-        )
-
-    @Slot(DeviceStatus)
-    def _update_ui_status(self, status: DeviceStatus) -> None:
-        """Update UI with device status."""
         # Pulse communication indicator to show data received
         self.control_panel.pulse_comm_indicator()
 
@@ -713,9 +873,21 @@ class MainWindow(QMainWindow):
             self.status_panel.log_switch.setChecked(False)
             # Also stop the automation test
             self.automation_panel._update_ui_stopped()
-            self.statusbar.showMessage(
-                f"Test complete: {num_readings} readings - click 'Save Data...' to export"
-            )
+            # Save test data to JSON if auto-save is enabled
+            if self.automation_panel.autosave_checkbox.isChecked():
+                saved_path = self._save_test_json()
+                if saved_path:
+                    self.statusbar.showMessage(
+                        f"Test complete: {num_readings} readings saved to {saved_path}"
+                    )
+                else:
+                    self.statusbar.showMessage(
+                        f"Test complete: {num_readings} readings - click Save to export"
+                    )
+            else:
+                self.statusbar.showMessage(
+                    f"Test complete: {num_readings} readings - click Save to export"
+                )
 
         self._prev_load_on = status.load_on
 
@@ -737,6 +909,7 @@ class MainWindow(QMainWindow):
         """Update UI for connection state change."""
         self.control_panel.set_connected(connected)
         self.status_panel.set_connected(connected)
+        self.automation_panel.set_connected(connected)
 
         # Update menu actions
         self.connect_action.setEnabled(not connected)
@@ -746,6 +919,35 @@ class MainWindow(QMainWindow):
 
         if not connected:
             self.status_panel.clear()
+
+    @Slot()
+    def _toggle_automation_panel(self) -> None:
+        """Toggle visibility of the Test Automation panel content."""
+        is_visible = self.bottom_tabs.isVisible()
+        panel_height = 380
+
+        if is_visible:
+            # Collapse: store current window height, hide tabs, shrink window
+            self._expanded_window_height = self.height()
+            self.bottom_tabs.setVisible(False)
+            self.automation_content.setFixedHeight(0)
+            self.automation_toggle.setArrowType(Qt.RightArrow)
+            # Shrink window
+            self.setFixedHeight(self.height() - panel_height)
+            # Remove fixed height constraint to allow future resizing
+            self.setMinimumHeight(200)
+            self.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
+        else:
+            # Expand: restore tabs and window height
+            self.automation_content.setFixedHeight(panel_height)
+            self.bottom_tabs.setVisible(True)
+            self.automation_toggle.setArrowType(Qt.DownArrow)
+            # Restore window height
+            target_height = getattr(self, '_expanded_window_height', self.height() + panel_height)
+            self.setFixedHeight(target_height)
+            # Remove fixed height constraint
+            self.setMinimumHeight(400)
+            self.setMaximumHeight(16777215)
 
     @Slot()
     def _on_timer(self) -> None:

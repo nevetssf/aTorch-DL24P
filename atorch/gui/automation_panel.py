@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from datetime import datetime
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget,
@@ -39,41 +40,38 @@ class AutomationPanel(QWidget):
     resume_test_requested = Signal()
     # Signal emitted when Apply is clicked: (discharge_type, value, voltage_cutoff, duration_s or 0)
     apply_settings_requested = Signal(int, float, float, int)
+    # Signal emitted when manual Save is clicked (filename)
+    manual_save_requested = Signal(str)
 
     def __init__(self, test_runner: TestRunner, database: Database):
         super().__init__()
 
         self.test_runner = test_runner
         self.database = database
-        self._current_profile: Optional[TestProfile] = None
+        self._loading_settings = False  # Flag to prevent save during load
 
-        # Load default presets from resources directory
-        self._default_battery_presets = self._load_default_battery_presets()
-        self._default_test_presets = self._load_default_test_presets()
+        # Load default presets from resources/battery_capacity directory
+        self._camera_battery_presets = self._load_presets_file("battery_capacity/presets_camera.json")
+        self._household_battery_presets = self._load_presets_file("battery_capacity/presets_household.json")
+        self._default_test_presets = self._load_presets_file("battery_capacity/presets_test.json")
 
-        # User presets directories
-        self._battery_presets_dir = Path.home() / ".atorch" / "battery_presets"
+        # User presets directories and settings file
+        self._atorch_dir = Path.home() / ".atorch"
+        self._atorch_dir.mkdir(parents=True, exist_ok=True)
+        self._battery_presets_dir = self._atorch_dir / "battery_presets"
         self._battery_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._test_presets_dir = Path.home() / ".atorch" / "test_presets"
+        self._test_presets_dir = self._atorch_dir / "test_presets"
         self._test_presets_dir.mkdir(parents=True, exist_ok=True)
+        self._last_session_file = self._atorch_dir / "last_session.json"
 
         self._create_ui()
+        self._connect_save_signals()
+        self._load_last_session()
 
-    def _load_default_battery_presets(self) -> dict:
-        """Load default battery presets from the resources directory."""
+    def _load_presets_file(self, filename: str) -> dict:
+        """Load battery presets from a file in the resources directory."""
         module_dir = Path(__file__).parent.parent.parent
-        presets_file = module_dir / "resources" / "default_battery_presets.json"
-
-        try:
-            with open(presets_file, 'r') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-
-    def _load_default_test_presets(self) -> dict:
-        """Load default test presets from the resources directory."""
-        module_dir = Path(__file__).parent.parent.parent
-        presets_file = module_dir / "resources" / "default_test_presets.json"
+        presets_file = module_dir / "resources" / filename
 
         try:
             with open(presets_file, 'r') as f:
@@ -114,6 +112,7 @@ class AutomationPanel(QWidget):
         self.type_combo.addItems(["CC", "CP", "CR"])
         self.type_combo.setToolTip("CC = Constant Current\nCP = Constant Power\nCR = Constant Resistance")
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
+        self.type_combo.currentIndexChanged.connect(self._on_filename_field_changed)
         type_layout.addWidget(self.type_combo)
         config_layout.addLayout(type_layout)
 
@@ -126,6 +125,7 @@ class AutomationPanel(QWidget):
         self.value_spin.setDecimals(3)
         self.value_spin.setSingleStep(0.1)
         self.value_spin.setValue(0.5)
+        self.value_spin.valueChanged.connect(self._on_filename_field_changed)
         self.value_label = QLabel("Current (A):")
         self.value_label.setMinimumWidth(85)  # Fixed width to prevent layout jumping
         self.params_form.addRow(self.value_label, self.value_spin)
@@ -196,6 +196,7 @@ class AutomationPanel(QWidget):
 
         self.battery_name_edit = QLineEdit()
         self.battery_name_edit.setPlaceholderText("e.g., INR18650-30Q")
+        self.battery_name_edit.textChanged.connect(self._on_filename_field_changed)
         info_layout.addRow("Name:", self.battery_name_edit)
 
         self.manufacturer_edit = QLineEdit()
@@ -206,12 +207,19 @@ class AutomationPanel(QWidget):
         self.oem_equiv_edit.setPlaceholderText("e.g., 30Q, VTC6")
         info_layout.addRow("OEM Equivalent:", self.oem_equiv_edit)
 
+        voltage_tech_layout = QHBoxLayout()
         self.rated_voltage_spin = QDoubleSpinBox()
         self.rated_voltage_spin.setRange(0.0, 100.0)
         self.rated_voltage_spin.setDecimals(2)
         self.rated_voltage_spin.setValue(3.7)
         self.rated_voltage_spin.setSuffix(" V")
-        info_layout.addRow("Rated Voltage:", self.rated_voltage_spin)
+        voltage_tech_layout.addWidget(self.rated_voltage_spin)
+
+        self.technology_combo = QComboBox()
+        self.technology_combo.addItems(["Li-Ion", "LiPo", "NiMH", "NiCd", "LiFePO4", "Lead Acid"])
+        self.technology_combo.setToolTip("Battery chemistry/technology")
+        voltage_tech_layout.addWidget(self.technology_combo)
+        info_layout.addRow("Rated Voltage:", voltage_tech_layout)
 
         capacity_layout = QHBoxLayout()
         self.nominal_capacity_spin = QSpinBox()
@@ -254,17 +262,10 @@ class AutomationPanel(QWidget):
         control_group = QGroupBox("Test Control")
         control_layout = QVBoxLayout(control_group)
 
-        # Start/Stop button
+        # Start/Abort button
         self.start_btn = QPushButton("Start Test")
-        self.start_btn.setMinimumHeight(40)
         self.start_btn.clicked.connect(self._on_start_clicked)
         control_layout.addWidget(self.start_btn)
-
-        # Pause/Resume button
-        self.pause_btn = QPushButton("Pause")
-        self.pause_btn.setEnabled(False)
-        self.pause_btn.clicked.connect(self._on_pause_clicked)
-        control_layout.addWidget(self.pause_btn)
 
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -273,7 +274,7 @@ class AutomationPanel(QWidget):
         control_layout.addWidget(self.progress_bar)
 
         # Status label
-        self.status_label = QLabel("Ready")
+        self.status_label = QLabel("Not Connected")
         self.status_label.setAlignment(Qt.AlignCenter)
         control_layout.addWidget(self.status_label)
 
@@ -287,12 +288,62 @@ class AutomationPanel(QWidget):
         control_layout.addWidget(self.elapsed_label)
 
         control_layout.addStretch()
+
+        # Auto Save section
+        autosave_layout = QHBoxLayout()
+        self.autosave_checkbox = QCheckBox("Auto Save")
+        self.autosave_checkbox.setChecked(True)
+        self.autosave_checkbox.toggled.connect(self._on_autosave_toggled)
+        autosave_layout.addWidget(self.autosave_checkbox)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setMaximumWidth(50)
+        self.save_btn.setEnabled(False)  # Disabled when Auto Save is checked
+        self.save_btn.clicked.connect(self._on_save_clicked)
+        autosave_layout.addWidget(self.save_btn)
+        control_layout.addLayout(autosave_layout)
+
+        # Filename text field
+        self.filename_edit = QLineEdit()
+        self.filename_edit.setReadOnly(True)  # Read-only when Auto Save is checked
+        self.filename_edit.setPlaceholderText("Test filename...")
+        self._update_filename()  # Initialize with generated filename
+        control_layout.addWidget(self.filename_edit)
+
         layout.addWidget(control_group)
 
     @Slot(bool)
     def _on_timed_toggled(self, checked: bool) -> None:
         """Handle timed checkbox toggle."""
         self.duration_spin.setEnabled(checked)
+
+    @Slot(bool)
+    def _on_autosave_toggled(self, checked: bool) -> None:
+        """Handle Auto Save checkbox toggle."""
+        self.filename_edit.setReadOnly(checked)
+        self.save_btn.setEnabled(not checked)
+        if checked:
+            # Reset to auto-generated filename
+            self._update_filename()
+
+    @Slot()
+    def _on_save_clicked(self) -> None:
+        """Handle manual Save button click."""
+        filename = self.filename_edit.text().strip()
+        if filename:
+            # Ensure .json extension
+            if not filename.endswith('.json'):
+                filename += '.json'
+            self.manual_save_requested.emit(filename)
+
+    def _update_filename(self) -> None:
+        """Update the filename field with auto-generated name."""
+        if self.autosave_checkbox.isChecked():
+            self.filename_edit.setText(self.generate_test_filename())
+
+    @Slot()
+    def _on_filename_field_changed(self) -> None:
+        """Handle changes to fields that affect the filename."""
+        self._update_filename()
 
     @Slot(int)
     def _on_type_changed(self, index: int) -> None:
@@ -321,9 +372,9 @@ class AutomationPanel(QWidget):
 
     @Slot()
     def _on_start_clicked(self) -> None:
-        """Handle start/stop button click."""
-        if self.start_btn.text() == "Stop Test":
-            # Stop test - this will be handled by main window turning off logging
+        """Handle start/abort button click."""
+        if self.start_btn.text() == "Abort Test":
+            # Abort test - this will be handled by main window turning off logging
             self._update_ui_stopped()
             # Emit with zeros to signal stop
             self.start_test_requested.emit(0, 0, 0, 0)
@@ -337,26 +388,18 @@ class AutomationPanel(QWidget):
                 )
                 return
 
-            # Start test - emit signal with parameters
+            # Get test parameters
             discharge_type = self.type_combo.currentIndex()  # 0=CC, 1=CP, 2=CR
             value = self.value_spin.value()
             cutoff = self.cutoff_spin.value()
             duration = self.duration_spin.value() if self.timed_checkbox.isChecked() else 0
 
+            # Apply settings first (like pressing Apply button)
+            self.apply_settings_requested.emit(discharge_type, value, cutoff, duration)
+
+            # Then start test (turns on load and starts logging)
             self.start_test_requested.emit(discharge_type, value, cutoff, duration)
             self._update_ui_running()
-
-    @Slot()
-    def _on_pause_clicked(self) -> None:
-        """Handle pause/resume button click - toggles between pause and resume."""
-        if self.pause_btn.text() == "Pause":
-            # Pause the test
-            self.pause_btn.setText("Resume")
-            self.pause_test_requested.emit()
-        else:
-            # Resume the test
-            self.pause_btn.setText("Pause")
-            self.resume_test_requested.emit()
 
     @Slot()
     def _on_apply_clicked(self) -> None:
@@ -407,8 +450,9 @@ class AutomationPanel(QWidget):
 
     def _update_ui_running(self) -> None:
         """Update UI for running state."""
-        self.start_btn.setText("Stop Test")
-        self.pause_btn.setEnabled(True)
+        self.start_btn.setText("Abort Test")
+        self.status_label.setText("Running")
+        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
         self.type_combo.setEnabled(False)
         self.value_spin.setEnabled(False)
         self.cutoff_spin.setEnabled(False)
@@ -418,8 +462,15 @@ class AutomationPanel(QWidget):
     def _update_ui_stopped(self) -> None:
         """Update UI for stopped state."""
         self.start_btn.setText("Start Test")
-        self.pause_btn.setEnabled(False)
-        self.pause_btn.setText("Pause")  # Reset pause button text
+        # Only show "Ready" if device is connected
+        if self.test_runner and self.test_runner.device and self.test_runner.device.is_connected:
+            self.status_label.setText("Ready")
+            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.start_btn.setEnabled(True)
+        else:
+            self.status_label.setText("Not Connected")
+            self.status_label.setStyleSheet("color: red;")
+            self.start_btn.setEnabled(False)
         self.type_combo.setEnabled(True)
         self.value_spin.setEnabled(True)
         self.cutoff_spin.setEnabled(True)
@@ -427,21 +478,79 @@ class AutomationPanel(QWidget):
         self.duration_spin.setEnabled(self.timed_checkbox.isChecked())
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("")
+        self.elapsed_label.setText("00:00:00")
+
+    def set_connected(self, connected: bool) -> None:
+        """Update status label and button based on connection state."""
+        if self.start_btn.text() != "Abort Test":  # Not running
+            if connected:
+                self.status_label.setText("Ready")
+                self.status_label.setStyleSheet("color: green; font-weight: bold;")
+                self.start_btn.setEnabled(True)
+            else:
+                self.status_label.setText("Not Connected")
+                self.status_label.setStyleSheet("color: red;")
+                self.start_btn.setEnabled(False)
+
+    def update_test_progress(self, elapsed_seconds: float, capacity_mah: float) -> None:
+        """Update progress bar and elapsed time based on test progress.
+
+        Args:
+            elapsed_seconds: Time elapsed since test started
+            capacity_mah: Current capacity drawn in mAh
+        """
+        if self.start_btn.text() != "Abort Test":
+            return  # Not running
+
+        # Update elapsed time display
+        h = int(elapsed_seconds) // 3600
+        m = (int(elapsed_seconds) % 3600) // 60
+        s = int(elapsed_seconds) % 60
+        self.elapsed_label.setText(f"{h:02d}:{m:02d}:{s:02d}")
+
+        # Method 1: If Timed is enabled, use time-based progress
+        if self.timed_checkbox.isChecked():
+            duration = self.duration_spin.value()
+            if duration > 0:
+                progress = min(100, int(100 * elapsed_seconds / duration))
+                remaining = max(0, duration - elapsed_seconds)
+                mins, secs = divmod(int(remaining), 60)
+                hours, mins = divmod(mins, 60)
+                self.progress_bar.setValue(progress)
+                self.progress_bar.setFormat(f"{progress}% ({hours:02d}:{mins:02d}:{secs:02d} remaining)")
+                return
+
+        # Method 2: Use capacity-based progress (nominal capacity / current draw rate)
+        nominal_capacity = self.nominal_capacity_spin.value()
+        if nominal_capacity > 0 and capacity_mah > 0:
+            progress = min(100, int(100 * capacity_mah / nominal_capacity))
+            self.progress_bar.setValue(progress)
+            self.progress_bar.setFormat(f"{progress}% ({capacity_mah:.0f} / {nominal_capacity} mAh)")
 
     def _load_battery_presets_list(self) -> None:
         """Load the list of battery presets into the combo box."""
         self.presets_combo.clear()
         self.presets_combo.addItem("")  # Empty option
 
-        # Add default presets section header
-        if self._default_battery_presets:
-            self.presets_combo.addItem("--- Default Presets ---")
+        # Add Camera Presets section
+        if self._camera_battery_presets:
+            self.presets_combo.addItem("--- Camera Presets ---")
             model = self.presets_combo.model()
             item = model.item(self.presets_combo.count() - 1)
             item.setEnabled(False)
 
-            # Add default presets (sorted alphabetically)
-            for preset_name in sorted(self._default_battery_presets.keys()):
+            for preset_name in sorted(self._camera_battery_presets.keys()):
+                self.presets_combo.addItem(preset_name)
+
+        # Add Household Presets section
+        if self._household_battery_presets:
+            self.presets_combo.insertSeparator(self.presets_combo.count())
+            self.presets_combo.addItem("--- Household Presets ---")
+            model = self.presets_combo.model()
+            item = model.item(self.presets_combo.count() - 1)
+            item.setEnabled(False)
+
+            for preset_name in sorted(self._household_battery_presets.keys()):
                 self.presets_combo.addItem(preset_name)
 
         # Get user presets from files
@@ -460,7 +569,15 @@ class AutomationPanel(QWidget):
 
     def _is_default_battery_preset(self, name: str) -> bool:
         """Check if a battery preset name is a default (read-only) preset."""
-        return name in self._default_battery_presets
+        return name in self._camera_battery_presets or name in self._household_battery_presets
+
+    def _get_default_battery_preset(self, name: str) -> Optional[dict]:
+        """Get default battery preset data by name."""
+        if name in self._camera_battery_presets:
+            return self._camera_battery_presets[name]
+        if name in self._household_battery_presets:
+            return self._household_battery_presets[name]
+        return None
 
     @Slot(int)
     def _on_preset_selected(self, index: int) -> None:
@@ -479,7 +596,9 @@ class AutomationPanel(QWidget):
 
         if is_default:
             # Load from in-memory defaults
-            data = self._default_battery_presets[preset_name]
+            data = self._get_default_battery_preset(preset_name)
+            if not data:
+                return
         else:
             # Load from user preset file
             preset_file = self._battery_presets_dir / f"{preset_name}.json"
@@ -502,6 +621,11 @@ class AutomationPanel(QWidget):
         self.nominal_capacity_spin.setValue(data.get("nominal_capacity", 3000))
         self.nominal_energy_spin.setValue(data.get("nominal_energy", 11.1))
         self.notes_edit.setPlainText(data.get("notes", ""))
+        # Set technology if available
+        technology = data.get("technology", "Li-Ion")
+        tech_index = self.technology_combo.findText(technology)
+        if tech_index >= 0:
+            self.technology_combo.setCurrentIndex(tech_index)
 
     @Slot()
     def _save_battery_preset(self) -> None:
@@ -540,6 +664,7 @@ class AutomationPanel(QWidget):
             "rated_voltage": self.rated_voltage_spin.value(),
             "nominal_capacity": self.nominal_capacity_spin.value(),
             "nominal_energy": self.nominal_energy_spin.value(),
+            "technology": self.technology_combo.currentText(),
             "notes": self.notes_edit.toPlainText(),
         }
 
@@ -595,7 +720,7 @@ class AutomationPanel(QWidget):
 
         # Add default presets section header
         if self._default_test_presets:
-            self.test_presets_combo.addItem("--- Default Presets ---")
+            self.test_presets_combo.addItem("--- Presets ---")
             model = self.test_presets_combo.model()
             item = model.item(self.test_presets_combo.count() - 1)
             item.setEnabled(False)
@@ -735,3 +860,207 @@ class AutomationPanel(QWidget):
                 self._load_test_presets_list()
             except Exception as e:
                 QMessageBox.warning(self, "Delete Error", f"Failed to delete preset: {e}")
+
+    # Methods for exporting test data
+
+    def get_test_config(self) -> dict:
+        """Get current test configuration as a dictionary.
+
+        Returns:
+            Dictionary with discharge_type, value, voltage_cutoff, timed, duration
+        """
+        type_names = ["CC", "CP", "CR"]
+        type_units = ["A", "W", "ohm"]
+        discharge_type = self.type_combo.currentIndex()
+
+        return {
+            "discharge_type": type_names[discharge_type],
+            "discharge_type_index": discharge_type,
+            "value": self.value_spin.value(),
+            "value_unit": type_units[discharge_type],
+            "voltage_cutoff": self.cutoff_spin.value(),
+            "timed": self.timed_checkbox.isChecked(),
+            "duration_seconds": self.duration_spin.value() if self.timed_checkbox.isChecked() else 0,
+        }
+
+    def get_battery_info(self) -> dict:
+        """Get current battery info as a dictionary.
+
+        Returns:
+            Dictionary with battery information
+        """
+        return {
+            "name": self.battery_name_edit.text(),
+            "manufacturer": self.manufacturer_edit.text(),
+            "oem_equivalent": self.oem_equiv_edit.text(),
+            "serial_number": self.serial_number_edit.text(),
+            "rated_voltage": self.rated_voltage_spin.value(),
+            "technology": self.technology_combo.currentText(),
+            "nominal_capacity_mah": self.nominal_capacity_spin.value(),
+            "nominal_energy_wh": self.nominal_energy_spin.value(),
+            "notes": self.notes_edit.toPlainText(),
+        }
+
+    def generate_test_filename(self) -> str:
+        """Generate a cross-platform compatible filename for test data.
+
+        Format: BatteryName_DischargeType_Value_YYYYMMDD_HHMMSS.json
+        Example: Canon_LP-E6NH_CC_0.5A_20260209_093000.json
+
+        Returns:
+            Filename string (without path)
+        """
+        battery_name = self.battery_name_edit.text().strip() or "Unknown"
+        type_names = ["CC", "CP", "CR"]
+        type_units = ["A", "W", "ohm"]
+        discharge_type = self.type_combo.currentIndex()
+        value = self.value_spin.value()
+
+        # Create timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Build filename parts
+        parts = [
+            battery_name,
+            type_names[discharge_type],
+            f"{value}{type_units[discharge_type]}",
+            timestamp,
+        ]
+
+        # Join and sanitize (allow alphanumeric, spaces, hyphens, underscores, periods)
+        filename = "_".join(parts)
+        safe_filename = "".join(c for c in filename if c.isalnum() or c in " -_.").strip()
+
+        return f"{safe_filename}.json"
+
+    # Session persistence methods
+
+    def _connect_save_signals(self) -> None:
+        """Connect all form fields to save settings when changed."""
+        # Test Configuration fields
+        self.type_combo.currentIndexChanged.connect(self._on_settings_changed)
+        self.value_spin.valueChanged.connect(self._on_settings_changed)
+        self.cutoff_spin.valueChanged.connect(self._on_settings_changed)
+        self.timed_checkbox.toggled.connect(self._on_settings_changed)
+        self.duration_spin.valueChanged.connect(self._on_settings_changed)
+        self.test_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
+
+        # Battery Info fields
+        self.battery_name_edit.textChanged.connect(self._on_settings_changed)
+        self.manufacturer_edit.textChanged.connect(self._on_settings_changed)
+        self.oem_equiv_edit.textChanged.connect(self._on_settings_changed)
+        self.serial_number_edit.textChanged.connect(self._on_settings_changed)
+        self.rated_voltage_spin.valueChanged.connect(self._on_settings_changed)
+        self.nominal_capacity_spin.valueChanged.connect(self._on_settings_changed)
+        self.nominal_energy_spin.valueChanged.connect(self._on_settings_changed)
+        self.technology_combo.currentIndexChanged.connect(self._on_settings_changed)
+        self.notes_edit.textChanged.connect(self._on_settings_changed)
+        self.presets_combo.currentIndexChanged.connect(self._on_settings_changed)
+
+        # Auto Save settings
+        self.autosave_checkbox.toggled.connect(self._on_settings_changed)
+
+    @Slot()
+    def _on_settings_changed(self) -> None:
+        """Handle any settings change - save to file."""
+        if not self._loading_settings:
+            self._save_last_session()
+
+    def _save_last_session(self) -> None:
+        """Save current settings to file."""
+        settings = {
+            "test_config": {
+                "discharge_type": self.type_combo.currentIndex(),
+                "value": self.value_spin.value(),
+                "voltage_cutoff": self.cutoff_spin.value(),
+                "timed": self.timed_checkbox.isChecked(),
+                "duration": self.duration_spin.value(),
+                "preset": self.test_presets_combo.currentText(),
+            },
+            "battery_info": {
+                "name": self.battery_name_edit.text(),
+                "manufacturer": self.manufacturer_edit.text(),
+                "oem_equivalent": self.oem_equiv_edit.text(),
+                "serial_number": self.serial_number_edit.text(),
+                "rated_voltage": self.rated_voltage_spin.value(),
+                "technology": self.technology_combo.currentText(),
+                "nominal_capacity": self.nominal_capacity_spin.value(),
+                "nominal_energy": self.nominal_energy_spin.value(),
+                "notes": self.notes_edit.toPlainText(),
+                "preset": self.presets_combo.currentText(),
+            },
+            "autosave": self.autosave_checkbox.isChecked(),
+        }
+
+        try:
+            with open(self._last_session_file, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception:
+            pass  # Silently fail - not critical
+
+    def _load_last_session(self) -> None:
+        """Load settings from file on startup."""
+        if not self._last_session_file.exists():
+            return
+
+        try:
+            with open(self._last_session_file, 'r') as f:
+                settings = json.load(f)
+        except Exception:
+            return  # Silently fail - use defaults
+
+        self._loading_settings = True  # Prevent saves during load
+
+        try:
+            # Load Test Configuration
+            test_config = settings.get("test_config", {})
+            if "discharge_type" in test_config:
+                self.type_combo.setCurrentIndex(test_config["discharge_type"])
+            if "value" in test_config:
+                self.value_spin.setValue(test_config["value"])
+            if "voltage_cutoff" in test_config:
+                self.cutoff_spin.setValue(test_config["voltage_cutoff"])
+            if "timed" in test_config:
+                self.timed_checkbox.setChecked(test_config["timed"])
+            if "duration" in test_config:
+                self.duration_spin.setValue(test_config["duration"])
+            if "preset" in test_config and test_config["preset"]:
+                index = self.test_presets_combo.findText(test_config["preset"])
+                if index >= 0:
+                    self.test_presets_combo.setCurrentIndex(index)
+
+            # Load Battery Info
+            battery_info = settings.get("battery_info", {})
+            if "name" in battery_info:
+                self.battery_name_edit.setText(battery_info["name"])
+            if "manufacturer" in battery_info:
+                self.manufacturer_edit.setText(battery_info["manufacturer"])
+            if "oem_equivalent" in battery_info:
+                self.oem_equiv_edit.setText(battery_info["oem_equivalent"])
+            if "serial_number" in battery_info:
+                self.serial_number_edit.setText(battery_info["serial_number"])
+            if "rated_voltage" in battery_info:
+                self.rated_voltage_spin.setValue(battery_info["rated_voltage"])
+            if "technology" in battery_info:
+                tech_index = self.technology_combo.findText(battery_info["technology"])
+                if tech_index >= 0:
+                    self.technology_combo.setCurrentIndex(tech_index)
+            if "nominal_capacity" in battery_info:
+                self.nominal_capacity_spin.setValue(battery_info["nominal_capacity"])
+            if "nominal_energy" in battery_info:
+                self.nominal_energy_spin.setValue(battery_info["nominal_energy"])
+            if "notes" in battery_info:
+                self.notes_edit.setPlainText(battery_info["notes"])
+            if "preset" in battery_info and battery_info["preset"]:
+                index = self.presets_combo.findText(battery_info["preset"])
+                if index >= 0:
+                    self.presets_combo.setCurrentIndex(index)
+
+            # Load Auto Save setting
+            if "autosave" in settings:
+                self.autosave_checkbox.setChecked(settings["autosave"])
+
+        finally:
+            self._loading_settings = False
+            # Update filename after loading settings
+            self._update_filename()
