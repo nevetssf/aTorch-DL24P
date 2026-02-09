@@ -180,6 +180,9 @@ class ControlPanel(QWidget):
         self._create_ui()
         self._refresh_ports()
 
+        # Initialize disconnected state (grey out controls)
+        self.set_connected(False)
+
     def _create_ui(self) -> None:
         """Create the control panel UI."""
         layout = QVBoxLayout(self)
@@ -238,8 +241,8 @@ class ControlPanel(QWidget):
         layout.addWidget(conn_group)
 
         # Load Control group
-        control_group = QGroupBox("Load Control")
-        control_layout = QVBoxLayout(control_group)
+        self.control_group = QGroupBox("Load Control")
+        control_layout = QVBoxLayout(self.control_group)
 
         # Mode selection (CC, CP, CV, CR)
         mode_layout = QHBoxLayout()
@@ -280,7 +283,8 @@ class ControlPanel(QWidget):
 
         # On/Off toggle switch
         power_layout = QHBoxLayout()
-        power_layout.addWidget(QLabel("Load:"))
+        self.load_label = QLabel("Load:")
+        power_layout.addWidget(self.load_label)
         power_layout.addStretch()
 
         self.power_label_off = QLabel("OFF")
@@ -307,7 +311,8 @@ class ControlPanel(QWidget):
 
         # Current setting
         current_layout = QHBoxLayout()
-        current_layout.addWidget(QLabel("Current (A):"))
+        self.current_label = QLabel("Current (A):")
+        current_layout.addWidget(self.current_label)
         self.current_spin = QDoubleSpinBox()
         self.current_spin.setRange(0.0, 24.0)
         self.current_spin.setDecimals(3)
@@ -336,7 +341,8 @@ class ControlPanel(QWidget):
 
         # Power setting (for CP mode)
         power_layout = QHBoxLayout()
-        power_layout.addWidget(QLabel("Power (W):"))
+        self.power_label = QLabel("Power (W):")
+        power_layout.addWidget(self.power_label)
         self.power_spin = QDoubleSpinBox()
         self.power_spin.setRange(0.0, 200.0)  # DL24P max is ~180W
         self.power_spin.setDecimals(1)
@@ -355,7 +361,8 @@ class ControlPanel(QWidget):
 
         # Voltage setting (for CV mode)
         voltage_layout = QHBoxLayout()
-        voltage_layout.addWidget(QLabel("Voltage (V):"))
+        self.voltage_label = QLabel("Voltage (V):")
+        voltage_layout.addWidget(self.voltage_label)
         self.voltage_spin = QDoubleSpinBox()
         self.voltage_spin.setRange(0.0, 200.0)
         self.voltage_spin.setDecimals(2)
@@ -374,7 +381,8 @@ class ControlPanel(QWidget):
 
         # Resistance setting (for CR mode)
         resistance_layout = QHBoxLayout()
-        resistance_layout.addWidget(QLabel("Resistance (Ω):"))
+        self.resistance_label = QLabel("Resistance (Ω):")
+        resistance_layout.addWidget(self.resistance_label)
         self.resistance_spin = QDoubleSpinBox()
         self.resistance_spin.setRange(0.1, 9999.0)
         self.resistance_spin.setDecimals(1)
@@ -399,7 +407,8 @@ class ControlPanel(QWidget):
 
         # Voltage cutoff
         cutoff_layout = QHBoxLayout()
-        cutoff_layout.addWidget(QLabel("V Cutoff:"))
+        self.cutoff_label = QLabel("V Cutoff:")
+        cutoff_layout.addWidget(self.cutoff_label)
         self.cutoff_spin = QDoubleSpinBox()
         self.cutoff_spin.setRange(0.0, 200.0)
         self.cutoff_spin.setDecimals(2)
@@ -424,7 +433,8 @@ class ControlPanel(QWidget):
 
         # Discharge time (hours and minutes)
         discharge_layout = QHBoxLayout()
-        discharge_layout.addWidget(QLabel("Time Limit:"))
+        self.time_limit_label = QLabel("Time Limit:")
+        discharge_layout.addWidget(self.time_limit_label)
 
         self.discharge_hours_spin = QSpinBox()
         self.discharge_hours_spin.setRange(0, 99)
@@ -455,7 +465,7 @@ class ControlPanel(QWidget):
         discharge_layout.addWidget(self.set_discharge_btn)
         control_layout.addLayout(discharge_layout)
 
-        layout.addWidget(control_group)
+        layout.addWidget(self.control_group)
 
         # Spacer
         layout.addStretch()
@@ -490,35 +500,55 @@ class ControlPanel(QWidget):
         self.connect_btn.setEnabled(not connected)
         self.disconnect_btn.setEnabled(connected)
 
+        # Load Control group title
+        if connected:
+            self.control_group.setStyleSheet("")
+        else:
+            self.control_group.setStyleSheet("QGroupBox { color: gray; }")
+
+        # Load on/off controls
+        self.load_label.setEnabled(connected)
         self.power_switch.setEnabled(connected)
+        self.power_label_off.setEnabled(connected)
+        self.power_label_on.setEnabled(connected)
+
+        # Mode buttons
         self.cc_btn.setEnabled(connected)
         self.cv_btn.setEnabled(connected)
         self.cp_btn.setEnabled(connected)
         self.cr_btn.setEnabled(connected)
 
         # Mode-specific controls will be enabled by _update_mode_controls()
-        # Initialize all to disabled, then enable based on current mode
+        # Initialize all labels and controls to disabled, then enable based on current mode
+        self.current_label.setEnabled(False)
         self.current_spin.setEnabled(False)
         self.set_current_btn.setEnabled(False)
+        for i in range(self.preset_btns.count()):
+            widget = self.preset_btns.itemAt(i).widget()
+            if widget:
+                widget.setEnabled(False)
+        self.power_label.setEnabled(False)
         self.power_spin.setEnabled(False)
         self.set_power_btn.setEnabled(False)
+        self.voltage_label.setEnabled(False)
         self.voltage_spin.setEnabled(False)
         self.set_voltage_btn.setEnabled(False)
+        self.resistance_label.setEnabled(False)
         self.resistance_spin.setEnabled(False)
         self.set_resistance_btn.setEnabled(False)
 
-        # Voltage cutoff now works for USB HID (sub-command 0x29)
+        # Voltage cutoff
         is_usb_hid = self._connection_type == ConnectionType.USB_HID
+        self.cutoff_label.setEnabled(connected)
         self.cutoff_spin.setEnabled(connected)
         self.set_cutoff_btn.setEnabled(connected)
         self.set_cutoff_btn.setToolTip("")
 
         # Discharge time (USB HID only)
+        self.time_limit_label.setEnabled(connected and is_usb_hid)
         self.discharge_hours_spin.setEnabled(connected and is_usb_hid)
         self.discharge_mins_spin.setEnabled(connected and is_usb_hid)
         self.set_discharge_btn.setEnabled(connected and is_usb_hid)
-
-        # Preset buttons handled by _update_mode_controls()
 
         # Update mode-specific controls (enables current/power/voltage/resistance based on mode)
         if connected:
@@ -643,7 +673,7 @@ class ControlPanel(QWidget):
             if USBHIDDevice.is_available():
                 devices = USBHIDDevice.list_devices()
                 for dev in devices:
-                    label = f"[USB HID] {dev['product']}"
+                    label = dev['product']
                     if dev.get('serial'):
                         label += f" ({dev['serial']})"
                     self.port_combo.addItem(label, dev['path'])
@@ -670,14 +700,7 @@ class ControlPanel(QWidget):
             dl24p_ports = set(Device.find_dl24p_ports())
 
             for port, desc, ptype in ports:
-                # Build label with port type indicator
-                type_str = ""
-                if ptype == PortType.USB:
-                    type_str = "[Serial USB] "
-                elif ptype == PortType.BLUETOOTH:
-                    type_str = "[BT] "
-
-                label = f"{type_str}{port}"
+                label = port
                 if port in dl24p_ports:
                     label += " (DL24P?)"
 
@@ -825,6 +848,7 @@ class ControlPanel(QWidget):
         # CV=2: Voltage enabled
         # CR=3: Resistance enabled
 
+        self.current_label.setEnabled(mode == 0)
         self.current_spin.setEnabled(mode == 0)
         self.set_current_btn.setEnabled(mode == 0)
         for i in range(self.preset_btns.count()):
@@ -832,12 +856,15 @@ class ControlPanel(QWidget):
             if widget:
                 widget.setEnabled(mode == 0)
 
+        self.power_label.setEnabled(mode == 1)
         self.power_spin.setEnabled(mode == 1)
         self.set_power_btn.setEnabled(mode == 1)
 
+        self.voltage_label.setEnabled(mode == 2)
         self.voltage_spin.setEnabled(mode == 2)
         self.set_voltage_btn.setEnabled(mode == 2)
 
+        self.resistance_label.setEnabled(mode == 3)
         self.resistance_spin.setEnabled(mode == 3)
         self.set_resistance_btn.setEnabled(mode == 3)
 

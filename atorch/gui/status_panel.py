@@ -53,40 +53,49 @@ class StatusPanel(QWidget):
 
         self._create_ui()
 
+        # Initialize disconnected state (grey out controls)
+        self.set_connected(False)
+
     def _create_ui(self) -> None:
         """Create the status panel UI."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Main readings
-        readings_group = QGroupBox("Live Readings")
-        readings_layout = QGridLayout(readings_group)
+        self.readings_group = QGroupBox("Live Readings")
+        readings_layout = QGridLayout(self.readings_group)
         readings_layout.setSpacing(8)
 
         row = 0
 
         # Voltage
-        readings_layout.addWidget(QLabel("Voltage:"), row, 0)
+        self.voltage_row_label = QLabel("Voltage:")
+        readings_layout.addWidget(self.voltage_row_label, row, 0)
         self.voltage_label = StatusLabel()
         self.voltage_label.setStyleSheet("color: #FFC107;")  # Amber
         readings_layout.addWidget(self.voltage_label, row, 1)
-        readings_layout.addWidget(UnitLabel("V"), row, 2)
+        self.voltage_unit_label = UnitLabel("V")
+        readings_layout.addWidget(self.voltage_unit_label, row, 2)
         row += 1
 
         # Current
-        readings_layout.addWidget(QLabel("Current:"), row, 0)
+        self.current_row_label = QLabel("Current:")
+        readings_layout.addWidget(self.current_row_label, row, 0)
         self.current_label = StatusLabel()
         self.current_label.setStyleSheet("color: #29B6F6;")  # Light blue
         readings_layout.addWidget(self.current_label, row, 1)
-        readings_layout.addWidget(UnitLabel("A"), row, 2)
+        self.current_unit_label = UnitLabel("A")
+        readings_layout.addWidget(self.current_unit_label, row, 2)
         row += 1
 
         # Power
-        readings_layout.addWidget(QLabel("Power:"), row, 0)
+        self.power_row_label = QLabel("Power:")
+        readings_layout.addWidget(self.power_row_label, row, 0)
         self.power_label = StatusLabel()
         self.power_label.setStyleSheet("color: #EF5350;")  # Red
         readings_layout.addWidget(self.power_label, row, 1)
-        readings_layout.addWidget(UnitLabel("W"), row, 2)
+        self.power_unit_label = UnitLabel("W")
+        readings_layout.addWidget(self.power_unit_label, row, 2)
         row += 1
 
         # Separator
@@ -97,19 +106,23 @@ class StatusPanel(QWidget):
         row += 1
 
         # Capacity
-        readings_layout.addWidget(QLabel("Capacity:"), row, 0)
+        self.capacity_row_label = QLabel("Capacity:")
+        readings_layout.addWidget(self.capacity_row_label, row, 0)
         self.capacity_label = StatusLabel()
         self.capacity_label.setStyleSheet("color: #AB47BC;")  # Purple
         readings_layout.addWidget(self.capacity_label, row, 1)
-        readings_layout.addWidget(UnitLabel("mAh"), row, 2)
+        self.capacity_unit_label = UnitLabel("mAh")
+        readings_layout.addWidget(self.capacity_unit_label, row, 2)
         row += 1
 
         # Energy
-        readings_layout.addWidget(QLabel("Energy:"), row, 0)
+        self.energy_row_label = QLabel("Energy:")
+        readings_layout.addWidget(self.energy_row_label, row, 0)
         self.energy_label = StatusLabel()
         self.energy_label.setStyleSheet("color: #FF7043;")  # Deep orange
         readings_layout.addWidget(self.energy_label, row, 1)
-        readings_layout.addWidget(UnitLabel("Wh"), row, 2)
+        self.energy_unit_label = UnitLabel("Wh")
+        readings_layout.addWidget(self.energy_unit_label, row, 2)
         row += 1
 
         # Clear button for capacity/energy
@@ -127,26 +140,32 @@ class StatusPanel(QWidget):
         row += 1
 
         # MOSFET Temperature
-        readings_layout.addWidget(QLabel("MOSFET:"), row, 0)
+        self.temp_row_label = QLabel("MOSFET:")
+        readings_layout.addWidget(self.temp_row_label, row, 0)
         self.temp_label = StatusLabel()
         self.temp_label.setStyleSheet("color: #26A69A;")  # Teal
         readings_layout.addWidget(self.temp_label, row, 1)
-        readings_layout.addWidget(UnitLabel("°C"), row, 2)
+        self.temp_unit_label = UnitLabel("°C")
+        readings_layout.addWidget(self.temp_unit_label, row, 2)
         row += 1
 
         # External Temperature
-        readings_layout.addWidget(QLabel("External:"), row, 0)
+        self.ext_temp_row_label = QLabel("External:")
+        readings_layout.addWidget(self.ext_temp_row_label, row, 0)
         self.ext_temp_label = StatusLabel()
         self.ext_temp_label.setStyleSheet("color: #9CCC65;")  # Light green
         readings_layout.addWidget(self.ext_temp_label, row, 1)
-        readings_layout.addWidget(UnitLabel("°C"), row, 2)
+        self.ext_temp_unit_label = UnitLabel("°C")
+        readings_layout.addWidget(self.ext_temp_unit_label, row, 2)
         row += 1
 
         # Fan Speed
-        readings_layout.addWidget(QLabel("Fan:"), row, 0)
+        self.fan_row_label = QLabel("Fan:")
+        readings_layout.addWidget(self.fan_row_label, row, 0)
         self.fan_label = StatusLabel()
         readings_layout.addWidget(self.fan_label, row, 1)
-        readings_layout.addWidget(UnitLabel("RPM"), row, 2)
+        self.fan_unit_label = UnitLabel("RPM")
+        readings_layout.addWidget(self.fan_unit_label, row, 2)
         row += 1
 
         # Separator
@@ -157,7 +176,8 @@ class StatusPanel(QWidget):
         row += 1
 
         # Status (ON/OFF)
-        readings_layout.addWidget(QLabel("Status:"), row, 0)
+        self.status_row_label = QLabel("Status:")
+        readings_layout.addWidget(self.status_row_label, row, 0)
         self.load_status_label = QLabel("OFF")
         self.load_status_label.setAlignment(Qt.AlignRight)
         font = QFont()
@@ -178,15 +198,16 @@ class StatusPanel(QWidget):
         readings_layout.addWidget(self.ureg_label, row, 1)
         row += 1
 
-        layout.addWidget(readings_group)
+        layout.addWidget(self.readings_group)
 
         # Data Logging group
-        log_group = QGroupBox("Data Logging")
-        log_layout = QVBoxLayout(log_group)
+        self.log_group = QGroupBox("Data Logging")
+        log_layout = QVBoxLayout(self.log_group)
 
         # Logging toggle switch
         logging_layout = QHBoxLayout()
-        logging_layout.addWidget(QLabel("Logging:"))
+        self.logging_label = QLabel("Logging:")
+        logging_layout.addWidget(self.logging_label)
         logging_layout.addStretch()
 
         self.log_label_off = QLabel("OFF")
@@ -203,9 +224,11 @@ class StatusPanel(QWidget):
 
         # Battery name input
         name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Battery:"))
+        self.battery_label = QLabel("Battery:")
+        name_layout.addWidget(self.battery_label)
         self.battery_name_edit = QLineEdit()
         self.battery_name_edit.setPlaceholderText("Optional name")
+        self.battery_name_edit.setEnabled(False)
         name_layout.addWidget(self.battery_name_edit)
         log_layout.addLayout(name_layout)
 
@@ -217,26 +240,78 @@ class StatusPanel(QWidget):
 
         # Logging time display
         time_layout = QHBoxLayout()
-        time_layout.addWidget(QLabel("Logged Time:"))
+        self.logged_time_label = QLabel("Logged Time:")
+        time_layout.addWidget(self.logged_time_label)
         time_layout.addStretch()
         self.logging_time_label = StatusLabel("00:00:00")
         time_layout.addWidget(self.logging_time_label)
         log_layout.addLayout(time_layout)
 
-        layout.addWidget(log_group)
+        layout.addWidget(self.log_group)
 
         # Spacer
         layout.addStretch()
 
     def set_connected(self, connected: bool) -> None:
         """Update UI for connection state."""
+        # Grey out group titles when disconnected
+        if connected:
+            self.readings_group.setStyleSheet("")
+            self.log_group.setStyleSheet("")
+        else:
+            self.readings_group.setStyleSheet("QGroupBox { color: gray; }")
+            self.log_group.setStyleSheet("QGroupBox { color: gray; }")
+
+        # Live readings labels
+        self.voltage_row_label.setEnabled(connected)
+        self.voltage_label.setEnabled(connected)
+        self.voltage_unit_label.setEnabled(connected)
+        self.current_row_label.setEnabled(connected)
+        self.current_label.setEnabled(connected)
+        self.current_unit_label.setEnabled(connected)
+        self.power_row_label.setEnabled(connected)
+        self.power_label.setEnabled(connected)
+        self.power_unit_label.setEnabled(connected)
+        self.capacity_row_label.setEnabled(connected)
+        self.capacity_label.setEnabled(connected)
+        self.capacity_unit_label.setEnabled(connected)
+        self.energy_row_label.setEnabled(connected)
+        self.energy_label.setEnabled(connected)
+        self.energy_unit_label.setEnabled(connected)
+        self.temp_row_label.setEnabled(connected)
+        self.temp_label.setEnabled(connected)
+        self.temp_unit_label.setEnabled(connected)
+        self.ext_temp_row_label.setEnabled(connected)
+        self.ext_temp_label.setEnabled(connected)
+        self.ext_temp_unit_label.setEnabled(connected)
+        self.fan_row_label.setEnabled(connected)
+        self.fan_label.setEnabled(connected)
+        self.fan_unit_label.setEnabled(connected)
+        self.status_row_label.setEnabled(connected)
+        self.load_status_label.setEnabled(connected)
+
+        # Logging controls
+        self.logging_label.setEnabled(connected)
         self.log_switch.setEnabled(connected)
+        self.log_label_off.setEnabled(connected)
+        self.log_label_on.setEnabled(connected)
+
+        # Battery name
+        self.battery_label.setEnabled(connected)
+        self.battery_name_edit.setEnabled(connected)
+
+        # Buttons
         self.clear_btn.setEnabled(connected)
         self.save_btn.setEnabled(connected)
+
+        # Logged time
+        self.logged_time_label.setEnabled(connected)
+        self.logging_time_label.setEnabled(connected)
 
         if not connected:
             self.log_switch.setChecked(False)
             self._update_logging_labels(False)
+            self.clear()  # Reset values to "---"
 
     def _update_logging_labels(self, logging: bool) -> None:
         """Update the ON/OFF labels based on logging state."""
