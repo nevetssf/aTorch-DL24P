@@ -1,11 +1,33 @@
-# Items to Revisit
+# TODO
 
-## Test Configuration Save/Load
-- **Issue**: Need to fix what is saved and loaded in Test Configuration profiles
-- **Notes**: Review the JSON profile format and ensure all relevant parameters are included
-- **Also**: Show the configuration/profile name in the UI
+## Pending Features
 
-## Time Limit Setting - RESOLVED
+### Placeholder Test Panels
+The following test automation tabs are placeholders and need implementation:
+- **Battery Charger** - Test and analyze battery charger performance
+- **Cable Resistance** - Measure USB cable resistance and voltage drop
+- **Charger** - Test power adapter output and efficiency
+
+### PyInstaller Builds
+- Windows build not yet tested
+- Consider code signing for macOS distribution
+
+### Future Enhancements
+- Bluetooth connectivity support (USB HID is primary)
+- Export to Excel format improvements
+- Historical data comparison/overlay features
+
+---
+
+## Resolved Issues
+
+### Test Configuration Save/Load - DONE
+- Implemented preset system with Save/Delete buttons
+- Default presets in `resources/battery_capacity/presets_test.json`
+- User presets saved to `~/.atorch/test_presets/`
+- Settings persist across app restarts via `last_session.json`
+
+### Time Limit Setting - RESOLVED
 - **Device protocol has two modes**:
   - Minutes mode (flag=0x02): `[minutes, 0x00, 0x00, 0x02]` - for times < 60 min
   - Hours mode (flag=0x01): `[hours, 0x00, 0x00, 0x01]` - for times >= 60 min
@@ -17,7 +39,11 @@
   - 1h45m: `01 00 00 01` (1 hour only, hours mode - 45min dropped by PC app!)
 - **Implementation**: Fixed in `set_discharge_time()` to use correct mode based on hours value
 
-## Device Timing Readout
+---
+
+## Known Issues
+
+### Device Timing Readout
 - **Issue**: The device time display in the GUI doesn't match the physical device display
 - **Current state**: Tried offsets 20, 28 with various interpretations (raw seconds, ticks/48)
 - **Device shows**: 10:24 (minutes:seconds)

@@ -95,6 +95,50 @@ Profiles saved as JSON in `profiles/` directory.
 | 0x33 | Restore factory defaults |
 | 0x34 | Clear accumulated data (mAh, Wh, time) |
 
+## Qt Threading Safety
+
+**Critical**: Device status callbacks run in a background thread. Never access GUI elements or perform database operations directly from callbacks.
+
+Pattern used:
+1. Device callback emits a signal: `self.status_updated.emit(status)`
+2. Main thread slot handles UI updates: `@Slot(DeviceStatus) def _update_ui_status()`
+
+## User Data Locations
+
+All user data stored in `~/.atorch/`:
+- `last_session.json` - Persisted settings (restored on app restart)
+- `battery_presets/` - User-saved battery presets
+- `test_presets/` - User-saved test configuration presets
+- `test_data/` - Auto-saved JSON test results
+- `tests.db` - SQLite database for test sessions
+
+## Preset Organization
+
+Default presets in `resources/battery_capacity/`:
+- `presets_camera.json` - Camera batteries (Canon, Leica, Lumix, Nikon, etc.)
+- `presets_household.json` - Household batteries (Eneloop NiMH, Imuto Li-Ion)
+- `presets_test.json` - Test configuration presets (CC, CP, CR modes)
+
+Each battery preset includes `technology` field (Li-Ion, NiMH, LiPo, etc.)
+
+## Collapsible Panel Implementation
+
+The Test Automation panel uses a custom collapse approach:
+- Toggle button with arrow (▼/▶) controls visibility
+- Only `bottom_tabs` is hidden, header stays visible
+- Window height adjusted via `setFixedHeight()` during toggle, then constraints removed
+- `automation_content.setFixedHeight(0)` when collapsed prevents layout issues
+
+## PyInstaller Builds
+
+Build script: `build.py` using `run_atorch.py` as entry point (handles frozen imports).
+
+```bash
+python build.py  # Creates dist/aTorch DL24P.app (macOS) or .exe (Windows)
+```
+
+Hidden imports required: PySide6, pyqtgraph, numpy, pandas, serial, hid
+
 ## External Resources
 
 - **DL24 Protocol Documentation**: https://www.improwis.com/projects/sw_dl24/
