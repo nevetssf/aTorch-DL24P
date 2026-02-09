@@ -2,6 +2,7 @@
 
 import platform
 import subprocess
+import threading
 from typing import Callable, Optional
 from pathlib import Path
 
@@ -84,13 +85,23 @@ class Notifier:
             except Exception:
                 pass
 
-        # Desktop notification
+        # Desktop notification (run in background thread to avoid blocking GUI)
         if self._desktop_enabled:
-            self._send_desktop_notification(result)
+            thread = threading.Thread(
+                target=self._send_desktop_notification,
+                args=(result,),
+                daemon=True
+            )
+            thread.start()
 
-        # Sound
+        # Sound (run in background thread to avoid blocking GUI)
         if self._sound_enabled:
-            self._play_sound(result.severity)
+            thread = threading.Thread(
+                target=self._play_sound,
+                args=(result.severity,),
+                daemon=True
+            )
+            thread.start()
 
     def _send_desktop_notification(self, result: AlertResult) -> None:
         """Send a desktop notification."""
