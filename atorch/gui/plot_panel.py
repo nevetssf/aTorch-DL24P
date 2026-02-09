@@ -280,6 +280,27 @@ class PlotPanel(QWidget):
             self._data["Energy"].append(reading.energy_wh)
 
         self._update_plots()
+
+    def load_readings(self, readings: list) -> None:
+        """Load a list of Reading objects for display.
+
+        Args:
+            readings: List of Reading objects from a loaded session
+        """
+        self.clear_data()
+
+        for reading in readings:
+            self._time_data.append(reading.runtime_seconds)
+            self._data["Voltage"].append(reading.voltage)
+            self._data["Current"].append(reading.current)
+            self._data["Power"].append(reading.power)
+            self._data["MOSFET Temp"].append(reading.temperature_c)
+            self._data["Ext Temp"].append(getattr(reading, 'ext_temperature_c', 0))
+            self._data["Capacity"].append(reading.capacity_mah)
+            self._data["Energy"].append(reading.energy_wh)
+
+        self._update_plots()
+
     def clear_data(self) -> None:
         """Clear all plot data."""
         self._time_data.clear()

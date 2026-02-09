@@ -1,6 +1,8 @@
 """Test automation panel."""
 
 import json
+import platform
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFormLayout,
     QInputDialog,
+    QFileDialog,
 )
 from PySide6.QtCore import Qt, Slot, Signal
 
@@ -42,6 +45,10 @@ class AutomationPanel(QWidget):
     apply_settings_requested = Signal(int, float, float, int)
     # Signal emitted when manual Save is clicked (filename)
     manual_save_requested = Signal(str)
+    # Signal emitted when session is loaded from file (readings list)
+    session_loaded = Signal(list)  # List of reading dicts
+    # Signal emitted when Export CSV is clicked
+    export_csv_requested = Signal()
 
     def __init__(self, test_runner: TestRunner, database: Database):
         super().__init__()
@@ -300,6 +307,18 @@ class AutomationPanel(QWidget):
         self.save_btn.setEnabled(False)  # Disabled when Auto Save is checked
         self.save_btn.clicked.connect(self._on_save_clicked)
         autosave_layout.addWidget(self.save_btn)
+        self.load_btn = QPushButton("Load")
+        self.load_btn.setMaximumWidth(50)
+        self.load_btn.clicked.connect(self._on_load_clicked)
+        autosave_layout.addWidget(self.load_btn)
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setMaximumWidth(60)
+        self.export_btn.clicked.connect(self._on_export_clicked)
+        autosave_layout.addWidget(self.export_btn)
+        self.show_folder_btn = QPushButton("Show Folder")
+        self.show_folder_btn.setMaximumWidth(80)
+        self.show_folder_btn.clicked.connect(self._on_show_folder_clicked)
+        autosave_layout.addWidget(self.show_folder_btn)
         control_layout.addLayout(autosave_layout)
 
         # Filename text field
@@ -334,6 +353,105 @@ class AutomationPanel(QWidget):
             if not filename.endswith('.json'):
                 filename += '.json'
             self.manual_save_requested.emit(filename)
+
+    @Slot()
+    def _on_load_clicked(self) -> None:
+        """Handle Load button click - load a previous test session from JSON."""
+        # Default to test_data directory
+        default_dir = str(self._atorch_dir / "test_data")
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Test Session",
+            default_dir,
+            "JSON Files (*.json)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, "Load Error", f"Failed to load file: {e}")
+            return
+
+        self._loading_settings = True  # Prevent auto-save during load
+
+        try:
+            # Load test configuration
+            test_config = data.get("test_config", {})
+            if "discharge_type_index" in test_config:
+                self.type_combo.setCurrentIndex(test_config["discharge_type_index"])
+            elif "discharge_type" in test_config:
+                # Handle string type names
+                type_map = {"CC": 0, "CP": 1, "CR": 2}
+                self.type_combo.setCurrentIndex(type_map.get(test_config["discharge_type"], 0))
+            if "value" in test_config:
+                self.value_spin.setValue(test_config["value"])
+            if "voltage_cutoff" in test_config:
+                self.cutoff_spin.setValue(test_config["voltage_cutoff"])
+            if "timed" in test_config:
+                self.timed_checkbox.setChecked(test_config["timed"])
+            if "duration_seconds" in test_config:
+                self.duration_spin.setValue(test_config["duration_seconds"])
+
+            # Load battery info
+            battery_info = data.get("battery_info", {})
+            if "name" in battery_info:
+                self.battery_name_edit.setText(battery_info["name"])
+            if "manufacturer" in battery_info:
+                self.manufacturer_edit.setText(battery_info["manufacturer"])
+            if "oem_equivalent" in battery_info:
+                self.oem_equiv_edit.setText(battery_info["oem_equivalent"])
+            if "serial_number" in battery_info:
+                self.serial_number_edit.setText(battery_info["serial_number"])
+            if "rated_voltage" in battery_info:
+                self.rated_voltage_spin.setValue(battery_info["rated_voltage"])
+            if "technology" in battery_info:
+                tech_index = self.technology_combo.findText(battery_info["technology"])
+                if tech_index >= 0:
+                    self.technology_combo.setCurrentIndex(tech_index)
+            if "nominal_capacity_mah" in battery_info:
+                self.nominal_capacity_spin.setValue(battery_info["nominal_capacity_mah"])
+            if "nominal_energy_wh" in battery_info:
+                self.nominal_energy_spin.setValue(battery_info["nominal_energy_wh"])
+            if "notes" in battery_info:
+                self.notes_edit.setPlainText(battery_info["notes"])
+
+            # Update filename to show loaded file
+            self.filename_edit.setText(Path(file_path).name)
+
+            # Emit readings for display
+            readings = data.get("readings", [])
+            if readings:
+                self.session_loaded.emit(readings)
+
+        finally:
+            self._loading_settings = False
+
+    @Slot()
+    def _on_export_clicked(self) -> None:
+        """Handle Export button click - export data as CSV."""
+        self.export_csv_requested.emit()
+
+    @Slot()
+    def _on_show_folder_clicked(self) -> None:
+        """Handle Show Folder button click - open test_data folder in system file browser."""
+        folder_path = self._atorch_dir / "test_data"
+        folder_path.mkdir(parents=True, exist_ok=True)
+
+        system = platform.system()
+        try:
+            if system == "Darwin":
+                subprocess.run(["open", str(folder_path)])
+            elif system == "Windows":
+                subprocess.run(["explorer", str(folder_path)])
+            else:  # Linux
+                subprocess.run(["xdg-open", str(folder_path)])
+        except Exception:
+            pass
 
     def _update_filename(self) -> None:
         """Update the filename field with auto-generated name."""

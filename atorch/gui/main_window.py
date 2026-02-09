@@ -1,5 +1,6 @@
 """Main application window."""
 
+import csv
 import json
 from datetime import datetime
 from pathlib import Path
@@ -198,6 +199,8 @@ class MainWindow(QMainWindow):
         self.automation_panel.resume_test_requested.connect(self._on_automation_resume)
         self.automation_panel.apply_settings_requested.connect(self._on_apply_settings)
         self.automation_panel.manual_save_requested.connect(self._on_manual_save)
+        self.automation_panel.session_loaded.connect(self._on_session_loaded)
+        self.automation_panel.export_csv_requested.connect(self._on_export_csv)
 
         automation_content_layout.addWidget(self.bottom_tabs)
         self.automation_content.setFixedHeight(380)
@@ -740,6 +743,140 @@ class MainWindow(QMainWindow):
         if saved_path:
             self.statusbar.showMessage(f"Saved: {saved_path}")
 
+    @Slot(list)
+    def _on_session_loaded(self, readings: list) -> None:
+        """Handle loaded session data from automation panel.
+
+        Args:
+            readings: List of reading dicts from loaded JSON file
+        """
+        # Clear existing data
+        self.plot_panel.clear_data()
+        self._accumulated_readings.clear()
+
+        # Get start time from first reading to calculate relative times
+        start_time = None
+        if readings:
+            try:
+                start_time = datetime.fromisoformat(readings[0].get("timestamp", ""))
+            except Exception:
+                pass
+
+        # Convert readings to Reading objects and populate accumulated_readings
+        for reading_dict in readings:
+            try:
+                timestamp = datetime.fromisoformat(reading_dict.get("timestamp", ""))
+
+                # Calculate runtime_seconds from timestamp relative to start
+                if start_time:
+                    runtime_seconds = (timestamp - start_time).total_seconds()
+                else:
+                    runtime_seconds = reading_dict.get("runtime_seconds", 0)
+
+                reading = Reading(
+                    timestamp=timestamp,
+                    voltage=reading_dict.get("voltage", 0),
+                    current=reading_dict.get("current", 0),
+                    power=reading_dict.get("power", 0),
+                    energy_wh=reading_dict.get("energy_wh", 0),
+                    capacity_mah=reading_dict.get("capacity_mah", 0),
+                    temperature_c=reading_dict.get("temperature_c", 0),
+                    ext_temperature_c=reading_dict.get("ext_temperature_c", 0),
+                    runtime_seconds=runtime_seconds,
+                )
+                self._accumulated_readings.append(reading)
+            except Exception:
+                continue  # Skip invalid readings
+
+        # Load readings into plot panel for display
+        if self._accumulated_readings:
+            self.plot_panel.load_readings(self._accumulated_readings)
+            self.status_panel.set_points_count(len(self._accumulated_readings))
+            self.statusbar.showMessage(f"Loaded {len(self._accumulated_readings)} readings")
+
+    @Slot()
+    def _on_export_csv(self) -> None:
+        """Handle Export CSV button - export accumulated readings to CSV file."""
+        if not self._accumulated_readings:
+            QMessageBox.warning(self, "Export Error", "No data to export.")
+            return
+
+        # Default to test_data directory
+        default_dir = str(Path.home() / ".atorch" / "test_data")
+        Path(default_dir).mkdir(parents=True, exist_ok=True)
+
+        # Generate default filename from current JSON filename
+        json_filename = self.automation_panel.filename_edit.text().strip()
+        if json_filename.endswith('.json'):
+            default_filename = json_filename[:-5] + '.csv'
+        else:
+            default_filename = json_filename + '.csv' if json_filename else 'export.csv'
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export CSV",
+            str(Path(default_dir) / default_filename),
+            "CSV Files (*.csv)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            # Get battery info from automation panel
+            battery_name = self.automation_panel.battery_name_edit.text()
+            test_type = self.automation_panel.type_combo.currentText()
+
+            with open(file_path, "w", newline="") as f:
+                writer = csv.writer(f)
+
+                # Write header with metadata as comments
+                f.write(f"# Battery: {battery_name}\n")
+                f.write(f"# Test Type: {test_type}\n")
+                if self._accumulated_readings:
+                    f.write(f"# Start: {self._accumulated_readings[0].timestamp.isoformat()}\n")
+                    f.write(f"# End: {self._accumulated_readings[-1].timestamp.isoformat()}\n")
+                f.write("#\n")
+
+                # Write column headers
+                writer.writerow([
+                    "timestamp",
+                    "runtime_s",
+                    "voltage_V",
+                    "current_A",
+                    "power_W",
+                    "energy_Wh",
+                    "capacity_mAh",
+                    "temp_C",
+                    "ext_temp_C",
+                ])
+
+                # Write readings
+                start_time = self._accumulated_readings[0].timestamp if self._accumulated_readings else None
+                for reading in self._accumulated_readings:
+                    # Calculate runtime from timestamps
+                    if start_time and reading.timestamp:
+                        runtime = (reading.timestamp - start_time).total_seconds()
+                    else:
+                        runtime = reading.runtime_seconds
+
+                    writer.writerow([
+                        reading.timestamp.isoformat(),
+                        f"{runtime:.1f}",
+                        f"{reading.voltage:.3f}",
+                        f"{reading.current:.4f}",
+                        f"{reading.power:.2f}",
+                        f"{reading.energy_wh:.4f}",
+                        f"{reading.capacity_mah:.1f}",
+                        reading.temperature_c,
+                        reading.ext_temperature_c,
+                    ])
+
+            self.statusbar.showMessage(f"Exported {len(self._accumulated_readings)} readings to {Path(file_path).name}")
+
+        except Exception as e:
+            QMessageBox.warning(self, "Export Error", f"Failed to export CSV: {e}")
+
     @Slot(int, float, float, int)
     def _on_apply_settings(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
         """Apply test configuration settings to the device without starting a test.
@@ -871,6 +1008,13 @@ class MainWindow(QMainWindow):
             num_readings = len(self._current_session.readings) if self._current_session else 0
             self._logging_enabled = False  # Stop immediately to prevent more data
             self.status_panel.log_switch.setChecked(False)
+            # End the current session properly so next Start Test works
+            if self._current_session:
+                self._current_session.end_time = datetime.now()
+                self.database.update_session(self._current_session)
+                self._last_completed_session = self._current_session
+                self._current_session = None
+            self._logging_start_time = None
             # Also stop the automation test
             self.automation_panel._update_ui_stopped()
             # Save test data to JSON if auto-save is enabled
