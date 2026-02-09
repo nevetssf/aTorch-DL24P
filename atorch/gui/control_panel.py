@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QLineEdit,
 )
-from PySide6.QtCore import Qt, Signal, Slot, QSize, Property, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, Signal, Slot, QSize, Property, QPropertyAnimation, QEasingCurve, QTimer
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush
 
 
@@ -140,6 +140,25 @@ class ControlPanel(QWidget):
         self._connected = False
         self._connection_type = ConnectionType.SERIAL_ALL
 
+        # Current setting sync state
+        self._current_user_editing = False  # True when user is editing the spinbox
+        self._current_edit_timer = QTimer()  # Timer to resume sync after editing
+        self._current_edit_timer.setSingleShot(True)
+        self._current_edit_timer.timeout.connect(self._on_current_edit_timeout)
+        self._last_load_on = False  # Track load state changes
+
+        # Voltage cutoff setting sync state
+        self._cutoff_user_editing = False
+        self._cutoff_edit_timer = QTimer()
+        self._cutoff_edit_timer.setSingleShot(True)
+        self._cutoff_edit_timer.timeout.connect(self._on_cutoff_edit_timeout)
+
+        # Time limit setting sync state
+        self._time_limit_user_editing = False
+        self._time_limit_edit_timer = QTimer()
+        self._time_limit_edit_timer.setSingleShot(True)
+        self._time_limit_edit_timer.timeout.connect(self._on_time_limit_edit_timeout)
+
         self._create_ui()
         self._refresh_ports()
 
@@ -179,6 +198,12 @@ class ControlPanel(QWidget):
         self.refresh_btn.clicked.connect(self._refresh_ports)
         port_layout.addWidget(self.refresh_btn)
         conn_layout.addLayout(port_layout)
+
+        # Debug logging checkbox
+        self.debug_log_checkbox = QCheckBox("Debug Log")
+        self.debug_log_checkbox.setChecked(True)  # On by default
+        self.debug_log_checkbox.setToolTip("Log debug output to debug.log")
+        conn_layout.addWidget(self.debug_log_checkbox)
 
         # Connect and Disconnect buttons
         btn_layout = QHBoxLayout()
@@ -228,6 +253,7 @@ class ControlPanel(QWidget):
         self.current_spin.setSingleStep(0.1)
         self.current_spin.setValue(0.5)
         self.current_spin.setEnabled(False)
+        self.current_spin.valueChanged.connect(self._on_current_value_changed)
         current_layout.addWidget(self.current_spin)
 
         self.set_current_btn = QPushButton("Set")
@@ -256,6 +282,7 @@ class ControlPanel(QWidget):
         self.cutoff_spin.setSingleStep(0.1)
         self.cutoff_spin.setValue(3.0)
         self.cutoff_spin.setEnabled(False)
+        self.cutoff_spin.valueChanged.connect(self._on_cutoff_value_changed)
         cutoff_layout.addWidget(self.cutoff_spin)
 
         self.set_cutoff_btn = QPushButton("Set")
@@ -276,7 +303,8 @@ class ControlPanel(QWidget):
         self.discharge_hours_spin.setSuffix("h")
         self.discharge_hours_spin.setToolTip("Hours (0-99)")
         self.discharge_hours_spin.setEnabled(False)
-        self.discharge_hours_spin.setMaximumWidth(60)
+        self.discharge_hours_spin.setMaximumWidth(55)
+        self.discharge_hours_spin.valueChanged.connect(self._on_time_limit_value_changed)
         discharge_layout.addWidget(self.discharge_hours_spin)
 
         self.discharge_mins_spin = QSpinBox()
@@ -286,7 +314,8 @@ class ControlPanel(QWidget):
         self.discharge_mins_spin.setSuffix("m")
         self.discharge_mins_spin.setToolTip("Minutes (0-59)")
         self.discharge_mins_spin.setEnabled(False)
-        self.discharge_mins_spin.setMaximumWidth(60)
+        self.discharge_mins_spin.setMaximumWidth(55)
+        self.discharge_mins_spin.valueChanged.connect(self._on_time_limit_value_changed)
         discharge_layout.addWidget(self.discharge_mins_spin)
 
         self.set_discharge_btn = QPushButton("Set")
@@ -296,12 +325,10 @@ class ControlPanel(QWidget):
         discharge_layout.addWidget(self.set_discharge_btn)
         control_layout.addLayout(discharge_layout)
 
-        # Reset counters
-        self.reset_btn = QPushButton("Reset Counters")
+        # Clear values
+        self.reset_btn = QPushButton("Clear Values")
         self.reset_btn.setToolTip(
-            "Turns OFF the load and resets counters.\n"
-            "Note: Counter reset may not work over USB HID.\n"
-            "Use device buttons if counters don't reset."
+            "Turns OFF the load and clears accumulated values (mAh, Wh, time)."
         )
         self.reset_btn.setEnabled(False)
         self.reset_btn.clicked.connect(self._on_reset)
@@ -315,7 +342,9 @@ class ControlPanel(QWidget):
 
         # Brightness slider
         brightness_layout = QHBoxLayout()
-        brightness_layout.addWidget(QLabel("Brightness:"))
+        brightness_lbl = QLabel("Brightness:")
+        brightness_lbl.setMinimumWidth(70)
+        brightness_layout.addWidget(brightness_lbl)
 
         from PySide6.QtWidgets import QSlider
         self.brightness_slider = QSlider(Qt.Horizontal)
@@ -333,6 +362,49 @@ class ControlPanel(QWidget):
         brightness_layout.addWidget(self.brightness_label)
 
         display_layout.addLayout(brightness_layout)
+
+        # Standby Brightness slider
+        standby_brt_layout = QHBoxLayout()
+        standby_lbl = QLabel("Standby:")
+        standby_lbl.setMinimumWidth(70)
+        standby_brt_layout.addWidget(standby_lbl)
+
+        self.standby_brightness_slider = QSlider(Qt.Horizontal)
+        self.standby_brightness_slider.setRange(1, 9)  # 1-9 range
+        self.standby_brightness_slider.setValue(3)  # Default lower
+        self.standby_brightness_slider.setEnabled(False)
+        self.standby_brightness_slider.setToolTip("Adjust standby screen brightness (USB HID only)\nRelease slider to apply.")
+        self.standby_brightness_slider.valueChanged.connect(self._on_standby_brightness_label_update)
+        self.standby_brightness_slider.sliderReleased.connect(self._on_standby_brightness_apply)
+        standby_brt_layout.addWidget(self.standby_brightness_slider)
+
+        self.standby_brightness_label = QLabel("3")
+        self.standby_brightness_label.setMinimumWidth(25)
+        standby_brt_layout.addWidget(self.standby_brightness_label)
+
+        display_layout.addLayout(standby_brt_layout)
+
+        # Standby Timeout
+        timeout_layout = QHBoxLayout()
+        timeout_lbl = QLabel("Timeout:")
+        timeout_lbl.setMinimumWidth(70)
+        timeout_layout.addWidget(timeout_lbl)
+
+        self.standby_timeout_spin = QSpinBox()
+        self.standby_timeout_spin.setRange(10, 60)  # 10-60 seconds
+        self.standby_timeout_spin.setValue(30)
+        self.standby_timeout_spin.setSuffix(" s")
+        self.standby_timeout_spin.setEnabled(False)
+        self.standby_timeout_spin.setToolTip("Standby timeout in seconds (USB HID only)")
+        timeout_layout.addWidget(self.standby_timeout_spin)
+
+        self.set_timeout_btn = QPushButton("Set")
+        self.set_timeout_btn.setMaximumWidth(50)
+        self.set_timeout_btn.setEnabled(False)
+        self.set_timeout_btn.clicked.connect(self._on_set_standby_timeout)
+        timeout_layout.addWidget(self.set_timeout_btn)
+
+        display_layout.addLayout(timeout_layout)
         layout.addWidget(display_group)
 
         # Logging group
@@ -400,6 +472,11 @@ class ControlPanel(QWidget):
             return self.port_combo.currentData()
         return None
 
+    @property
+    def debug_logging_enabled(self) -> bool:
+        """Check if debug logging is enabled."""
+        return self.debug_log_checkbox.isChecked()
+
     def set_connected(self, connected: bool) -> None:
         """Update UI for connection state."""
         self._connected = connected
@@ -426,8 +503,11 @@ class ControlPanel(QWidget):
         self.discharge_mins_spin.setEnabled(connected and is_usb_hid)
         self.set_discharge_btn.setEnabled(connected and is_usb_hid)
 
-        # Brightness slider only for USB HID
+        # Brightness sliders and timeout only for USB HID
         self.brightness_slider.setEnabled(connected and is_usb_hid)
+        self.standby_brightness_slider.setEnabled(connected and is_usb_hid)
+        self.standby_timeout_spin.setEnabled(connected and is_usb_hid)
+        self.set_timeout_btn.setEnabled(connected and is_usb_hid)
 
         self.reset_btn.setEnabled(connected)
         self.log_switch.setEnabled(connected)
@@ -452,6 +532,50 @@ class ControlPanel(QWidget):
         if status.load_on != self.power_switch.isChecked():
             self.power_switch.setChecked(status.load_on)
             self._update_power_labels(status.load_on)
+
+        # Current setting sync logic:
+        # - Always sync when load turns on
+        # - Sync continuously unless user is editing
+        # - User editing pauses sync for 3 seconds or until Set is clicked
+        if status.current_set is not None:
+            # Detect load turning on - always sync current when this happens
+            load_just_turned_on = status.load_on and not self._last_load_on
+
+            # Sync if: load just turned on, OR user is not editing
+            if load_just_turned_on or not self._current_user_editing:
+                current_val = round(status.current_set, 3)
+                if abs(self.current_spin.value() - current_val) > 0.001:
+                    self.current_spin.blockSignals(True)
+                    self.current_spin.setValue(current_val)
+                    self.current_spin.blockSignals(False)
+
+        # Track load state for next update
+        self._last_load_on = status.load_on
+
+        # Voltage cutoff setting sync (same logic as current)
+        if status.voltage_cutoff is not None:
+            # Sync if: load just turned on, OR user is not editing
+            if load_just_turned_on or not self._cutoff_user_editing:
+                cutoff_val = round(status.voltage_cutoff, 2)
+                if abs(self.cutoff_spin.value() - cutoff_val) > 0.01:
+                    self.cutoff_spin.blockSignals(True)
+                    self.cutoff_spin.setValue(cutoff_val)
+                    self.cutoff_spin.blockSignals(False)
+
+        # Time limit setting sync - DISABLED for debugging
+        # The values at offsets 49-50 may be incorrect, causing constant overwrites
+        # TODO: Re-enable once correct offsets are found
+        # if status.time_limit_hours is not None and status.time_limit_minutes is not None:
+        #     if load_just_turned_on or not self._time_limit_user_editing:
+        #         if self.discharge_hours_spin.value() != status.time_limit_hours:
+        #             self.discharge_hours_spin.blockSignals(True)
+        #             self.discharge_hours_spin.setValue(status.time_limit_hours)
+        #             self.discharge_hours_spin.blockSignals(False)
+        #         if self.discharge_mins_spin.value() != status.time_limit_minutes:
+        #             self.discharge_mins_spin.blockSignals(True)
+        #             self.discharge_mins_spin.setValue(status.time_limit_minutes)
+        #             self.discharge_mins_spin.blockSignals(False)
+        pass
 
     def _on_type_changed(self) -> None:
         """Handle connection type radio button change."""
@@ -576,21 +700,69 @@ class ControlPanel(QWidget):
         self.save_requested.emit(battery_name)
 
     @Slot()
+    def _on_current_value_changed(self) -> None:
+        """Handle user changing the current spinbox value."""
+        # Mark as user editing and start/restart the timeout timer
+        self._current_user_editing = True
+        self._current_edit_timer.start(3000)  # 3 second timeout
+
+    @Slot()
+    def _on_current_edit_timeout(self) -> None:
+        """Resume current syncing after user stops editing."""
+        self._current_user_editing = False
+
+    @Slot()
     def _on_set_current(self) -> None:
         """Set the load current."""
         current = self.current_spin.value()
         self.device.set_current(current)
+        # Stop editing mode - allow immediate sync of confirmed value
+        self._current_user_editing = False
+        self._current_edit_timer.stop()
 
     def _set_current_preset(self, current: float) -> None:
         """Set current from preset button."""
+        self.current_spin.blockSignals(True)  # Don't trigger edit mode
         self.current_spin.setValue(current)
+        self.current_spin.blockSignals(False)
         self.device.set_current(current)
+        # Stop editing mode - allow immediate sync
+        self._current_user_editing = False
+        self._current_edit_timer.stop()
+
+    @Slot()
+    def _on_cutoff_value_changed(self) -> None:
+        """Handle user changing the voltage cutoff spinbox value."""
+        self._cutoff_user_editing = True
+        self._cutoff_edit_timer.start(3000)  # 3 second timeout
+
+    @Slot()
+    def _on_cutoff_edit_timeout(self) -> None:
+        """Resume voltage cutoff syncing after user stops editing."""
+        self._cutoff_user_editing = False
 
     @Slot()
     def _on_set_cutoff(self) -> None:
         """Set voltage cutoff."""
         voltage = self.cutoff_spin.value()
         self.device.set_voltage_cutoff(voltage)
+        # Stop editing mode - allow immediate sync of confirmed value
+        self._cutoff_user_editing = False
+        self._cutoff_edit_timer.stop()
+
+    @Slot()
+    def _on_time_limit_value_changed(self) -> None:
+        """Handle user changing the time limit spinbox values."""
+        hours = self.discharge_hours_spin.value()
+        minutes = self.discharge_mins_spin.value()
+        self.device._debug("INFO", f"Time limit spinbox changed: {hours}h {minutes}m")
+        self._time_limit_user_editing = True
+        self._time_limit_edit_timer.start(3000)  # 3 second timeout
+
+    @Slot()
+    def _on_time_limit_edit_timeout(self) -> None:
+        """Resume time limit syncing after user stops editing."""
+        self._time_limit_user_editing = False
 
     @Slot()
     def _on_set_discharge_time(self) -> None:
@@ -598,6 +770,9 @@ class ControlPanel(QWidget):
         hours = self.discharge_hours_spin.value()
         minutes = self.discharge_mins_spin.value()
         self.device.set_discharge_time(hours, minutes)
+        # Stop editing mode - allow immediate sync of confirmed value
+        self._time_limit_user_editing = False
+        self._time_limit_edit_timer.stop()
 
     @Slot()
     def _on_reset(self) -> None:
@@ -624,4 +799,25 @@ class ControlPanel(QWidget):
         # Only send if we have a USB HID device with set_brightness method
         if hasattr(self.device, 'set_brightness'):
             self.device.set_brightness(value)
+
+    @Slot(int)
+    def _on_standby_brightness_label_update(self, value: int) -> None:
+        """Update standby brightness label while dragging."""
+        self.standby_brightness_label.setText(str(value))
+
+    @Slot()
+    def _on_standby_brightness_apply(self) -> None:
+        """Apply standby brightness when slider is released."""
+        value = self.standby_brightness_slider.value()
+        # Only send if we have a USB HID device with set_standby_brightness method
+        if hasattr(self.device, 'set_standby_brightness'):
+            self.device.set_standby_brightness(value)
+
+    @Slot()
+    def _on_set_standby_timeout(self) -> None:
+        """Set standby timeout."""
+        value = self.standby_timeout_spin.value()
+        # Only send if we have a USB HID device with set_standby_timeout method
+        if hasattr(self.device, 'set_standby_timeout'):
+            self.device.set_standby_timeout(value)
 

@@ -51,6 +51,11 @@ class DeviceStatus:
     overvoltage: bool
     overtemperature: bool
     fan_rpm: int  # Approximate fan speed
+    # Device settings (read from device)
+    current_set: Optional[float] = None  # Configured current (A)
+    voltage_cutoff: Optional[float] = None  # Configured voltage cutoff (V)
+    time_limit_hours: Optional[int] = None  # Configured time limit hours
+    time_limit_minutes: Optional[int] = None  # Configured time limit minutes
 
     @property
     def runtime_seconds(self) -> int:

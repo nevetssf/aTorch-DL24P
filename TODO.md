@@ -5,21 +5,17 @@
 - **Notes**: Review the JSON profile format and ensure all relevant parameters are included
 - **Also**: Show the configuration/profile name in the UI
 
-## Time Limit (Discharge Time) - Minutes Not Setting
-- **Issue**: Setting discharge time only sets hours, minutes are ignored
-- **Tested formats that didn't work**:
-  - `[hours, minutes, 0x00, enable]` - current implementation
-  - `[minutes, hours, 0x00, enable]` - swapped
-  - `[hours, minutes, enable, 0x00]` - swapped last bytes
-  - Total minutes as uint16 LE
-  - Various byte positions
-  - BCD encoding (0x01, 0x30 for 1h 30m)
-  - Combined decimal values
-- **Notes**: Need to capture actual USB traffic when setting time via device buttons to find correct format
-
-## Reset Counters Button
-- **Issue**: Reset Counters button not working correctly
-- **Notes**: May need to find correct USB HID command or sequence
+## Time Limit Setting - RESOLVED
+- **Device protocol has two modes**:
+  - Minutes mode (flag=0x02): `[minutes, 0x00, 0x00, 0x02]` - for times < 60 min
+  - Hours mode (flag=0x01): `[hours, 0x00, 0x00, 0x01]` - for times >= 60 min
+- **Limitation**: Device does NOT support combined hours+minutes. When hours > 0, only whole hours are sent (minutes discarded)
+- **pcapng data verified**:
+  - 10m: `0a 00 00 02` (10 minutes, minutes mode)
+  - 30m: `1e 00 00 02` (30 minutes, minutes mode)
+  - 45m: `2d 00 00 02` (45 minutes, minutes mode)
+  - 1h45m: `01 00 00 01` (1 hour only, hours mode - 45min dropped by PC app!)
+- **Implementation**: Fixed in `set_discharge_time()` to use correct mode based on hours value
 
 ## Device Timing Readout
 - **Issue**: The device time display in the GUI doesn't match the physical device display

@@ -49,11 +49,17 @@ class MainWindow(QMainWindow):
     test_progress = Signal(TestProgress)
     debug_message = Signal(str, str, bytes)  # event_type, message, data
 
+    DEBUG_LOG_FILE = "/Users/steve/Projects/atorch/debug.log"
+
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("aTorch DL24P Control")
         self.setMinimumSize(1200, 800)
+
+        # Clear debug log file on startup
+        with open(self.DEBUG_LOG_FILE, 'w') as f:
+            f.write(f"=== Debug log started {datetime.now().isoformat()} ===\n")
 
         # Core components
         self.device = None  # Created on connect based on type
@@ -444,6 +450,9 @@ class MainWindow(QMainWindow):
         # Clear data before starting new test
         self._clear_data()
 
+        # Clear device counters (mAh, Wh, time)
+        self.device.reset_counters()
+
         # Set current in control panel and device
         self.control_panel.current_spin.setValue(current_a)
         self.device.set_current(current_a)
@@ -452,7 +461,7 @@ class MainWindow(QMainWindow):
         self.control_panel.cutoff_spin.setValue(voltage_cutoff)
         self.device.set_voltage_cutoff(voltage_cutoff)
 
-        # Set duration if specified (timed test) - convert seconds to hours/minutes
+        # Set duration if specified (timed test) - convert to hours/minutes
         if duration_s > 0:
             hours = duration_s // 3600
             minutes = (duration_s % 3600) // 60
@@ -609,6 +618,18 @@ class MainWindow(QMainWindow):
     @Slot(str, str, bytes)
     def _on_debug_message(self, event_type: str, message: str, data: bytes) -> None:
         """Handle debug message in main thread."""
+        # Write to file if debug logging is enabled
+        if hasattr(self, 'control_panel') and self.control_panel.debug_logging_enabled:
+            try:
+                with open(self.DEBUG_LOG_FILE, 'a') as f:
+                    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    f.write(f"[{timestamp}] {event_type}: {message}")
+                    if data:
+                        f.write(f" | data={data[:20].hex()}")
+                    f.write("\n")
+            except Exception:
+                pass
+
         if event_type in ("SEND", "RECV"):
             self.debug_window.log(message, event_type)
             if data:

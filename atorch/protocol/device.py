@@ -427,7 +427,7 @@ class USBHIDDevice:
     SUB_CMD_SET_CUTOFF = 0x22   # Set voltage cutoff
     SUB_CMD_POWER = 0x25      # Turn on/off
     SUB_CMD_SET_DISCHARGE_TIME = 0x31  # Set discharge timeout (hours)
-    SUB_CMD_RESET = 0x47      # Reset counters (suspected)
+    SUB_CMD_CLEAR_DATA = 0x34  # Clear accumulated data (mAh, Wh, time)
 
     # Polling interval (device doesn't push data, we must poll)
     POLL_INTERVAL = 0.5  # seconds
@@ -590,7 +590,7 @@ class USBHIDDevice:
         with self._lock:
             try:
                 cmd = self._build_command(cmd_type, sub_cmd, data)
-                self._debug("SEND", f"Cmd {cmd_type:02x}/{sub_cmd:02x}", cmd[:16])
+                self._debug("SEND", f"Cmd {cmd_type:02x}/{sub_cmd:02x} bytes={cmd[:10].hex()}", cmd[:16])
                 self._device.write(b'\x00' + cmd)
                 return True
             except Exception as e:
@@ -633,9 +633,13 @@ class USBHIDDevice:
         # Offset 4-7: unknown (1.0)
         # Offset 8-11: unknown ratio (~0.99)
         # Offset 12-15: unknown ratio (~0.98)
-        # Offset 16-19: unknown (6.0)
+        # Offset 16-19: voltage cutoff (big-endian float, V)
         # Offset 20-23: temperature (big-endian float, C)
-        # Offset 24-43: various settings
+        # Offset 24-27: unknown
+        # Offset 28-31: unknown
+        # Offset 32: time limit value (hours or minutes depending on mode)
+        # Offset 33: time limit mode? (0x01=hours, 0x02=minutes, 0x00=disabled)
+        # Offset 34-43: other settings
         # Offset 44: flags byte 0 (load on/off)
         # Offset 45-46: unknown
         # Offset 47-48: voltage (big-endian uint16, divide by 100 for V)
@@ -647,7 +651,14 @@ class USBHIDDevice:
             return struct.unpack('>H', payload[offset:offset+2])[0]
 
         current_set = get_float(0)
+        voltage_cutoff = get_float(16)  # Voltage cutoff at offset 16
         temperature = int(get_float(20))
+
+        # Time limit is at offsets 49 (hours) and 50 (minutes)
+        time_limit_hours = payload[49]
+        time_limit_minutes = payload[50]
+
+
         flags = payload[44:48]
 
         # Voltage is at offset 47 as big-endian uint16 / 100
@@ -711,6 +722,11 @@ class USBHIDDevice:
             overvoltage=False,
             overtemperature=False,
             fan_rpm=fan_rpm,
+            # Device settings
+            current_set=current_set,
+            voltage_cutoff=voltage_cutoff,
+            time_limit_hours=time_limit_hours,
+            time_limit_minutes=time_limit_minutes,
         )
 
     def _parse_counters(self, payload: bytes) -> dict:
@@ -852,28 +868,78 @@ class USBHIDDevice:
         self._debug("INFO", f"Setting brightness to {level}")
         return self._send_command(self.CMD_TYPE_SET, 0x22, data)
 
-    def set_discharge_time(self, hours: int, minutes: int = 0) -> bool:
+    def set_standby_brightness(self, level: int) -> bool:
+        """Set standby screen brightness level.
+
+        Args:
+            level: Brightness level (1-9)
+        """
+        # 0x23 controls standby screen brightness
+        level = max(1, min(9, level))  # Clamp to valid range
+        data = bytes([0x00, 0x00, 0x00, level])
+        self._debug("INFO", f"Setting standby brightness to {level}")
+        return self._send_command(self.CMD_TYPE_SET, 0x23, data)
+
+    def set_standby_timeout(self, seconds: int) -> bool:
+        """Set standby timeout in seconds.
+
+        Args:
+            seconds: Standby timeout in seconds (10-60)
+        """
+        # 0x24 controls standby timeout
+        seconds = max(10, min(60, seconds))  # Clamp to valid range
+        data = bytes([0x00, 0x00, 0x00, seconds])
+        self._debug("INFO", f"Setting standby timeout to {seconds}s")
+        return self._send_command(self.CMD_TYPE_SET, 0x24, data)
+
+    def set_discharge_time(self, hours: int = 0, minutes: int = 0) -> bool:
         """Set discharge timeout in hours and minutes.
+
+        The device has two modes:
+        - Minutes mode (enable=0x02): Sets time in minutes (1-59)
+        - Hours mode (enable=0x01): Sets time in whole hours (1+)
+
+        Note: Combined hours+minutes is not supported. When hours > 0,
+        only whole hours are used and minutes are discarded.
 
         Args:
             hours: Discharge timeout hours (0-99)
             minutes: Discharge timeout minutes (0-59)
         """
         # Sub-command 0x31 sets discharge timeout
-        # Format: [hours] [minutes] 00 [enable] where enable=01 to enable, 00 to disable
-        hours = max(0, min(99, hours))  # Clamp to valid range
-        minutes = max(0, min(59, minutes))  # Clamp to valid range
-        enable = 0x01 if (hours > 0 or minutes > 0) else 0x00
-        data = bytes([hours, minutes, 0x00, enable])
-        self._debug("INFO", f"Setting discharge time to {hours}h {minutes}m (enable={enable})")
+        # Format from pcapng analysis:
+        # - Minutes mode: [minutes, 0x00, 0x00, 0x02]
+        # - Hours mode: [hours, 0x00, 0x00, 0x01]
+        hours = max(0, min(99, hours))
+        minutes = max(0, min(59, minutes))
+
+        if hours == 0 and minutes == 0:
+            # Disable timeout - need to clear both hours and minutes
+            # First send hours mode with 0 to clear hours
+            data_hours = bytes([0x00, 0x00, 0x00, 0x01])
+            self._debug("INFO", "Clearing hours (0h in hours mode) - sending data: " + data_hours.hex())
+            self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_DISCHARGE_TIME, data_hours)
+            import time
+            time.sleep(0.1)  # Small delay between commands
+            # Then send minutes mode with 0 to clear minutes
+            data = bytes([0x00, 0x00, 0x00, 0x02])
+            msg = "Clearing minutes (0m in minutes mode)"
+        elif hours == 0:
+            # Minutes mode: time < 60 min
+            data = bytes([minutes, 0x00, 0x00, 0x02])
+            msg = f"Setting discharge time to {minutes}m (minutes mode)"
+        else:
+            # Hours mode: time >= 60 min (minutes are dropped)
+            data = bytes([hours, 0x00, 0x00, 0x01])
+            if minutes > 0:
+                msg = f"Setting discharge time to {hours}h (hours mode, {minutes}m ignored)"
+            else:
+                msg = f"Setting discharge time to {hours}h (hours mode)"
+
+        self._debug("INFO", f"{msg} - sending data: {data.hex()}")
         return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_DISCHARGE_TIME, data)
 
     def reset_counters(self) -> bool:
-        """Reset Wh, mAh, and time counters.
-
-        Note: The reset command (0x47) has been observed in USB captures but
-        may not actually reset counters on all firmware versions. The counters
-        may need to be reset via the device's physical buttons.
-        """
-        self._debug("INFO", "Sending reset counters command (may not work on all devices)")
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_RESET, b'\x00\x00\x00\x00')
+        """Clear accumulated data (mAh, Wh, time counters)."""
+        self._debug("INFO", "Sending clear data command")
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_CLEAR_DATA, b'\x00\x00\x00\x00')
