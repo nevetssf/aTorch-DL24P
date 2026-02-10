@@ -80,7 +80,7 @@ class HistoryPanel(QWidget):
         ])
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSortingEnabled(True)  # Enable sorting by clicking column headers
 
@@ -249,41 +249,86 @@ class HistoryPanel(QWidget):
 
     @Slot()
     def _on_delete(self) -> None:
-        """Delete the selected test file."""
-        current_row = self.table.currentRow()
-        if current_row < 0 or current_row >= len(self._test_files):
-            QMessageBox.information(self, "Delete", "Please select a test file to delete.")
+        """Delete the selected test file(s)."""
+        # Get all selected rows
+        selected_rows = sorted(set(index.row() for index in self.table.selectedIndexes()))
+
+        if not selected_rows:
+            QMessageBox.information(self, "Delete", "Please select test file(s) to delete.")
             return
 
-        file_info = self._test_files[current_row]
+        # Get file info for selected rows
+        files_to_delete = []
+        for row in selected_rows:
+            if 0 <= row < len(self._test_files):
+                files_to_delete.append(self._test_files[row])
+
+        if not files_to_delete:
+            return
+
+        # Confirm deletion
+        if len(files_to_delete) == 1:
+            message = f"Are you sure you want to delete '{files_to_delete[0]['filename']}'?\nThis cannot be undone."
+        else:
+            message = f"Are you sure you want to delete {len(files_to_delete)} test files?\nThis cannot be undone."
 
         reply = QMessageBox.question(
             self,
-            "Delete Test File",
-            f"Are you sure you want to delete '{file_info['filename']}'?\n"
-            "This cannot be undone.",
+            "Delete Test File(s)",
+            message,
             QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
-            try:
-                Path(file_info["path"]).unlink()
-                self.refresh()
-            except Exception as e:
-                QMessageBox.warning(self, "Delete Error", f"Failed to delete file: {e}")
+            failed_files = []
+            for file_info in files_to_delete:
+                try:
+                    Path(file_info["path"]).unlink()
+                except Exception as e:
+                    failed_files.append(f"{file_info['filename']}: {e}")
+
+            self.refresh()
+
+            if failed_files:
+                QMessageBox.warning(
+                    self,
+                    "Delete Error",
+                    f"Failed to delete some files:\n" + "\n".join(failed_files)
+                )
 
     @Slot()
     def _on_show_folder(self) -> None:
-        """Open the test_data folder in the system file manager."""
+        """Open the test_data folder in the system file manager, highlighting selected file if any."""
         import subprocess
         import platform
 
+        # Get selected rows
+        selected_rows = sorted(set(index.row() for index in self.table.selectedIndexes()))
+
+        # If exactly one file is selected, highlight it; otherwise just open folder
+        selected_file = None
+        if len(selected_rows) == 1:
+            row = selected_rows[0]
+            if 0 <= row < len(self._test_files):
+                selected_file = self._test_files[row]["path"]
+
         try:
-            if platform.system() == "Darwin":  # macOS
-                subprocess.run(["open", str(self._test_data_dir)])
-            elif platform.system() == "Windows":
-                subprocess.run(["explorer", str(self._test_data_dir)])
-            else:  # Linux
-                subprocess.run(["xdg-open", str(self._test_data_dir)])
+            system = platform.system()
+            if selected_file:
+                # Highlight/reveal the selected file
+                if system == "Darwin":  # macOS
+                    subprocess.run(["open", "-R", selected_file])
+                elif system == "Windows":
+                    subprocess.run(["explorer", f"/select,{selected_file}"])
+                else:  # Linux - just open folder (no standard way to select file)
+                    subprocess.run(["xdg-open", str(self._test_data_dir)])
+            else:
+                # No file selected or multiple files selected, just open the folder
+                if system == "Darwin":  # macOS
+                    subprocess.run(["open", str(self._test_data_dir)])
+                elif system == "Windows":
+                    subprocess.run(["explorer", str(self._test_data_dir)])
+                else:  # Linux
+                    subprocess.run(["xdg-open", str(self._test_data_dir)])
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to open folder: {e}")

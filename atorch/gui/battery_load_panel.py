@@ -1,19 +1,27 @@
 """Battery Load test panel for stepped load testing."""
 
 import json
+import time
 from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QGroupBox, QFormLayout,
     QLabel, QComboBox, QSpinBox, QDoubleSpinBox, QPushButton, QSpacerItem, QSizePolicy,
-    QMessageBox
+    QMessageBox, QProgressBar, QCheckBox, QLineEdit
 )
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import Signal, Slot, QTimer, Qt
 
 from .battery_info_widget import BatteryInfoWidget
 
 
 class BatteryLoadPanel(QWidget):
     """Panel for battery load testing with stepped current/power/resistance."""
+
+    # Signals
+    manual_save_requested = Signal(str)  # filename
+    session_loaded = Signal(list)  # readings
+    export_csv_requested = Signal()
+    test_started = Signal()  # Emitted when test starts
+    test_stopped = Signal()  # Emitted when test stops (complete or aborted)
 
     def __init__(self):
         super().__init__()
@@ -37,12 +45,25 @@ class BatteryLoadPanel(QWidget):
         # Flag to prevent saving during load
         self._loading_settings = False
 
+        # Test state
+        self._test_running = False
+        self._test_timer = QTimer()
+        self._test_timer.timeout.connect(self._run_test_step)
+        self._current_step = 0
+        self._total_steps = 0
+        self._step_size = 0.0
+        self._current_value = 0.0
+        self._test_start_time = 0
+        self._device = None
+        self._plot_panel = None
+
         self._create_ui()
         self._load_battery_presets_list()
         self._load_test_presets_list()
         self._connect_signals()
         self._connect_save_signals()
         self._load_session()
+        self._update_filename()  # Initialize filename after loading settings
 
     def _create_ui(self):
         """Create the battery load panel UI."""
@@ -85,7 +106,7 @@ class BatteryLoadPanel(QWidget):
         # Min value
         self.min_spin = QDoubleSpinBox()
         self.min_spin.setRange(0.0, 100000.0)
-        self.min_spin.setDecimals(3)
+        self.min_spin.setDecimals(1)
         self.min_spin.setValue(10.0)
         self.min_spin.setSuffix(" mA")
         params_layout.addRow("Min:", self.min_spin)
@@ -93,18 +114,26 @@ class BatteryLoadPanel(QWidget):
         # Max value
         self.max_spin = QDoubleSpinBox()
         self.max_spin.setRange(0.0, 100000.0)
-        self.max_spin.setDecimals(3)
+        self.max_spin.setDecimals(1)
         self.max_spin.setValue(100.0)
         self.max_spin.setSuffix(" mA")
         params_layout.addRow("Max:", self.max_spin)
 
-        # Step value
-        self.step_spin = QDoubleSpinBox()
-        self.step_spin.setRange(0.001, 10000.0)
-        self.step_spin.setDecimals(3)
-        self.step_spin.setValue(10.0)
-        self.step_spin.setSuffix(" mA")
-        params_layout.addRow("Step:", self.step_spin)
+        # Number of steps with preset dropdown
+        num_steps_layout = QHBoxLayout()
+        self.num_steps_spin = QSpinBox()
+        self.num_steps_spin.setRange(2, 1000)
+        self.num_steps_spin.setValue(10)
+        num_steps_layout.addWidget(self.num_steps_spin)
+
+        self.num_steps_preset_combo = QComboBox()
+        self.num_steps_preset_combo.addItem("Presets...")  # Placeholder
+        self.num_steps_preset_combo.addItems(["5", "10", "20", "30", "40", "50"])
+        self.num_steps_preset_combo.setCurrentIndex(0)  # Show placeholder
+        self.num_steps_preset_combo.currentTextChanged.connect(self._on_num_steps_preset_changed)
+        num_steps_layout.addWidget(self.num_steps_preset_combo)
+
+        params_layout.addRow("# Steps:", num_steps_layout)
 
         # Settle time
         self.settle_time_spin = QSpinBox()
@@ -112,6 +141,14 @@ class BatteryLoadPanel(QWidget):
         self.settle_time_spin.setValue(5)
         self.settle_time_spin.setSuffix(" s")
         params_layout.addRow("Settle Time:", self.settle_time_spin)
+
+        # Voltage cutoff
+        self.v_cutoff_spin = QDoubleSpinBox()
+        self.v_cutoff_spin.setRange(0.0, 60.0)
+        self.v_cutoff_spin.setDecimals(2)
+        self.v_cutoff_spin.setValue(3.0)
+        self.v_cutoff_spin.setSuffix(" V")
+        params_layout.addRow("V Cutoff:", self.v_cutoff_spin)
 
         conditions_layout.addWidget(params_group)
         conditions_layout.addStretch()
@@ -124,23 +161,58 @@ class BatteryLoadPanel(QWidget):
 
         # Right: Test Control
         control_group = QGroupBox("Test Control")
-        control_group.setFixedWidth(200)
         control_layout = QVBoxLayout(control_group)
 
-        # Placeholder buttons for now (will be defined later)
+        # Start/Abort button
         self.start_btn = QPushButton("Start")
-        self.start_btn.setEnabled(False)  # Disabled until implemented
+        self.start_btn.setEnabled(False)  # Disabled until device connected
         control_layout.addWidget(self.start_btn)
 
-        self.pause_btn = QPushButton("Pause")
-        self.pause_btn.setEnabled(False)
-        control_layout.addWidget(self.pause_btn)
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        control_layout.addWidget(self.progress_bar)
 
-        self.abort_btn = QPushButton("Abort")
-        self.abort_btn.setEnabled(False)
-        control_layout.addWidget(self.abort_btn)
+        # Status label
+        self.status_label = QLabel("Not Connected")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color: red;")
+        control_layout.addWidget(self.status_label)
 
+        # Time label
+        self.time_label = QLabel("0h 0m 0s")
+        self.time_label.setAlignment(Qt.AlignCenter)
+        control_layout.addWidget(self.time_label)
+
+        # Add stretch to push file-related controls to bottom
         control_layout.addStretch()
+
+        # Auto Save section
+        autosave_layout = QHBoxLayout()
+        self.autosave_checkbox = QCheckBox("Auto Save")
+        self.autosave_checkbox.setChecked(True)
+        autosave_layout.addWidget(self.autosave_checkbox)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setMaximumWidth(50)
+        self.save_btn.setEnabled(False)  # Disabled when Auto Save is checked
+        autosave_layout.addWidget(self.save_btn)
+        self.load_btn = QPushButton("Load")
+        self.load_btn.setMaximumWidth(50)
+        autosave_layout.addWidget(self.load_btn)
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setMaximumWidth(60)
+        autosave_layout.addWidget(self.export_btn)
+        self.show_folder_btn = QPushButton("Show Folder")
+        self.show_folder_btn.setMaximumWidth(80)
+        autosave_layout.addWidget(self.show_folder_btn)
+        control_layout.addLayout(autosave_layout)
+
+        # Filename text field
+        self.filename_edit = QLineEdit()
+        self.filename_edit.setReadOnly(True)  # Read-only when Auto Save is checked
+        self.filename_edit.setPlaceholderText("Test filename...")
+        control_layout.addWidget(self.filename_edit)
 
         layout.addWidget(control_group)
         layout.addStretch()
@@ -151,33 +223,33 @@ class BatteryLoadPanel(QWidget):
             suffix = " mA"
             self.min_spin.setRange(0.0, 25000.0)
             self.max_spin.setRange(0.0, 25000.0)
-            self.step_spin.setRange(0.001, 5000.0)
             # Reset to current defaults
             self.min_spin.setValue(10.0)
             self.max_spin.setValue(100.0)
-            self.step_spin.setValue(10.0)
         elif load_type == "Power":
             suffix = " mW"
             self.min_spin.setRange(0.0, 100000.0)
             self.max_spin.setRange(0.0, 100000.0)
-            self.step_spin.setRange(0.001, 10000.0)
             # Reset to power defaults
             self.min_spin.setValue(100.0)
             self.max_spin.setValue(1000.0)
-            self.step_spin.setValue(100.0)
         elif load_type == "Resistance":
             suffix = " Ω"
             self.min_spin.setRange(0.1, 10000.0)
             self.max_spin.setRange(0.1, 10000.0)
-            self.step_spin.setRange(0.1, 1000.0)
             # Reset to resistance defaults
             self.min_spin.setValue(1.0)
             self.max_spin.setValue(10.0)
-            self.step_spin.setValue(1.0)
 
         self.min_spin.setSuffix(suffix)
         self.max_spin.setSuffix(suffix)
-        self.step_spin.setSuffix(suffix)
+
+    def _on_num_steps_preset_changed(self, value: str):
+        """Update spinbox when preset is selected from dropdown."""
+        if value and value.isdigit():
+            self.num_steps_spin.setValue(int(value))
+            # Reset combo to placeholder after applying
+            self.num_steps_preset_combo.setCurrentIndex(0)
 
     def _connect_signals(self):
         """Connect battery preset and test preset signals."""
@@ -190,6 +262,14 @@ class BatteryLoadPanel(QWidget):
         self.test_presets_combo.currentIndexChanged.connect(self._on_test_preset_selected)
         self.save_test_preset_btn.clicked.connect(self._save_test_preset)
         self.delete_test_preset_btn.clicked.connect(self._delete_test_preset)
+
+        # Test control signals
+        self.start_btn.clicked.connect(self._on_start_abort_clicked)
+        self.autosave_checkbox.toggled.connect(self._on_autosave_toggled)
+        self.save_btn.clicked.connect(self._on_save_clicked)
+        self.load_btn.clicked.connect(self._on_load_clicked)
+        self.export_btn.clicked.connect(self._on_export_clicked)
+        self.show_folder_btn.clicked.connect(self._on_show_folder_clicked)
 
     def _load_presets_file(self, relative_path: str) -> dict:
         """Load a presets file from resources directory."""
@@ -389,7 +469,7 @@ class BatteryLoadPanel(QWidget):
             self.load_type_combo.setCurrentText(load_type)
             self.min_spin.setValue(preset_data.get("min", 10.0))
             self.max_spin.setValue(preset_data.get("max", 100.0))
-            self.step_spin.setValue(preset_data.get("step", 10.0))
+            self.num_steps_spin.setValue(preset_data.get("num_steps", 10))
             self.settle_time_spin.setValue(preset_data.get("settle_time", 5))
 
     def _save_test_preset(self):
@@ -410,7 +490,7 @@ class BatteryLoadPanel(QWidget):
             "load_type": self.load_type_combo.currentText(),
             "min": self.min_spin.value(),
             "max": self.max_spin.value(),
-            "step": self.step_spin.value(),
+            "num_steps": self.num_steps_spin.value(),
             "settle_time": self.settle_time_spin.value()
         }
         safe_name = "".join(c for c in preset_name if c.isalnum() or c in (' ', '-', '_')).strip()
@@ -451,18 +531,290 @@ class BatteryLoadPanel(QWidget):
             except Exception as e:
                 QMessageBox.warning(self, "Delete Error", f"Failed to delete preset: {e}")
 
+    def set_device_and_plot(self, device, plot_panel):
+        """Set the device and plot panel references."""
+        self._device = device
+        self._plot_panel = plot_panel
+        # Update UI based on connection status
+        self.set_connected(device is not None)
+
+    def _on_start_abort_clicked(self):
+        """Handle Start/Abort button click."""
+        if self._test_running:
+            self._abort_test()
+        else:
+            self._start_test()
+
+    def _start_test(self):
+        """Start the stepped load test."""
+        if not self._device:
+            QMessageBox.warning(self, "No Device", "Please connect a device first.")
+            return
+
+        # Get test parameters
+        load_type = self.load_type_combo.currentText()
+        min_val = self.min_spin.value()
+        max_val = self.max_spin.value()
+        num_steps = self.num_steps_spin.value()
+        settle_time = self.settle_time_spin.value()
+        v_cutoff = self.v_cutoff_spin.value()
+
+        # Validate parameters
+        if min_val >= max_val:
+            QMessageBox.warning(self, "Invalid Parameters", "Min must be less than Max.")
+            return
+        if num_steps < 2:
+            QMessageBox.warning(self, "Invalid Parameters", "# Steps must be at least 2.")
+            return
+
+        # Emit signal that test is starting (triggers logging in main window)
+        self.test_started.emit()
+
+        # Calculate step size
+        self._total_steps = num_steps
+        self._step_size = (max_val - min_val) / (num_steps - 1)
+        self._current_step = 0
+        self._current_value = min_val
+
+        # Set device mode
+        mode_map = {"Current": 0, "Power": 1, "Resistance": 3}  # CC=0, CP=1, CR=3
+        mode = mode_map.get(load_type, 0)
+
+        try:
+            # Set voltage cutoff
+            self._device.set_voltage_cutoff(v_cutoff)
+
+            # Set mode and initial value
+            if load_type == "Current":
+                self._device.set_current(min_val / 1000.0)  # Convert mA to A
+            elif load_type == "Power":
+                self._device.set_power(min_val / 1000.0)  # Convert mW to W
+            elif load_type == "Resistance":
+                self._device.set_resistance(min_val)  # Ohms
+
+            # Turn on load
+            self._device.turn_on()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Device Error", f"Failed to configure device: {e}")
+            return
+
+        # Switch plot to show Load Type vs Voltage
+        if self._plot_panel:
+            x_axis_name = {"Current": "Current", "Power": "Power", "Resistance": "Load R"}
+            self._plot_panel.x_axis_combo.setCurrentText(x_axis_name.get(load_type, "Current"))
+            # Enable Voltage on Y-axis
+            if "V" in self._plot_panel._checkboxes:
+                self._plot_panel._checkboxes["V"].setChecked(True)
+
+        # Update UI
+        self.start_btn.setText("Abort")
+        self.status_label.setText(f"Step 1/{self._total_steps}: {min_val:.3f}")
+        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+        self.progress_bar.setValue(0)
+        self._test_running = True
+        self._test_start_time = time.time()
+
+        # Start timer for first settle period
+        self._test_timer.start(settle_time * 1000)  # Convert seconds to milliseconds
+
+    def _abort_test(self):
+        """Abort the running test."""
+        self._test_timer.stop()
+
+        # Turn off load
+        if self._device:
+            try:
+                self._device.turn_off()
+            except Exception:
+                pass  # Ignore errors during abort
+
+        self._finish_test()
+
+    def _run_test_step(self):
+        """Execute one step of the test."""
+        self._test_timer.stop()
+
+        # Check if device is still connected
+        if not self._device or not self._device.is_connected:
+            QMessageBox.critical(self, "Connection Lost", "Device disconnected during test.")
+            self._abort_test()
+            return
+
+        # Move to next step
+        self._current_step += 1
+
+        # Check if test is complete
+        if self._current_step >= self._total_steps:
+            self._finish_test()
+            return
+
+        # Calculate next value
+        self._current_value = self.min_spin.value() + (self._current_step * self._step_size)
+
+        # Set new load value
+        load_type = self.load_type_combo.currentText()
+        try:
+            if load_type == "Current":
+                self._device.set_current(self._current_value / 1000.0)  # Convert mA to A
+            elif load_type == "Power":
+                self._device.set_power(self._current_value / 1000.0)  # Convert mW to W
+            elif load_type == "Resistance":
+                self._device.set_resistance(self._current_value)  # Ohms
+        except Exception as e:
+            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Device Error", f"Failed to set load: {e}")
+            self._abort_test()
+            return
+
+        # Update UI
+        progress = int((self._current_step / self._total_steps) * 100)
+        self.progress_bar.setValue(progress)
+        self.status_label.setText(f"Step {self._current_step + 1}/{self._total_steps}: {self._current_value:.3f}")
+        self._update_test_time()
+
+        # Start timer for next settle period
+        settle_time = self.settle_time_spin.value()
+        self._test_timer.start(settle_time * 1000)
+
+    def _update_test_time(self):
+        """Update the time label."""
+        elapsed = time.time() - self._test_start_time
+        hours = int(elapsed // 3600)
+        minutes = int((elapsed % 3600) // 60)
+        seconds = int(elapsed % 60)
+        self.time_label.setText(f"{hours}h {minutes}m {seconds}s")
+
+    def _finish_test(self, status: str = "Test Complete"):
+        """Clean up when test completes."""
+        # Emit signal that test is stopping (triggers auto-save in main window)
+        self.test_stopped.emit()
+
+        # Turn off load
+        if self._device:
+            try:
+                self._device.turn_off()
+            except Exception:
+                pass
+
+        # Update UI
+        self.start_btn.setText("Start")
+        # Only update status if not already showing an error
+        if not self.status_label.text().startswith("Error") and not self.status_label.text().startswith("Connection Lost"):
+            self.status_label.setText(status)
+        self.progress_bar.setValue(100)
+        self._update_test_time()
+        self._test_running = False
+
+    def set_connected(self, connected: bool):
+        """Update UI based on connection status."""
+        self.start_btn.setEnabled(connected and not self._test_running)
+        if not connected:
+            self.status_label.setText("Not Connected")
+            self.status_label.setStyleSheet("color: red;")
+        elif not self._test_running:
+            self.status_label.setText("Ready")
+            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+
+    def generate_test_filename(self) -> str:
+        """Generate a test filename based on battery info and test conditions."""
+        import datetime
+        battery_name = self.battery_info_widget.battery_name_edit.text().strip()
+        if not battery_name:
+            battery_name = "Battery"
+        # Replace spaces and special chars with underscores
+        safe_name = "".join(c if c.isalnum() else "_" for c in battery_name)
+        load_type = self.load_type_combo.currentText()
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"{safe_name}_{load_type}_{timestamp}.json"
+
+    def _update_filename(self):
+        """Update the filename field with auto-generated name."""
+        if self.autosave_checkbox.isChecked():
+            self.filename_edit.setText(self.generate_test_filename())
+
+    @Slot(bool)
+    def _on_autosave_toggled(self, checked: bool):
+        """Handle Auto Save checkbox toggle."""
+        self.filename_edit.setReadOnly(checked)
+        self.save_btn.setEnabled(not checked)
+        if checked:
+            # Reset to auto-generated filename
+            self._update_filename()
+
+    @Slot()
+    def _on_save_clicked(self):
+        """Handle manual Save button click."""
+        filename = self.filename_edit.text().strip()
+        if filename:
+            # Ensure .json extension
+            if not filename.endswith('.json'):
+                filename += '.json'
+            self.manual_save_requested.emit(filename)
+
+    @Slot()
+    def _on_load_clicked(self):
+        """Handle Load button click."""
+        from PySide6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Test Data",
+            str(self._atorch_dir / "test_data"),
+            "JSON Files (*.json)"
+        )
+        if file_path:
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+
+                # Update filename to show loaded file
+                self.filename_edit.setText(Path(file_path).name)
+
+                # Emit readings for display
+                readings = data.get("readings", [])
+                if readings:
+                    self.session_loaded.emit(readings)
+
+            except Exception as e:
+                QMessageBox.warning(self, "Load Error", f"Failed to load file: {e}")
+
+    @Slot()
+    def _on_export_clicked(self):
+        """Handle Export button click."""
+        self.export_csv_requested.emit()
+
+    @Slot()
+    def _on_show_folder_clicked(self):
+        """Handle Show Folder button click - open test_data folder in system file browser."""
+        import platform
+        import subprocess
+        folder_path = self._atorch_dir / "test_data"
+        folder_path.mkdir(parents=True, exist_ok=True)
+
+        system = platform.system()
+        if system == "Darwin":  # macOS
+            subprocess.run(["open", str(folder_path)])
+        elif system == "Windows":
+            subprocess.run(["explorer", str(folder_path)])
+        else:  # Linux and others
+            subprocess.run(["xdg-open", str(folder_path)])
+
     def _connect_save_signals(self):
         """Connect all form fields to save settings when changed."""
         # Test Conditions fields
         self.load_type_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.min_spin.valueChanged.connect(self._on_settings_changed)
         self.max_spin.valueChanged.connect(self._on_settings_changed)
-        self.step_spin.valueChanged.connect(self._on_settings_changed)
+        self.num_steps_spin.valueChanged.connect(self._on_settings_changed)
         self.settle_time_spin.valueChanged.connect(self._on_settings_changed)
+        self.v_cutoff_spin.valueChanged.connect(self._on_settings_changed)
         self.test_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
         # Battery Info fields (via widget signal)
         self.battery_info_widget.settings_changed.connect(self._on_settings_changed)
+
+        # Auto Save checkbox
+        self.autosave_checkbox.toggled.connect(self._on_settings_changed)
 
     @Slot()
     def _on_settings_changed(self):
@@ -480,11 +832,13 @@ class BatteryLoadPanel(QWidget):
                 "load_type": self.load_type_combo.currentText(),
                 "min": self.min_spin.value(),
                 "max": self.max_spin.value(),
-                "step": self.step_spin.value(),
+                "num_steps": self.num_steps_spin.value(),
                 "settle_time": self.settle_time_spin.value(),
+                "v_cutoff": self.v_cutoff_spin.value(),
                 "preset": self.test_presets_combo.currentText(),
             },
             "battery_info": battery_info,
+            "autosave": self.autosave_checkbox.isChecked(),
         }
 
         try:
@@ -526,10 +880,12 @@ class BatteryLoadPanel(QWidget):
                 self.min_spin.setValue(test_config["min"])
             if "max" in test_config:
                 self.max_spin.setValue(test_config["max"])
-            if "step" in test_config:
-                self.step_spin.setValue(test_config["step"])
+            if "num_steps" in test_config:
+                self.num_steps_spin.setValue(test_config["num_steps"])
             if "settle_time" in test_config:
                 self.settle_time_spin.setValue(test_config["settle_time"])
+            if "v_cutoff" in test_config:
+                self.v_cutoff_spin.setValue(test_config["v_cutoff"])
 
             # Load Battery Info
             battery_info = settings.get("battery_info", {})
@@ -545,5 +901,34 @@ class BatteryLoadPanel(QWidget):
                 # Then set the battery info values
                 self.battery_info_widget.set_battery_info(battery_info)
 
+            # Load Auto Save setting
+            if "autosave" in settings:
+                self.autosave_checkbox.setChecked(settings["autosave"])
+
         finally:
             self._loading_settings = False
+            # Update filename after loading settings
+            self._update_filename()
+
+    def get_test_config(self) -> dict:
+        """Get current test configuration as a dictionary.
+
+        Returns:
+            Dictionary with load_type, min, max, step, settle_time, v_cutoff
+        """
+        return {
+            "load_type": self.load_type_combo.currentText(),
+            "min": self.min_spin.value(),
+            "max": self.max_spin.value(),
+            "num_steps": self.num_steps_spin.value(),
+            "settle_time": self.settle_time_spin.value(),
+            "voltage_cutoff": self.v_cutoff_spin.value(),
+        }
+
+    def get_battery_info(self) -> dict:
+        """Get current battery info as a dictionary.
+
+        Returns:
+            Dictionary with battery information
+        """
+        return self.battery_info_widget.get_battery_info()

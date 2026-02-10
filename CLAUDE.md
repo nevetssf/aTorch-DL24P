@@ -6,6 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 aTorch DL24P Control is a PySide6 GUI application for controlling the aTorch DL24P electronic load via USB HID. Used primarily for battery discharge testing with real-time data visualization.
 
+## Development Guidelines
+
+**IMPORTANT**: Always verify method names and API calls before implementing functionality:
+- Do NOT assume method names - always check the actual implementation in the codebase
+- Use Grep or Read tools to verify the correct method signatures
+- Example: Device control uses `turn_on()` and `turn_off()`, NOT `set_load_on()`
+- Check both `Device` and `USBHIDDevice` classes as they should have identical APIs
+- When in doubt, search the codebase for existing usage patterns
+
 ## Commands
 
 ```bash
@@ -58,6 +67,32 @@ Both use a polling thread that queries the device every 500ms for:
 2. Status callback triggers `MainWindow._on_status_updated()`
 3. MainWindow emits `status_updated` signal to all panels
 4. Each panel updates its UI from the `DeviceStatus` dataclass
+
+### Graph Display Configuration by Test Type
+
+When loading test data from the History panel, the graph axes should be configured appropriately for each test type:
+
+**Battery Capacity:**
+- X-axis: Time
+- Y-axis: Voltage (V) enabled by default
+- Purpose: Shows voltage discharge curve over time
+
+**Battery Load:**
+- X-axis: Current, Power, or Load R (depending on load_type in test_config)
+  - Current tests: X = Current (A)
+  - Power tests: X = Power (W)
+  - Resistance tests: X = Load R (Ω)
+- Y-axis: Voltage (V) enabled by default
+- Purpose: Shows voltage vs. load characteristic curve
+
+**Future Test Types:**
+As new test panels are implemented, add their graph configurations here:
+- Battery Charger: TBD
+- Cable Resistance: TBD
+- Charger: TBD
+- Power Bank: TBD
+
+Implementation: See `_on_history_json_selected()` and `_load_battery_load_history()` in `main_window.py`
 
 ### Test Automation (`atorch/automation/`)
 

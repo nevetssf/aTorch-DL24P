@@ -222,6 +222,9 @@ class MainWindow(QMainWindow):
         self.history_panel.json_file_selected.connect(self._on_history_json_selected)
         self.bottom_tabs.addTab(self.history_panel, "History")
 
+        # Auto-refresh history panel when tab is activated
+        self.bottom_tabs.currentChanged.connect(self._on_tab_changed)
+
         # Connect automation panel signals
         self.automation_panel.start_test_requested.connect(self._on_automation_start)
         self.automation_panel.pause_test_requested.connect(self._on_automation_pause)
@@ -230,6 +233,13 @@ class MainWindow(QMainWindow):
         self.automation_panel.manual_save_requested.connect(self._on_manual_save)
         self.automation_panel.session_loaded.connect(self._on_session_loaded)
         self.automation_panel.export_csv_requested.connect(self._on_export_csv)
+
+        # Connect battery load panel signals
+        self.battery_load_panel.test_started.connect(self._on_battery_load_start)
+        self.battery_load_panel.test_stopped.connect(self._on_battery_load_stop)
+        self.battery_load_panel.manual_save_requested.connect(self._on_battery_load_save)
+        self.battery_load_panel.session_loaded.connect(self._on_session_loaded)
+        self.battery_load_panel.export_csv_requested.connect(self._on_export_csv)
 
         automation_content_layout.addWidget(self.bottom_tabs)
         self.automation_content.setFixedHeight(380)
@@ -368,6 +378,9 @@ class MainWindow(QMainWindow):
             self.control_panel.test_runner = self.test_runner
             self.automation_panel.test_runner = self.test_runner
 
+            # Set device and plot references for Battery Load panel
+            self.battery_load_panel.set_device_and_plot(self.device, self.plot_panel)
+
             self.connection_changed.emit(True)
             conn_type_str = "USB HID" if connection_type == ConnectionType.USB_HID else "Serial"
             self.statusbar.showMessage(f"Connected ({conn_type_str}): {self.device.port}")
@@ -391,11 +404,48 @@ class MainWindow(QMainWindow):
         # Stop the test (update automation panel UI)
         self.automation_panel._update_ui_stopped()
 
+        # Clear device references from Battery Load panel
+        self.battery_load_panel.set_device_and_plot(None, None)
+
         # Disconnect
         if self.device:
             self.device.disconnect()
         self.connection_changed.emit(False)
         self.statusbar.showMessage("Disconnected")
+
+    def _try_auto_connect(self) -> bool:
+        """Attempt to auto-connect if a DL24 device is detected in port list.
+
+        Returns:
+            True if connected (or already connected), False if connection failed
+        """
+        # Already connected
+        if self.device and self.device.is_connected:
+            return True
+
+        # Check if port looks like DL24
+        port = self.control_panel.selected_port
+        if not port:
+            return False
+
+        # Get the port display text to check for DL24
+        port_text = self.control_panel.port_combo.currentText()
+        if "DL24" not in port_text.upper():
+            return False
+
+        # Try to connect
+        try:
+            self._connect_device()
+            # Give it a moment to connect
+            QTimer.singleShot(100, lambda: None)  # Brief pause
+            return self.device and self.device.is_connected
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Auto-Connect Failed",
+                f"Could not connect to DL24 device:\n{e}\n\nPlease connect manually."
+            )
+            return False
 
     @Slot(bool)
     def _toggle_logging(self, enabled: bool) -> None:
@@ -665,6 +715,17 @@ class MainWindow(QMainWindow):
             "Control your aTorch DL24P electronic load and log battery discharge data.",
         )
 
+    @Slot(int)
+    def _on_tab_changed(self, index: int) -> None:
+        """Handle tab change - refresh history panel when it's activated.
+
+        Args:
+            index: The index of the newly activated tab
+        """
+        # Check if the History tab was activated (it's the last tab)
+        if index == self.bottom_tabs.count() - 1:
+            self.history_panel.refresh()
+
     @Slot(str, str)
     def _on_history_json_selected(self, file_path: str, test_panel_type: str) -> None:
         """Handle JSON file selection from history panel.
@@ -687,8 +748,8 @@ class MainWindow(QMainWindow):
         tab_index = panel_type_to_tab.get(test_panel_type, 0)
         self.bottom_tabs.setCurrentIndex(tab_index)
 
-        # Only load data for battery_capacity type (others are placeholders)
-        if test_panel_type != "battery_capacity":
+        # Only load data for battery_capacity and battery_load types (others are placeholders)
+        if test_panel_type not in ("battery_capacity", "battery_load"):
             self.statusbar.showMessage(f"Selected {test_panel_type.replace('_', ' ').title()} test file (panel not yet implemented)")
             return
 
@@ -697,6 +758,11 @@ class MainWindow(QMainWindow):
                 data = json.load(f)
         except Exception as e:
             QMessageBox.warning(self, "Load Error", f"Failed to load file: {e}")
+            return
+
+        # Handle battery_load test type
+        if test_panel_type == "battery_load":
+            self._load_battery_load_history(file_path, data)
             return
 
         # Load test configuration into automation panel
@@ -743,13 +809,76 @@ class MainWindow(QMainWindow):
             # Update filename
             self.automation_panel.filename_edit.setText(Path(file_path).name)
 
+            # Set graph axes for battery capacity (Voltage vs Time)
+            self.plot_panel.x_axis_combo.setCurrentText("Time")
+            if "V" in self.plot_panel._checkboxes:
+                self.plot_panel._checkboxes["V"].setChecked(True)
+
             # Load readings for display
             readings = data.get("readings", [])
             if readings:
                 self._on_session_loaded(readings)
 
+            self.statusbar.showMessage(f"Loaded Battery Capacity test: {Path(file_path).name}")
+
         finally:
             self.automation_panel._loading_settings = False
+
+    def _load_battery_load_history(self, file_path: str, data: dict) -> None:
+        """Load battery load test data from history.
+
+        Args:
+            file_path: Path to the JSON file
+            data: Parsed JSON data
+        """
+        # Load test configuration into battery load panel
+        self.battery_load_panel._loading_settings = True
+        try:
+            test_config = data.get("test_config", {})
+            if "load_type" in test_config:
+                self.battery_load_panel.load_type_combo.setCurrentText(test_config["load_type"])
+            if "min" in test_config:
+                self.battery_load_panel.min_spin.setValue(test_config["min"])
+            if "max" in test_config:
+                self.battery_load_panel.max_spin.setValue(test_config["max"])
+            if "num_steps" in test_config:
+                self.battery_load_panel.num_steps_spin.setValue(test_config["num_steps"])
+            if "settle_time" in test_config:
+                self.battery_load_panel.settle_time_spin.setValue(test_config["settle_time"])
+            if "voltage_cutoff" in test_config:
+                self.battery_load_panel.v_cutoff_spin.setValue(test_config["voltage_cutoff"])
+
+            # Load battery info
+            battery_info = data.get("battery_info", {})
+            if battery_info:
+                self.battery_load_panel.battery_info_widget.set_battery_info(battery_info)
+
+            # Update filename
+            self.battery_load_panel.filename_edit.setText(Path(file_path).name)
+
+            # Set graph axes based on load type
+            load_type = test_config.get("load_type", "Current")
+            x_axis_map = {
+                "Current": "Current",
+                "Power": "Power",
+                "Resistance": "Load R",
+            }
+            x_axis = x_axis_map.get(load_type, "Current")
+            self.plot_panel.x_axis_combo.setCurrentText(x_axis)
+
+            # Enable Voltage on Y-axis for battery load tests
+            if "V" in self.plot_panel._checkboxes:
+                self.plot_panel._checkboxes["V"].setChecked(True)
+
+            # Load readings for display
+            readings = data.get("readings", [])
+            if readings:
+                self._on_session_loaded(readings)
+
+            self.statusbar.showMessage(f"Loaded Battery Load test: {Path(file_path).name}")
+
+        finally:
+            self.battery_load_panel._loading_settings = False
 
     @Slot(int, float, float, int)
     def _on_automation_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
@@ -780,8 +909,10 @@ class MainWindow(QMainWindow):
                 self._toggle_logging(False)
             return
 
+        # Auto-connect if DL24 device detected and not connected
         if not self.device or not self.device.is_connected:
-            return
+            if not self._try_auto_connect():
+                return
 
         # Clear data and previous session before starting new test
         self._clear_data()
@@ -884,6 +1015,97 @@ class MainWindow(QMainWindow):
         saved_path = self._save_test_json(filename)
         if saved_path:
             self.statusbar.showMessage(f"Saved: {saved_path}")
+
+    @Slot()
+    def _on_battery_load_start(self) -> None:
+        """Handle test start from battery load panel."""
+        # Auto-connect if DL24 device detected and not connected
+        if not self.device or not self.device.is_connected:
+            if not self._try_auto_connect():
+                return
+
+        # Clear data and previous session before starting new test
+        self._clear_data()
+        self._last_completed_session = None
+
+        # Clear device counters (mAh, Wh, time)
+        self.device.reset_counters()
+
+        # Start logging (which also turns on the load)
+        if not self._logging_enabled:
+            self.status_panel.log_switch.setChecked(True)
+            self._toggle_logging(True)
+
+        self.statusbar.showMessage("Battery Load test started")
+
+    @Slot()
+    def _on_battery_load_stop(self) -> None:
+        """Handle test stop from battery load panel."""
+        # Stop logging and save data if auto-save is enabled
+        if self._logging_enabled:
+            num_readings = len(self._accumulated_readings)
+            # Save test data to JSON if auto-save is enabled
+            if self.battery_load_panel.autosave_checkbox.isChecked():
+                saved_path = self._save_battery_load_json()
+                if saved_path:
+                    self.statusbar.showMessage(
+                        f"Battery Load test complete: {num_readings} readings saved to {saved_path}"
+                    )
+                    # Refresh history panel to show new file
+                    self.history_panel.refresh()
+                else:
+                    self.statusbar.showMessage(
+                        f"Battery Load test complete: {num_readings} readings - click Save to export"
+                    )
+            else:
+                self.statusbar.showMessage(
+                    f"Battery Load test complete: {num_readings} readings - click Save to export"
+                )
+            self.status_panel.log_switch.setChecked(False)
+            self._toggle_logging(False)
+
+    @Slot(str)
+    def _on_battery_load_save(self, filename: str) -> None:
+        """Handle manual save request from battery load panel.
+
+        Args:
+            filename: The filename to save as
+        """
+        if not self._accumulated_readings:
+            self.statusbar.showMessage("No data to save")
+            return
+
+        saved_path = self._save_battery_load_json(filename)
+        if saved_path:
+            self.statusbar.showMessage(f"Saved: {saved_path}")
+            # Refresh history panel to show new file
+            self.history_panel.refresh()
+
+    def _save_battery_load_json(self, filename: Optional[str] = None) -> Optional[str]:
+        """Save battery load test data to JSON file.
+
+        Args:
+            filename: Optional filename to use. If None, uses the filename from battery load panel.
+
+        Returns:
+            Path to saved file, or None if save failed
+        """
+        # Get test configuration and battery info from battery load panel
+        test_config = self.battery_load_panel.get_test_config()
+        battery_info = self.battery_load_panel.get_battery_info()
+
+        # Use provided filename or get from battery load panel
+        if filename is None:
+            filename = self.battery_load_panel.filename_edit.text().strip()
+            if not filename:
+                filename = self.battery_load_panel.generate_test_filename()
+
+        result = self._write_test_json(filename, test_config, battery_info,
+                                       list(self._accumulated_readings),
+                                       test_panel_type="battery_load")
+        if result is None:
+            self.statusbar.showMessage("Failed to save test data")
+        return result
 
     @Slot(list)
     def _on_session_loaded(self, readings: list) -> None:
@@ -1175,9 +1397,22 @@ class MainWindow(QMainWindow):
                 self._last_completed_session = self._current_session
                 self._current_session = None
             self._logging_start_time = None
-            # Also stop the automation test
+
+            # Check which panel has an active test and stop it
+            # Stop the automation test if running
             self.automation_panel._update_ui_stopped()
-            # Save test data to JSON if auto-save is enabled
+
+            # Stop battery load test if running
+            if self.battery_load_panel._test_running:
+                # Stop the test timer and update UI directly (don't call _abort_test to avoid re-triggering logging stop)
+                self.battery_load_panel._test_timer.stop()
+                self.battery_load_panel.start_btn.setText("Start")
+                self.battery_load_panel.status_label.setText("Test Aborted (Load Off)")
+                self.battery_load_panel.progress_bar.setValue(100)
+                self.battery_load_panel._test_running = False
+                # Note: Don't emit test_stopped here since logging is already handled above
+
+            # Save test data to JSON if auto-save is enabled (check both panels)
             if self.automation_panel.autosave_checkbox.isChecked():
                 saved_path = self._save_test_json()
                 if saved_path:
@@ -1187,6 +1422,18 @@ class MainWindow(QMainWindow):
                 else:
                     self.statusbar.showMessage(
                         f"Test complete: {num_readings} readings - click Save to export"
+                    )
+            elif self.battery_load_panel.autosave_checkbox.isChecked():
+                saved_path = self._save_battery_load_json()
+                if saved_path:
+                    self.statusbar.showMessage(
+                        f"Battery Load test complete: {num_readings} readings saved to {saved_path}"
+                    )
+                    # Refresh history panel to show new file
+                    self.history_panel.refresh()
+                else:
+                    self.statusbar.showMessage(
+                        f"Battery Load test complete: {num_readings} readings - click Save to export"
                     )
             else:
                 self.statusbar.showMessage(

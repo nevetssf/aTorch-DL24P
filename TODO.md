@@ -16,6 +16,7 @@ The following test automation tabs are placeholders and need implementation:
 - Export to Excel format improvements
 - Historical data comparison/overlay features
 - Gzip-compressed JSON (.json.gz) for smaller session files (built-in `gzip` module, 70-90% compression)
+- **Clean up parameter naming above the chart** - Review and standardize the labels and units displayed in the control/status area above the plot panel for better clarity and consistency
 
 ---
 
@@ -42,6 +43,14 @@ The following test automation tabs are placeholders and need implementation:
 ---
 
 ## Known Issues
+
+### Auto-Connect on Test Start - NEEDS FIX
+- **Issue**: Auto-connect functionality in Start buttons needs to be fixed
+- **Location**: Battery Capacity and Battery Load test panels
+- **Current behavior**: Attempts to auto-connect when Start is clicked if DL24 device is detected in port list
+- **Implementation**: `_try_auto_connect()` method in `main_window.py`
+- **Problem**: Connection timing or logic needs improvement
+- **Next steps**: Review connection sequence and ensure proper synchronization
 
 ### Bluetooth Communication Not Working
 - **Issue**: DL24P connects via Bluetooth SPP but doesn't respond to commands
