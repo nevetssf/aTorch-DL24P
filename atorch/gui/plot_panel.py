@@ -308,6 +308,11 @@ class PlotPanel(QWidget):
 
                 # Create curve in main viewbox
                 curve = self.plot_item.plot(pen=pg.mkPen(color, width=2))
+
+                # Enable performance optimizations for large datasets
+                curve.setDownsampling(auto=True, method='peak')
+                curve.setClipToView(True)
+
                 self._curves[name] = curve
                 self._viewboxes[name] = self.main_vb
                 self._axes[name] = left_axis
@@ -341,6 +346,11 @@ class PlotPanel(QWidget):
 
                 # Create curve in this viewbox
                 curve = pg.PlotDataItem(pen=pg.mkPen(color, width=2))
+
+                # Enable performance optimizations for large datasets
+                curve.setDownsampling(auto=True, method='peak')
+                curve.setClipToView(True)
+
                 vb.addItem(curve)
                 self._curves[name] = curve
 

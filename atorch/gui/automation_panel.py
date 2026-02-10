@@ -145,21 +145,35 @@ class AutomationPanel(QWidget):
         self.cutoff_spin.setValue(3.0)
         self.params_form.addRow("V Cutoff:", self.cutoff_spin)
 
-        # Timed (optional duration limit)
-        timed_layout = QHBoxLayout()
+        # Time Limit (optional duration limit)
+        time_limit_layout = QHBoxLayout()
         self.timed_checkbox = QCheckBox()
         self.timed_checkbox.setChecked(False)
-        self.timed_checkbox.setToolTip("Enable timed test with duration limit")
+        self.timed_checkbox.setToolTip("Enable time limit for test")
         self.timed_checkbox.toggled.connect(self._on_timed_toggled)
-        timed_layout.addWidget(self.timed_checkbox)
+        time_limit_layout.addWidget(self.timed_checkbox)
+
+        self.hours_spin = QSpinBox()
+        self.hours_spin.setRange(0, 99)
+        self.hours_spin.setValue(1)
+        self.hours_spin.setSuffix("h")
+        self.hours_spin.setEnabled(False)
+        time_limit_layout.addWidget(self.hours_spin)
+
+        self.minutes_spin = QSpinBox()
+        self.minutes_spin.setRange(0, 59)
+        self.minutes_spin.setValue(0)
+        self.minutes_spin.setSuffix("m")
+        self.minutes_spin.setEnabled(False)
+        time_limit_layout.addWidget(self.minutes_spin)
+
+        # Keep duration_spin for backwards compatibility with existing code
         self.duration_spin = QSpinBox()
         self.duration_spin.setRange(1, 86400)
         self.duration_spin.setValue(3600)
-        self.duration_spin.setSuffix(" s")
-        self.duration_spin.setEnabled(False)
-        self.duration_spin.setToolTip("Test duration in seconds")
-        timed_layout.addWidget(self.duration_spin)
-        self.params_form.addRow("Timed:", timed_layout)
+        self.duration_spin.setVisible(False)  # Hidden, calculated from hours/minutes
+
+        self.params_form.addRow("Time Limit:", time_limit_layout)
 
         config_layout.addLayout(self.params_form)
 
@@ -339,7 +353,27 @@ class AutomationPanel(QWidget):
     @Slot(bool)
     def _on_timed_toggled(self, checked: bool) -> None:
         """Handle timed checkbox toggle."""
-        self.duration_spin.setEnabled(checked)
+        self.hours_spin.setEnabled(checked)
+        self.minutes_spin.setEnabled(checked)
+        self._sync_duration()
+
+    def _sync_duration(self) -> None:
+        """Sync duration_spin value from hours and minutes spinboxes."""
+        hours = self.hours_spin.value()
+        minutes = self.minutes_spin.value()
+        self.duration_spin.setValue(hours * 3600 + minutes * 60)
+
+    def _sync_hours_minutes(self) -> None:
+        """Sync hours and minutes from duration_spin value."""
+        total_seconds = self.duration_spin.value()
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        self.hours_spin.blockSignals(True)
+        self.minutes_spin.blockSignals(True)
+        self.hours_spin.setValue(hours)
+        self.minutes_spin.setValue(minutes)
+        self.hours_spin.blockSignals(False)
+        self.minutes_spin.blockSignals(False)
 
     @Slot(bool)
     def _on_autosave_toggled(self, checked: bool) -> None:
@@ -402,6 +436,7 @@ class AutomationPanel(QWidget):
                 self.timed_checkbox.setChecked(test_config["timed"])
             if "duration_seconds" in test_config:
                 self.duration_spin.setValue(test_config["duration_seconds"])
+                self._sync_hours_minutes()
 
             # Load battery info
             battery_info = data.get("battery_info", {})
@@ -586,7 +621,8 @@ class AutomationPanel(QWidget):
         self.value_spin.setEnabled(False)
         self.cutoff_spin.setEnabled(False)
         self.timed_checkbox.setEnabled(False)
-        self.duration_spin.setEnabled(False)
+        self.hours_spin.setEnabled(False)
+        self.minutes_spin.setEnabled(False)
 
     def _update_ui_stopped(self) -> None:
         """Update UI for stopped state."""
@@ -604,7 +640,8 @@ class AutomationPanel(QWidget):
         self.value_spin.setEnabled(True)
         self.cutoff_spin.setEnabled(True)
         self.timed_checkbox.setEnabled(True)
-        self.duration_spin.setEnabled(self.timed_checkbox.isChecked())
+        self.hours_spin.setEnabled(self.timed_checkbox.isChecked())
+        self.minutes_spin.setEnabled(self.timed_checkbox.isChecked())
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("")
         self.elapsed_label.setText("0h 0m 0s")
@@ -930,6 +967,7 @@ class AutomationPanel(QWidget):
         self.cutoff_spin.setValue(data.get("voltage_cutoff", 3.0))
         self.timed_checkbox.setChecked(data.get("timed", False))
         self.duration_spin.setValue(data.get("duration", 3600))
+        self._sync_hours_minutes()
 
     @Slot()
     def _save_test_preset(self) -> None:
@@ -1088,7 +1126,10 @@ class AutomationPanel(QWidget):
         self.value_spin.valueChanged.connect(self._on_settings_changed)
         self.cutoff_spin.valueChanged.connect(self._on_settings_changed)
         self.timed_checkbox.toggled.connect(self._on_settings_changed)
-        self.duration_spin.valueChanged.connect(self._on_settings_changed)
+        self.hours_spin.valueChanged.connect(self._sync_duration)
+        self.minutes_spin.valueChanged.connect(self._sync_duration)
+        self.hours_spin.valueChanged.connect(self._on_settings_changed)
+        self.minutes_spin.valueChanged.connect(self._on_settings_changed)
         self.test_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
         # Battery Info fields
@@ -1170,6 +1211,7 @@ class AutomationPanel(QWidget):
                 self.timed_checkbox.setChecked(test_config["timed"])
             if "duration" in test_config:
                 self.duration_spin.setValue(test_config["duration"])
+                self._sync_hours_minutes()
             if "preset" in test_config and test_config["preset"]:
                 index = self.test_presets_combo.findText(test_config["preset"])
                 if index >= 0:

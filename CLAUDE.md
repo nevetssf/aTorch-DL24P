@@ -68,6 +68,13 @@ Both use a polling thread that queries the device every 500ms for:
 3. MainWindow emits `status_updated` signal to all panels
 4. Each panel updates its UI from the `DeviceStatus` dataclass
 
+**Data Storage During Logging:**
+- Readings are stored in TWO places (NOT in `_current_session.readings`):
+  1. **Database** - Background thread writes every reading via `_db_queue`
+  2. **`_accumulated_readings`** - Bounded deque (maxlen=172800, ~48 hours at 1Hz)
+- JSON export uses `_accumulated_readings`, NOT `_current_session.readings`
+- IMPORTANT: Do NOT append to `_current_session.readings` - it's an unbounded list that causes GUI hang
+
 ### Graph Display Configuration by Test Type
 
 When loading test data from the History panel, the graph axes should be configured appropriately for each test type:
@@ -147,7 +154,7 @@ All user data stored in `~/.atorch/`:
 - `test_presets/` - User-saved test configuration presets (Battery Capacity)
 - `battery_load_presets/` - User-saved test configuration presets (Battery Load)
 - `test_data/` - Auto-saved JSON test results
-- `tests.db` - SQLite database for test sessions
+- `tests.db` - SQLite database for test sessions (permanent storage, accessible via Tools → Database Management)
 
 ## Test Automation Panel State Persistence
 
@@ -189,6 +196,26 @@ Default presets in `resources/battery_capacity/`:
 - `presets_test.json` - Test configuration presets (CC, CP, CR modes)
 
 Each battery preset includes `technology` field (Li-Ion, NiMH, LiPo, etc.)
+
+## Database Management
+
+The database management dialog (`Tools → Database Management`) provides:
+
+**Statistics Display:**
+- File location (with "Show in Folder" button)
+- File size (human-readable format: B/KB/MB/GB)
+- Created date/time
+- Last modified date/time
+- Number of sessions stored
+- Total number of readings
+
+**Database Purge:**
+- Permanently deletes all sessions and readings from `tests.db`
+- Two-step confirmation: dialog + type "DELETE" to confirm
+- Exported JSON/CSV files are NOT affected (remain on disk)
+- Use case: Clean up test database after long testing periods
+
+**Implementation:** `atorch/gui/database_dialog.py` - DatabaseDialog class
 
 ## Collapsible Panel Implementation
 
@@ -285,6 +312,14 @@ The GUI was freezing after ~1-1.5 hours of continuous test running. User reporte
    - JSON auto-save during acquisition was removed
    - Data only saved when test completes (load turns off) or user clicks Save
 
+5. **Stopped Appending to `_current_session.readings`** (unbounded list):
+   - This was an unbounded Python list that grew indefinitely, causing memory pressure
+   - All data is preserved in two places:
+     - Database: Background thread writes every reading (permanent storage)
+     - `_accumulated_readings`: Bounded deque with maxlen=172800 (48 hours at 1Hz)
+   - JSON export uses `_accumulated_readings`, NOT `_current_session.readings`
+   - `TestSession.readings` is now left empty during logging (only used for count display)
+
 ### Key Code Locations
 
 - `main_window.py:95` - `_processing_status` flag initialization
@@ -303,9 +338,8 @@ User is currently running a long-duration test to verify fixes. Previous freezes
 
 If freezing persists, investigate:
 1. Debug file logging (`_on_debug_message`) - writes to file on every device message if enabled
-2. Plot panel memory usage - pyqtgraph with 3600+ points
-3. `_accumulated_readings` list growth (unbounded Python list)
-4. `_current_session.readings` list growth (also unbounded)
+2. Plot panel memory usage - pyqtgraph with 3600+ points (added downsampling/clipping optimizations)
+3. `_accumulated_readings` is bounded (maxlen=172800) so should not be an issue
 
 ### Reference
 Forum post on PySide threading issues: https://forum.pythonguis.com/t/struggling-with-pyside-i-want-help-with-ui-freezing-issue/1951

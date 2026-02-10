@@ -81,12 +81,14 @@ The following test automation tabs are placeholders and need implementation:
   2. Database commit batching - commit every 10s instead of per-reading
   3. Reduced USB HID polling from 0.5s to 1.0s
   4. Removed periodic auto-save during acquisition
+  5. **Stopped appending to `_current_session.readings`** (unbounded list causing memory growth)
+     - All data preserved in database and `_accumulated_readings` (bounded deque, 48h capacity)
+     - JSON export uses `_accumulated_readings`, not `_current_session.readings`
 - **Status**: Testing in progress - user running long-duration test to verify
 - **If still freezing, investigate**:
   - Debug file logging blocking main thread
   - Plot panel memory with 3600+ data points
-  - Unbounded `_accumulated_readings` list growth
-  - Unbounded `_current_session.readings` list growth
+  - `_accumulated_readings` is bounded (maxlen=172800) so shouldn't be the issue
 - **Reference**: See CLAUDE.md "GUI Freezing Issues" section for full details
 
 ### Display Precision vs USB Protocol Precision - NEEDS INVESTIGATION

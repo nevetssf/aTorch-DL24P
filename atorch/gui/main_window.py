@@ -43,6 +43,7 @@ from .automation_panel import AutomationPanel
 from .history_panel import HistoryPanel
 from .settings_dialog import SettingsDialog, DeviceSettingsDialog
 from .debug_window import DebugWindow
+from .database_dialog import DatabaseDialog
 from .battery_load_panel import BatteryLoadPanel
 from .placeholder_panel import BatteryChargerPanel, CableResistancePanel, ChargerPanel, PowerBankPanel
 
@@ -100,10 +101,10 @@ class MainWindow(QMainWindow):
         self._last_completed_session: Optional[TestSession] = None  # Keep last session for export
         self._logging_enabled = False
         self._logging_start_time: Optional[datetime] = None  # Track when logging started
-        # Limit accumulated readings to last 24 hours at 1 Hz = 86,400 max
+        # Limit accumulated readings to last 48 hours at 1 Hz = 172,800 max
         # This prevents unbounded growth during long tests
         from collections import deque
-        self._accumulated_readings: deque = deque(maxlen=86400)  # Bounded to 24 hours
+        self._accumulated_readings: deque = deque(maxlen=172800)  # Bounded to 48 hours
         self._prev_load_on = False  # Track previous load state for cutoff detection
         self._last_autosave_time: Optional[datetime] = None  # Track last periodic auto-save
         self._autosave_interval = 30  # Auto-save every 30 seconds during test
@@ -310,6 +311,13 @@ class MainWindow(QMainWindow):
         self.device_settings_action.triggered.connect(self._show_device_settings)
         device_menu.addAction(self.device_settings_action)
 
+        # Tools menu
+        tools_menu = menubar.addMenu("&Tools")
+
+        database_action = QAction("&Database Management...", self)
+        database_action.triggered.connect(self._show_database_dialog)
+        tools_menu.addAction(database_action)
+
         # View menu
         view_menu = menubar.addMenu("&View")
 
@@ -472,7 +480,7 @@ class MainWindow(QMainWindow):
             self.database.commit()
             self._current_session.end_time = datetime.now()
             self.database.update_session(self._current_session)
-            num_readings = len(self._current_session.readings)
+            num_readings = len(self._accumulated_readings)
             self.statusbar.showMessage(
                 f"Logged {num_readings} readings - click 'Save Data...' to export"
             )
@@ -702,6 +710,12 @@ class MainWindow(QMainWindow):
     def _show_device_settings(self) -> None:
         """Show device settings dialog."""
         dialog = DeviceSettingsDialog(self.device, self)
+        dialog.exec()
+
+    @Slot()
+    def _show_database_dialog(self) -> None:
+        """Show database management dialog."""
+        dialog = DatabaseDialog(self.database, self)
         dialog.exec()
 
     @Slot()
@@ -1365,8 +1379,8 @@ class MainWindow(QMainWindow):
             except:
                 pass  # Drop if queue full (very unlikely with 10k capacity)
 
-            self._current_session.readings.append(reading)
-            # Also accumulate for cross-session export
+            # Don't append to _current_session.readings - it's an unbounded list that causes GUI hang
+            # All data is preserved in database and _accumulated_readings (bounded deque)
             self._accumulated_readings.append(reading)
 
         # Check alerts
@@ -1386,7 +1400,7 @@ class MainWindow(QMainWindow):
         # Check this BEFORE adding data to prevent extra data points
         if self._logging_enabled and self._prev_load_on and not status.load_on:
             # Load turned off while logging - stop logging immediately
-            num_readings = len(self._current_session.readings) if self._current_session else 0
+            num_readings = len(self._accumulated_readings)
             self._logging_enabled = False  # Stop immediately to prevent more data
             self.status_panel.log_switch.setChecked(False)
             # End the current session properly so next Start Test works

@@ -281,13 +281,11 @@ class StatusPanel(QWidget):
 
         # Total logged display (time and points)
         totals_layout = QHBoxLayout()
-        self.logged_time_label = QLabel("Total Logged:")
-        totals_layout.addWidget(self.logged_time_label)
-        totals_layout.addStretch()
         self.logging_time_label = StatusLabel("0h 0m 0s")
         totals_layout.addWidget(self.logging_time_label)
         self.points_label = QLabel("(0 pts)")
         totals_layout.addWidget(self.points_label)
+        totals_layout.addStretch()
         log_layout.addLayout(totals_layout)
 
         layout.addWidget(self.log_group)
@@ -408,9 +406,23 @@ class StatusPanel(QWidget):
         """Update display with device status."""
         self.voltage_label.setText(f"{status.voltage:.3f}")
 
-        # Convert to milli-units for better readability
-        self.current_label.setText(f"{status.current * 1000:.3f}")  # A → mA
-        self.power_label.setText(f"{status.power * 1000:.3f}")  # W → mW
+        # Current: Auto-scale when >= 100 mA
+        current_ma = status.current * 1000
+        if current_ma >= 100:
+            self.current_label.setText(f"{status.current:.3f}")
+            self.current_unit_label.setText("A")
+        else:
+            self.current_label.setText(f"{current_ma:.3f}")
+            self.current_unit_label.setText("mA")
+
+        # Power: Auto-scale when >= 100 mW
+        power_mw = status.power * 1000
+        if power_mw >= 100:
+            self.power_label.setText(f"{status.power:.3f}")
+            self.power_unit_label.setText("W")
+        else:
+            self.power_label.setText(f"{power_mw:.3f}")
+            self.power_unit_label.setText("mW")
 
         # Load resistance (from device)
         self.resistance_label.setText(f"{status.resistance_ohm:.3f}")
@@ -422,8 +434,22 @@ class StatusPanel(QWidget):
         else:
             self.battery_resistance_label.setText("---")
 
-        self.capacity_label.setText(f"{status.capacity_mah:.3f}")
-        self.energy_label.setText(f"{status.energy_wh * 1000:.3f}")  # Wh → mWh
+        # Capacity: Auto-scale when >= 100 mAh
+        if status.capacity_mah >= 100:
+            self.capacity_label.setText(f"{status.capacity_mah / 1000:.3f}")
+            self.capacity_unit_label.setText("Ah")
+        else:
+            self.capacity_label.setText(f"{status.capacity_mah:.3f}")
+            self.capacity_unit_label.setText("mAh")
+
+        # Energy: Auto-scale when >= 100 mWh
+        energy_mwh = status.energy_wh * 1000
+        if energy_mwh >= 100:
+            self.energy_label.setText(f"{status.energy_wh:.3f}")
+            self.energy_unit_label.setText("Wh")
+        else:
+            self.energy_label.setText(f"{energy_mwh:.3f}")
+            self.energy_unit_label.setText("mWh")
 
         self.temp_label.setText(f"{status.temperature_c:.1f}")
         self.ext_temp_label.setText(f"{status.ext_temperature_c:.1f}")
