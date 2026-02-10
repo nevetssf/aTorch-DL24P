@@ -1,6 +1,9 @@
 """Historical data browser panel."""
 
+import json
 from typing import Optional
+from pathlib import Path
+from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -11,26 +14,39 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QAbstractItemView,
     QMessageBox,
-    QComboBox,
     QLabel,
 )
 from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QFont, QCursor
 
 from ..data.database import Database
 from ..data.models import TestSession
 
 
 class HistoryPanel(QWidget):
-    """Panel for browsing historical test data."""
+    """Panel for browsing historical test data from JSON files."""
 
-    session_selected = Signal(TestSession)
+    json_file_selected = Signal(str, str)  # Emits (file_path, test_panel_type) when a file is clicked
+
+    # Map test panel types to friendly names
+    PANEL_TYPE_NAMES = {
+        "battery_capacity": "Battery Capacity",
+        "battery_load": "Battery Load",
+        "battery_charger": "Battery Charger",
+        "cable_resistance": "Cable Resistance",
+        "charger": "Charger",
+        "power_bank": "Power Bank",
+    }
 
     def __init__(self, database: Database):
         super().__init__()
 
         self.database = database
-        self._sessions: list[TestSession] = []
-        self._selected_session: Optional[TestSession] = None
+        self._test_files: list[dict] = []  # List of test file info dicts
+        self._test_data_dir = Path.home() / ".atorch" / "test_data"
+
+        # Ensure directory exists
+        self._test_data_dir.mkdir(parents=True, exist_ok=True)
 
         self._create_ui()
         self.refresh()
@@ -40,206 +56,234 @@ class HistoryPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Filter bar
-        filter_layout = QHBoxLayout()
-
-        filter_layout.addWidget(QLabel("Battery:"))
-        self.battery_filter = QComboBox()
-        self.battery_filter.addItem("All Batteries")
-        self.battery_filter.currentIndexChanged.connect(self.refresh)
-        filter_layout.addWidget(self.battery_filter)
-
-        filter_layout.addStretch()
+        # Top bar with refresh button
+        top_layout = QHBoxLayout()
+        top_layout.addWidget(QLabel("Test History (JSON Files)"))
+        top_layout.addStretch()
 
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh)
-        filter_layout.addWidget(self.refresh_btn)
+        top_layout.addWidget(self.refresh_btn)
 
-        layout.addLayout(filter_layout)
+        layout.addLayout(top_layout)
 
-        # Sessions table
+        # Test files table
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels([
             "Date",
-            "Name",
-            "Battery",
-            "Type",
+            "Name of File",
+            "Test Type",
+            "Conditions",
             "Duration",
-            "Capacity",
-            "Energy",
+            "Summary",
         ])
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.itemSelectionChanged.connect(self._on_selection_changed)
-        self.table.doubleClicked.connect(self._on_double_click)
+        self.table.setSortingEnabled(True)  # Enable sorting by clicking column headers
+
+        # Configure column widths
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Date
+        header.setSectionResizeMode(1, QHeaderView.Stretch)           # Name of File
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Test Type
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Conditions
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Duration
+        header.setSectionResizeMode(5, QHeaderView.Stretch)           # Summary
+
+        self.table.cellClicked.connect(self._on_cell_clicked)
 
         layout.addWidget(self.table)
 
         # Action buttons
         action_layout = QHBoxLayout()
 
-        self.view_btn = QPushButton("View")
-        self.view_btn.setEnabled(False)
-        self.view_btn.clicked.connect(self._on_view)
-        action_layout.addWidget(self.view_btn)
-
-        self.compare_btn = QPushButton("Compare")
-        self.compare_btn.setEnabled(False)
-        self.compare_btn.clicked.connect(self._on_compare)
-        action_layout.addWidget(self.compare_btn)
-
-        action_layout.addStretch()
-
-        self.delete_btn = QPushButton("Delete")
-        self.delete_btn.setEnabled(False)
+        self.delete_btn = QPushButton("Delete Selected")
         self.delete_btn.clicked.connect(self._on_delete)
         action_layout.addWidget(self.delete_btn)
 
-        layout.addLayout(action_layout)
+        self.open_folder_btn = QPushButton("Show Folder")
+        self.open_folder_btn.clicked.connect(self._on_show_folder)
+        action_layout.addWidget(self.open_folder_btn)
 
-    @property
-    def selected_session(self) -> Optional[TestSession]:
-        """Get the currently selected session."""
-        return self._selected_session
+        action_layout.addStretch()
+
+        layout.addLayout(action_layout)
 
     @Slot()
     def refresh(self) -> None:
-        """Refresh the session list."""
-        # Get battery filter
-        battery_name = None
-        if self.battery_filter.currentIndex() > 0:
-            battery_name = self.battery_filter.currentText()
+        """Refresh the test files list."""
+        self._test_files = []
 
-        # Load sessions
-        self._sessions = self.database.list_sessions(
-            limit=100,
-            battery_name=battery_name,
-        )
+        # Scan test_data directory for JSON files
+        if not self._test_data_dir.exists():
+            self.table.setRowCount(0)
+            return
 
-        # Update battery filter options
-        self._update_battery_filter()
+        json_files = sorted(self._test_data_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+
+        for json_file in json_files:
+            try:
+                with open(json_file, 'r') as f:
+                    data = json.load(f)
+
+                # Extract information from JSON
+                summary_data = data.get("summary", {})
+                test_config = data.get("test_config", {})
+                battery_info = data.get("battery_info", {})
+                test_panel_type = data.get("test_panel_type", "battery_capacity")
+
+                # Parse date from filename or start_time
+                start_time_str = summary_data.get("start_time", "")
+                try:
+                    start_time = datetime.fromisoformat(start_time_str)
+                    date_str = start_time.strftime("%Y-%m-%d %H:%M")
+                except:
+                    date_str = "Unknown"
+
+                # Test type - use panel type with friendly name
+                test_type_display = self.PANEL_TYPE_NAMES.get(test_panel_type, test_panel_type.replace("_", " ").title())
+
+                # Conditions - extract test conditions from test_config
+                discharge_type = test_config.get("discharge_type", "")
+                value = test_config.get("value", 0)
+                unit = test_config.get("value_unit", "")
+                voltage_cutoff = test_config.get("voltage_cutoff", 0)
+                timed = test_config.get("timed", False)
+                duration_seconds = test_config.get("duration_seconds", 0)
+
+                conditions_parts = []
+                if discharge_type and value:
+                    conditions_parts.append(f"{discharge_type} {value}{unit}")
+                if voltage_cutoff > 0:
+                    conditions_parts.append(f"Cutoff {voltage_cutoff}V")
+                if timed and duration_seconds > 0:
+                    h = duration_seconds // 3600
+                    m = (duration_seconds % 3600) // 60
+                    if h > 0:
+                        conditions_parts.append(f"Time {h}h{m}m")
+                    else:
+                        conditions_parts.append(f"Time {m}m")
+
+                conditions_str = ", ".join(conditions_parts) if conditions_parts else "N/A"
+
+                # Duration
+                duration_sec = summary_data.get("total_runtime_seconds", 0)
+                h = duration_sec // 3600
+                m = (duration_sec % 3600) // 60
+                s = duration_sec % 60
+                duration_str = f"{h:02d}:{m:02d}:{s:02d}"
+
+                # Summary (result)
+                capacity = summary_data.get("final_capacity_mah", 0)
+                energy = summary_data.get("final_energy_wh", 0)
+                battery_name = battery_info.get("name", "")
+
+                if capacity > 0 or energy > 0:
+                    summary_str = f"{battery_name}: {capacity:.0f} mAh / {energy:.2f} Wh"
+                else:
+                    summary_str = f"{battery_name}: No data recorded"
+
+                self._test_files.append({
+                    "path": str(json_file),
+                    "filename": json_file.name,
+                    "date": date_str,
+                    "test_type": test_type_display,
+                    "test_panel_type": test_panel_type,
+                    "conditions": conditions_str,
+                    "duration": duration_str,
+                    "summary": summary_str,
+                })
+
+            except Exception as e:
+                # Skip files that can't be parsed
+                continue
 
         # Populate table
-        self.table.setRowCount(len(self._sessions))
+        # Temporarily disable sorting while populating to avoid issues
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(self._test_files))
 
-        for row, session in enumerate(self._sessions):
+        for row, file_info in enumerate(self._test_files):
             # Date
-            date_str = session.start_time.strftime("%Y-%m-%d %H:%M")
-            self.table.setItem(row, 0, QTableWidgetItem(date_str))
+            self.table.setItem(row, 0, QTableWidgetItem(file_info["date"]))
 
-            # Name
-            self.table.setItem(row, 1, QTableWidgetItem(session.name))
+            # Name of File (clickable, underlined, blue)
+            filename_item = QTableWidgetItem(file_info["filename"])
+            font = QFont()
+            font.setUnderline(True)
+            filename_item.setFont(font)
+            filename_item.setForeground(Qt.blue)
+            filename_item.setData(Qt.UserRole, file_info["path"])  # Store full path
+            self.table.setItem(row, 1, filename_item)
 
-            # Battery
-            self.table.setItem(row, 2, QTableWidgetItem(session.battery_name))
+            # Test Type
+            self.table.setItem(row, 2, QTableWidgetItem(file_info["test_type"]))
 
-            # Type
-            self.table.setItem(row, 3, QTableWidgetItem(session.test_type))
+            # Conditions
+            self.table.setItem(row, 3, QTableWidgetItem(file_info["conditions"]))
 
             # Duration
-            duration = session.duration_seconds
-            h = duration // 3600
-            m = (duration % 3600) // 60
-            s = duration % 60
-            duration_str = f"{h:02d}:{m:02d}:{s:02d}"
-            self.table.setItem(row, 4, QTableWidgetItem(duration_str))
+            self.table.setItem(row, 4, QTableWidgetItem(file_info["duration"]))
 
-            # Load readings to get capacity/energy
-            if not session.readings:
-                session.readings = self.database.get_readings(session.id)
+            # Summary
+            self.table.setItem(row, 5, QTableWidgetItem(file_info["summary"]))
 
-            # Capacity
-            capacity_str = f"{session.final_capacity_mah:.0f} mAh"
-            self.table.setItem(row, 5, QTableWidgetItem(capacity_str))
+        # Re-enable sorting after populating
+        self.table.setSortingEnabled(True)
 
-            # Energy
-            energy_str = f"{session.final_energy_wh:.2f} Wh"
-            self.table.setItem(row, 6, QTableWidgetItem(energy_str))
+        # Set cursor to pointing hand for filename column
+        self.table.viewport().setCursor(QCursor(Qt.ArrowCursor))
 
-        self._selected_session = None
-        self._update_buttons()
-
-    def _update_battery_filter(self) -> None:
-        """Update battery filter dropdown."""
-        current = self.battery_filter.currentText()
-
-        self.battery_filter.blockSignals(True)
-        self.battery_filter.clear()
-        self.battery_filter.addItem("All Batteries")
-
-        for name in self.database.get_battery_names():
-            self.battery_filter.addItem(name)
-
-        # Restore selection if still exists
-        index = self.battery_filter.findText(current)
-        if index >= 0:
-            self.battery_filter.setCurrentIndex(index)
-
-        self.battery_filter.blockSignals(False)
-
-    def _update_buttons(self) -> None:
-        """Update button enabled states."""
-        has_selection = self._selected_session is not None
-        self.view_btn.setEnabled(has_selection)
-        self.delete_btn.setEnabled(has_selection)
-        self.compare_btn.setEnabled(has_selection)
-
-    @Slot()
-    def _on_selection_changed(self) -> None:
-        """Handle table selection change."""
-        rows = self.table.selectionModel().selectedRows()
-        if rows:
-            row = rows[0].row()
-            if 0 <= row < len(self._sessions):
-                self._selected_session = self._sessions[row]
-            else:
-                self._selected_session = None
-        else:
-            self._selected_session = None
-
-        self._update_buttons()
-
-    @Slot()
-    def _on_double_click(self) -> None:
-        """Handle double-click to view session."""
-        self._on_view()
-
-    @Slot()
-    def _on_view(self) -> None:
-        """View the selected session."""
-        if self._selected_session:
-            # Ensure readings are loaded
-            if not self._selected_session.readings:
-                self._selected_session.readings = self.database.get_readings(
-                    self._selected_session.id
-                )
-            self.session_selected.emit(self._selected_session)
-
-    @Slot()
-    def _on_compare(self) -> None:
-        """Compare selected session with another."""
-        # For now, just view it - comparison can be added later
-        self._on_view()
+    @Slot(int, int)
+    def _on_cell_clicked(self, row: int, column: int) -> None:
+        """Handle cell click - if Name of File column, emit signal to load."""
+        if column == 1:  # Name of File column
+            if 0 <= row < len(self._test_files):
+                file_info = self._test_files[row]
+                file_path = file_info["path"]
+                test_panel_type = file_info["test_panel_type"]
+                self.json_file_selected.emit(file_path, test_panel_type)
 
     @Slot()
     def _on_delete(self) -> None:
-        """Delete the selected session."""
-        if not self._selected_session:
+        """Delete the selected test file."""
+        current_row = self.table.currentRow()
+        if current_row < 0 or current_row >= len(self._test_files):
+            QMessageBox.information(self, "Delete", "Please select a test file to delete.")
             return
+
+        file_info = self._test_files[current_row]
 
         reply = QMessageBox.question(
             self,
-            "Delete Session",
-            f"Are you sure you want to delete '{self._selected_session.name}'?\n"
+            "Delete Test File",
+            f"Are you sure you want to delete '{file_info['filename']}'?\n"
             "This cannot be undone.",
             QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
-            self.database.delete_session(self._selected_session.id)
-            self.refresh()
+            try:
+                Path(file_info["path"]).unlink()
+                self.refresh()
+            except Exception as e:
+                QMessageBox.warning(self, "Delete Error", f"Failed to delete file: {e}")
+
+    @Slot()
+    def _on_show_folder(self) -> None:
+        """Open the test_data folder in the system file manager."""
+        import subprocess
+        import platform
+
+        try:
+            if platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", str(self._test_data_dir)])
+            elif platform.system() == "Windows":
+                subprocess.run(["explorer", str(self._test_data_dir)])
+            else:  # Linux
+                subprocess.run(["xdg-open", str(self._test_data_dir)])
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to open folder: {e}")

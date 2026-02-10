@@ -21,7 +21,7 @@ The following test automation tabs are placeholders and need implementation:
 
 ## Resolved Issues
 
-### Test Configuration Save/Load - DONE
+### Test Conditions Save/Load - DONE
 - Implemented preset system with Save/Delete buttons
 - Default presets in `resources/battery_capacity/presets_test.json`
 - User presets saved to `~/.atorch/test_presets/`
@@ -79,3 +79,52 @@ The following test automation tabs are placeholders and need implementation:
   - Unbounded `_accumulated_readings` list growth
   - Unbounded `_current_session.readings` list growth
 - **Reference**: See CLAUDE.md "GUI Freezing Issues" section for full details
+
+### Display Precision vs USB Protocol Precision - NEEDS INVESTIGATION
+- **Issue**: Device screen shows more precision than USB protocol transmits
+- **Current state**: Device transmits integer values via USB HID:
+  - Current: integer mA (e.g., 49 mA, not 49.123 mA)
+  - Power: integer mW (calculated from V×I)
+  - Energy: integer mWh (e.g., 2 mWh, not 1.84 mWh)
+- **Device screen**: Shows calculated values with more precision (e.g., 1.84 mWh)
+- **App display**: Shows integer values with .000 decimal places (e.g., 2.000 mWh)
+- **Root cause**: DL24P firmware rounds to integers before USB transmission
+- **Current workaround**: Display with 3 decimals (shows .000 for integer values)
+- **Possible improvements**:
+  - Calculate energy locally from accumulated V×I×time for more precision
+  - Interpolate between readings for smoother display
+  - Add option to show calculated vs device-reported values
+  - Document limitation in user guide
+- **Note**: Saved data (JSON, CSV) uses same precision as USB protocol
+
+### Battery Resistance Protocol Parsing - NEEDS INVESTIGATION
+- **Issue**: Battery internal resistance value fluctuates more than expected when reading from device protocol
+- **Current location**: Offset 36-37 in counters response (sub-cmd 0x05), uint16 big-endian, milli-ohms
+- **Problem**: The bytes overlap with MOSFET temperature (offset 36-39 as uint32 LE)
+  - When temp low byte is 0x05: reads as 1380 mΩ (correct, matches device screen)
+  - When temp low byte is 0xe6: reads as 58980 mΩ (invalid, device screen shows 1300-1400 mΩ)
+- **Validation added**: Only accept values in 1000-2000 mΩ range, ignore others
+- **Current workaround**: Using calculated method (R_total - R_load) instead of device value
+  - R_total = V / I (total circuit resistance)
+  - R_load from device at offset 16-17
+  - R_battery = R_total - R_load
+- **Device screen shows**: 1300-1400 mΩ stable range (1380 mΩ typical)
+- **Next steps**:
+  - Investigate if battery R is stored at a different offset
+  - Check if there's a different encoding or data packing scheme
+  - Monitor more payload samples to find consistent storage location
+  - May need to capture USB traffic when battery R changes significantly
+
+### Window Recovery Responsivity
+- **Issue**: Application may be slow to respond when recovering the window after being minimized for extended periods
+- **Impact**: Affects usability when user returns to the app after leaving it minimized
+- **Investigation needed**:
+  - Check if GUI update throttling is too aggressive during minimized state
+  - Verify Qt event processing resumes properly on window restore
+  - Consider if data backlog builds up during minimize (plots, status updates)
+  - Test if polling thread continues running and queuing updates
+- **Possible solutions**:
+  - Detect window minimize/restore state changes
+  - Pause non-critical updates when minimized
+  - Force refresh/redraw on window restore event
+  - Clear stale queued updates on restore

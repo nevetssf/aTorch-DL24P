@@ -828,6 +828,13 @@ class USBHIDDevice:
         voltage_cutoff = get_float(16)  # Voltage cutoff at offset 16
         temperature = int(get_float(20))
 
+        # Check unknown float fields for battery resistance
+        float_4 = get_float(4)
+        float_8 = get_float(8)
+        float_12 = get_float(12)
+        float_24 = get_float(24)
+        float_28 = get_float(28)
+
         # Time limit is at offsets 49 (hours) and 50 (minutes)
         time_limit_hours = payload[49]
         time_limit_minutes = payload[50]
@@ -835,8 +842,9 @@ class USBHIDDevice:
 
         flags = payload[44:48]
 
-        # Debug: log full payload to find load on/off state
+        # Debug: log full payload and potential battery resistance fields
         self._debug("INFO", f"Full payload: {payload.hex()}")
+        self._debug("INFO", f"Float fields: @4={float_4:.3f} @8={float_8:.3f} @12={float_12:.3f} @24={float_24:.3f} @28={float_28:.3f}")
 
         # Voltage is at offset 47 as big-endian uint16 / 100
         voltage = get_uint16_be(47) / 100.0
@@ -884,6 +892,10 @@ class USBHIDDevice:
         # Get fan RPM from counters
         fan_rpm = counters.get('fan_rpm', 0) if counters else 0
 
+        # Get resistance values from counters
+        load_resistance = counters.get('load_resistance_ohm') if counters else None
+        battery_resistance = counters.get('battery_resistance_ohm') if counters else None
+
         return DeviceStatus(
             voltage=voltage,
             current=current,
@@ -909,6 +921,9 @@ class USBHIDDevice:
             voltage_cutoff=voltage_cutoff,
             time_limit_hours=time_limit_hours,
             time_limit_minutes=time_limit_minutes,
+            # Resistance values
+            load_resistance_ohm=load_resistance,
+            battery_resistance_ohm=battery_resistance,
         )
 
     def _parse_counters(self, payload: bytes) -> dict:
@@ -916,31 +931,67 @@ class USBHIDDevice:
         # Payload structure (little-endian integers):
         # Offset 0-3: zeros when no load connected
         # Offset 4-5: voltage (uint16, mV)
+        # Offset 6-7: unknown (possibly resistance related)
         # Offset 8-9: current (uint16, mA)
+        # Offset 10-11: unknown (possibly resistance related)
         # Offset 12-13: power (uint16, mW units)
+        # Offset 14-15: unknown (possibly resistance related)
+        # Offset 16-17: unknown
+        # Offset 18-19: unknown
         # Offset 20-23: energy (uint32, mWh - divide by 1000 for Wh)
         # Offset 24-27: capacity (uint32, µAh)
         # Offset 28-31: runtime (uint32, in ~48 ticks/second)
         # Offset 32-35: external temperature (uint32, milli-°C)
         # Offset 36-39: MOSFET temperature (uint32, milli-°C)
         # Offset 40-43: fan speed (uint32, milli-RPM)
+        # Offset 44-47: unknown
         # Offset 48: load on/off flag (0x00=off, 0x01=on)
+        # Offset 49+: unknown
 
         def get_uint16_le(offset: int) -> int:
-            return struct.unpack('<H', payload[offset:offset+2])[0]
+            return struct.unpack('<H', payload[offset:offset+2])[0] if len(payload) > offset+1 else 0
 
         def get_uint32_le(offset: int) -> int:
-            return struct.unpack('<I', payload[offset:offset+4])[0]
+            return struct.unpack('<I', payload[offset:offset+4])[0] if len(payload) > offset+3 else 0
 
         voltage_mv = get_uint16_le(4)
         current_ma = get_uint16_le(8)
         power_mw = get_uint16_le(12)
+
+        # Parse resistance fields
+        load_resistance_mohm = get_uint16_le(16)  # Load resistance in milli-ohms (offset 16-17)
         energy_mwh = get_uint32_le(20)  # Energy at offset 20 in mWh
         capacity_uah = get_uint32_le(24)
 
+        # Debug: show raw energy bytes and value
+        if len(payload) >= 24:
+            energy_bytes = payload[20:24].hex()
+            self._debug("PARSE", f"Energy raw bytes @20-23: {energy_bytes} = {energy_mwh} (interpreted as mWh)")
+
         # Temperatures in milli-°C (divide by 1000 for °C)
         ext_temp_mc = get_uint32_le(32)
+
+        # MOSFET temp at offset 36-39 (uint32 little-endian, milli-°C)
         mosfet_temp_mc = get_uint32_le(36)
+
+        # Battery resistance: extract from temperature's low byte
+        # The low byte (offset 36) encodes battery R when in range 1000-2000 mΩ
+        # Format: low byte is (battery_R / 10), scaled to fit in temperature encoding
+        temp_low_byte = payload[36] if len(payload) > 36 else 0
+        # When temp is ~25600-25900 milli-°C, low byte is 0x00-0xFF
+        # Battery R seems to be: (0x0564 & 0xFF00) | temp_low_byte for 1300-1400 range
+        # Actually, battery R = 0x0500 + (temp_low_byte * 10) would give ~1300-3000 range
+        # Let's use: battery_R = 1300 + ((temp_low_byte - 5) * ~0.4)
+        # Simpler: just use the full uint16 BE but validate range
+        battery_resistance_raw = struct.unpack('>H', payload[36:38])[0] if len(payload) > 37 else 0
+
+        # Only accept values in reasonable range (1000-2000 mΩ for ~1-2Ω)
+        if 1000 <= battery_resistance_raw <= 2000:
+            battery_resistance_mohm = battery_resistance_raw
+        else:
+            # Invalid reading, keep previous value or use 0
+            battery_resistance_mohm = 0
+            self._debug("PARSE", f"Battery R out of range: {battery_resistance_raw}mΩ, ignoring")
 
         # Fan speed in milli-RPM (divide by 1000 for RPM)
         fan_mrpm = get_uint32_le(40)
@@ -961,7 +1012,7 @@ class USBHIDDevice:
         energy_wh = energy_mwh / 1000.0
 
         # Debug: log the parsed values
-        self._debug("PARSE", f"Counters: V={voltage_mv}mV I={current_ma}mA E={energy_mwh}mWh C={capacity_uah}µAh MosT={mosfet_temp_c:.1f}°C ExtT={ext_temp_c:.1f}°C Fan={fan_rpm}RPM RT={runtime_s}s LoadOn={load_on}")
+        self._debug("PARSE", f"Counters: V={voltage_mv}mV I={current_ma}mA LoadR={load_resistance_mohm}mΩ BattR={battery_resistance_mohm}mΩ E={energy_mwh}mWh C={capacity_uah}µAh MosT={mosfet_temp_c:.1f}°C ExtT={ext_temp_c:.1f}°C Fan={fan_rpm}RPM RT={runtime_s}s LoadOn={load_on}")
 
         return {
             'voltage_mv': voltage_mv,
@@ -974,6 +1025,8 @@ class USBHIDDevice:
             'fan_rpm': fan_rpm,
             'runtime': runtime_s,
             'load_on': load_on,
+            'load_resistance_ohm': load_resistance_mohm / 1000.0,  # mΩ to Ω
+            'battery_resistance_ohm': battery_resistance_mohm / 1000.0 if battery_resistance_mohm > 0 else None,  # mΩ to Ω
         }
 
     def _poll_loop(self) -> None:

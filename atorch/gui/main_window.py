@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QLabel,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot, QThread
 from PySide6.QtGui import QAction, QCloseEvent
 
 from ..protocol.device import Device, USBHIDDevice, DeviceError
@@ -43,7 +43,7 @@ from .automation_panel import AutomationPanel
 from .history_panel import HistoryPanel
 from .settings_dialog import SettingsDialog, DeviceSettingsDialog
 from .debug_window import DebugWindow
-from .placeholder_panel import BatteryChargerPanel, CableResistancePanel, ChargerPanel
+from .placeholder_panel import BatteryLoadPanel, BatteryChargerPanel, CableResistancePanel, ChargerPanel, PowerBankPanel
 
 
 class MainWindow(QMainWindow):
@@ -67,6 +67,20 @@ class MainWindow(QMainWindow):
         with open(self.DEBUG_LOG_FILE, 'w') as f:
             f.write(f"=== Debug log started {datetime.now().isoformat()} ===\n")
 
+        # Background debug file writer to avoid blocking main thread
+        import queue
+        import threading
+        self._debug_queue = queue.Queue(maxsize=1000)  # Drop messages if queue fills
+        self._debug_writer_running = True
+        self._debug_writer_thread = threading.Thread(target=self._debug_file_writer, daemon=True)
+        self._debug_writer_thread.start()
+
+        # Background database writer to avoid blocking main thread with commits
+        self._db_queue = queue.Queue(maxsize=10000)  # Large queue for readings
+        self._db_writer_running = True
+        self._db_writer_thread = threading.Thread(target=self._database_writer, daemon=True)
+        self._db_writer_thread.start()
+
         # Core components
         self.device = None  # Created on connect based on type
         self._serial_device = Device()  # Serial device instance
@@ -85,7 +99,10 @@ class MainWindow(QMainWindow):
         self._last_completed_session: Optional[TestSession] = None  # Keep last session for export
         self._logging_enabled = False
         self._logging_start_time: Optional[datetime] = None  # Track when logging started
-        self._accumulated_readings: list[Reading] = []  # Readings accumulated across sessions
+        # Limit accumulated readings to last 24 hours at 1 Hz = 86,400 max
+        # This prevents unbounded growth during long tests
+        from collections import deque
+        self._accumulated_readings: deque = deque(maxlen=86400)  # Bounded to 24 hours
         self._prev_load_on = False  # Track previous load state for cutoff detection
         self._last_autosave_time: Optional[datetime] = None  # Track last periodic auto-save
         self._autosave_interval = 30  # Auto-save every 30 seconds during test
@@ -185,6 +202,9 @@ class MainWindow(QMainWindow):
         self.automation_panel = AutomationPanel(None, self.database)  # test_runner set on connect
         self.bottom_tabs.addTab(self.automation_panel, "Battery Capacity")
 
+        self.battery_load_panel = BatteryLoadPanel()
+        self.bottom_tabs.addTab(self.battery_load_panel, "Battery Load")
+
         self.battery_charger_panel = BatteryChargerPanel()
         self.bottom_tabs.addTab(self.battery_charger_panel, "Battery Charger")
 
@@ -194,8 +214,11 @@ class MainWindow(QMainWindow):
         self.charger_panel = ChargerPanel()
         self.bottom_tabs.addTab(self.charger_panel, "Charger")
 
+        self.power_bank_panel = PowerBankPanel()
+        self.bottom_tabs.addTab(self.power_bank_panel, "Power Bank")
+
         self.history_panel = HistoryPanel(self.database)
-        self.history_panel.session_selected.connect(self._on_history_session_selected)
+        self.history_panel.json_file_selected.connect(self._on_history_json_selected)
         self.bottom_tabs.addTab(self.history_panel, "History")
 
         # Connect automation panel signals
@@ -523,7 +546,7 @@ class MainWindow(QMainWindow):
             pass  # Silent fail for background auto-save
 
     def _write_test_json(self, filename: str, test_config: dict, battery_info: dict,
-                         readings: list) -> Optional[str]:
+                         readings: list, test_panel_type: str = "battery_capacity") -> Optional[str]:
         """Write test data to JSON file (thread-safe, no GUI access).
 
         Args:
@@ -531,6 +554,7 @@ class MainWindow(QMainWindow):
             test_config: Test configuration dict
             battery_info: Battery info dict
             readings: List of Reading objects
+            test_panel_type: Type of test panel (battery_capacity, battery_load, etc.)
 
         Returns:
             Path to saved file, or None if failed
@@ -576,6 +600,7 @@ class MainWindow(QMainWindow):
             summary = {"total_readings": 0}
 
         test_data = {
+            "test_panel_type": test_panel_type,
             "test_config": test_config,
             "battery_info": battery_info,
             "summary": summary,
@@ -639,18 +664,91 @@ class MainWindow(QMainWindow):
             "Control your aTorch DL24P electronic load and log battery discharge data.",
         )
 
-    @Slot(TestSession)
-    def _on_history_session_selected(self, session: TestSession) -> None:
-        """Handle session selection from history."""
-        # Load readings if not already loaded
-        if not session.readings:
-            session.readings = self.database.get_readings(session.id)
+    @Slot(str, str)
+    def _on_history_json_selected(self, file_path: str, test_panel_type: str) -> None:
+        """Handle JSON file selection from history panel.
 
-        # Display on plot
-        self.plot_panel.load_session(session)
-        self.statusbar.showMessage(
-            f"Loaded: {session.name} ({len(session.readings)} readings)"
-        )
+        Args:
+            file_path: Path to the JSON file
+            test_panel_type: Type of test panel (battery_capacity, battery_load, etc.)
+        """
+        # Map test panel types to tab indices
+        panel_type_to_tab = {
+            "battery_capacity": 0,
+            "battery_load": 1,
+            "battery_charger": 2,
+            "cable_resistance": 3,
+            "charger": 4,
+            "power_bank": 5,
+        }
+
+        # Switch to the appropriate tab
+        tab_index = panel_type_to_tab.get(test_panel_type, 0)
+        self.bottom_tabs.setCurrentIndex(tab_index)
+
+        # Only load data for battery_capacity type (others are placeholders)
+        if test_panel_type != "battery_capacity":
+            self.statusbar.showMessage(f"Selected {test_panel_type.replace('_', ' ').title()} test file (panel not yet implemented)")
+            return
+
+        try:
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, "Load Error", f"Failed to load file: {e}")
+            return
+
+        # Load test configuration into automation panel
+        self.automation_panel._loading_settings = True
+        try:
+            test_config = data.get("test_config", {})
+            if "discharge_type_index" in test_config:
+                self.automation_panel.type_combo.setCurrentIndex(test_config["discharge_type_index"])
+            elif "discharge_type" in test_config:
+                type_map = {"CC": 0, "CP": 1, "CR": 2}
+                self.automation_panel.type_combo.setCurrentIndex(type_map.get(test_config["discharge_type"], 0))
+            if "value" in test_config:
+                self.automation_panel.value_spin.setValue(test_config["value"])
+            if "voltage_cutoff" in test_config:
+                self.automation_panel.cutoff_spin.setValue(test_config["voltage_cutoff"])
+            if "timed" in test_config:
+                self.automation_panel.timed_checkbox.setChecked(test_config["timed"])
+            if "duration_seconds" in test_config:
+                self.automation_panel.duration_spin.setValue(test_config["duration_seconds"])
+
+            # Load battery info
+            battery_info = data.get("battery_info", {})
+            if "name" in battery_info:
+                self.automation_panel.battery_name_edit.setText(battery_info["name"])
+            if "manufacturer" in battery_info:
+                self.automation_panel.manufacturer_edit.setText(battery_info["manufacturer"])
+            if "oem_equivalent" in battery_info:
+                self.automation_panel.oem_equiv_edit.setText(battery_info["oem_equivalent"])
+            if "serial_number" in battery_info:
+                self.automation_panel.serial_number_edit.setText(battery_info["serial_number"])
+            if "rated_voltage" in battery_info:
+                self.automation_panel.rated_voltage_spin.setValue(battery_info["rated_voltage"])
+            if "technology" in battery_info:
+                tech_index = self.automation_panel.technology_combo.findText(battery_info["technology"])
+                if tech_index >= 0:
+                    self.automation_panel.technology_combo.setCurrentIndex(tech_index)
+            if "nominal_capacity_mah" in battery_info:
+                self.automation_panel.nominal_capacity_spin.setValue(battery_info["nominal_capacity_mah"])
+            if "nominal_energy_wh" in battery_info:
+                self.automation_panel.nominal_energy_spin.setValue(battery_info["nominal_energy_wh"])
+            if "notes" in battery_info:
+                self.automation_panel.notes_edit.setPlainText(battery_info["notes"])
+
+            # Update filename
+            self.automation_panel.filename_edit.setText(Path(file_path).name)
+
+            # Load readings for display
+            readings = data.get("readings", [])
+            if readings:
+                self._on_session_loaded(readings)
+
+        finally:
+            self.automation_panel._loading_settings = False
 
     @Slot(int, float, float, int)
     def _on_automation_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
@@ -1038,18 +1136,15 @@ class MainWindow(QMainWindow):
                 ext_temperature_c=status.ext_temperature_c,
                 runtime_seconds=status.runtime_seconds,
             )
-            self.database.add_reading(self._current_session.id, reading)
+            # Queue reading for background database writer (non-blocking)
+            try:
+                self._db_queue.put_nowait((self._current_session.id, reading))
+            except:
+                pass  # Drop if queue full (very unlikely with 10k capacity)
+
             self._current_session.readings.append(reading)
             # Also accumulate for cross-session export
             self._accumulated_readings.append(reading)
-
-            # Periodic database commit (avoid committing every reading)
-            now = datetime.now()
-            if self._last_db_commit_time is None:
-                self._last_db_commit_time = now
-            elif (now - self._last_db_commit_time).total_seconds() >= self._db_commit_interval:
-                self._last_db_commit_time = now
-                self.database.commit()
 
         # Check alerts
         self.notifier.check(status)
@@ -1175,19 +1270,83 @@ class MainWindow(QMainWindow):
         self.debug_message.emit(event_type, message, data)
 
     @Slot(str, str, bytes)
+    def _debug_file_writer(self) -> None:
+        """Background thread that writes debug messages to file."""
+        import queue
+        while self._debug_writer_running:
+            try:
+                # Wait up to 1 second for a message
+                log_line = self._debug_queue.get(timeout=1.0)
+                if log_line is None:  # Shutdown signal
+                    break
+                # Write to file
+                with open(self.DEBUG_LOG_FILE, 'a') as f:
+                    f.write(log_line)
+            except queue.Empty:
+                continue
+            except Exception:
+                pass  # Silently ignore errors in background thread
+
+    def _database_writer(self) -> None:
+        """Background thread that writes readings to database."""
+        import queue
+        import time
+        pending_readings = []
+        last_commit_time = time.time()
+
+        while self._db_writer_running:
+            try:
+                # Wait up to 1 second for a reading
+                item = self._db_queue.get(timeout=1.0)
+                if item is None:  # Shutdown signal
+                    break
+
+                session_id, reading = item
+                # Add reading without commit
+                self.database.add_reading(session_id, reading, commit=False)
+                pending_readings.append(reading)
+
+                # Commit every 10 seconds or 100 readings (whichever comes first)
+                current_time = time.time()
+                if (current_time - last_commit_time >= 10.0) or (len(pending_readings) >= 100):
+                    self.database.commit()
+                    pending_readings.clear()
+                    last_commit_time = current_time
+
+            except queue.Empty:
+                # Timeout - commit any pending readings
+                if pending_readings:
+                    try:
+                        self.database.commit()
+                        pending_readings.clear()
+                        last_commit_time = time.time()
+                    except:
+                        pass
+                continue
+            except Exception:
+                pass  # Silently ignore errors in background thread
+
+        # Final commit on shutdown
+        if pending_readings:
+            try:
+                self.database.commit()
+            except:
+                pass
+
     def _on_debug_message(self, event_type: str, message: str, data: bytes) -> None:
         """Handle debug message in main thread."""
-        # Write to file if debug logging is enabled
+        # Queue to file if debug logging is enabled (written by background thread)
         if hasattr(self, 'control_panel') and self.control_panel.debug_logging_enabled:
             try:
-                with open(self.DEBUG_LOG_FILE, 'a') as f:
-                    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    f.write(f"[{timestamp}] {event_type}: {message}")
-                    if data:
-                        f.write(f" | data={data[:20].hex()}")
-                    f.write("\n")
-            except Exception:
-                pass
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                log_line = f"[{timestamp}] {event_type}: {message}"
+                if data:
+                    log_line += f" | data={data[:20].hex()}"
+                log_line += "\n"
+                # Non-blocking put - will drop if queue is full
+                self._debug_queue.put_nowait(log_line)
+            except:
+                pass  # Drop message if queue is full
 
         if event_type in ("SEND", "RECV"):
             self.debug_window.log(message, event_type)
@@ -1226,6 +1385,17 @@ class MainWindow(QMainWindow):
         if self._current_session:
             self._current_session.end_time = datetime.now()
             self.database.update_session(self._current_session)
+
+        # Stop background writer threads
+        self._debug_writer_running = False
+        self._db_writer_running = False
+        try:
+            self._debug_queue.put(None, timeout=1.0)  # Send shutdown signal
+            self._db_queue.put(None, timeout=1.0)
+            self._debug_writer_thread.join(timeout=2.0)  # Wait up to 2 seconds
+            self._db_writer_thread.join(timeout=2.0)
+        except:
+            pass
 
         if self.device:
             self.device.disconnect()

@@ -91,7 +91,7 @@ class AutomationPanel(QWidget):
         layout = QHBoxLayout(self)
 
         # Left: Test configuration
-        config_group = QGroupBox("Test Configuration")
+        config_group = QGroupBox("Test Conditions")
         config_group.setMaximumWidth(320)
         config_layout = QVBoxLayout(config_group)
 
@@ -270,7 +270,7 @@ class AutomationPanel(QWidget):
         control_layout = QVBoxLayout(control_group)
 
         # Start/Abort button
-        self.start_btn = QPushButton("Start Test")
+        self.start_btn = QPushButton("Start")
         self.start_btn.clicked.connect(self._on_start_clicked)
         control_layout.addWidget(self.start_btn)
 
@@ -497,7 +497,7 @@ class AutomationPanel(QWidget):
     @Slot()
     def _on_start_clicked(self) -> None:
         """Handle start/abort button click."""
-        if self.start_btn.text() == "Abort Test":
+        if self.start_btn.text() == "Abort":
             # Abort test - this will be handled by main window turning off logging
             self._update_ui_stopped()
             # Emit with zeros to signal stop
@@ -517,6 +517,11 @@ class AutomationPanel(QWidget):
             value = self.value_spin.value()
             cutoff = self.cutoff_spin.value()
             duration = self.duration_spin.value() if self.timed_checkbox.isChecked() else 0
+
+            # Refresh filename if autosave is enabled
+            if self.autosave_checkbox.isChecked():
+                new_filename = self.generate_test_filename()
+                self.filename_edit.setText(new_filename)
 
             # Apply settings first (like pressing Apply button)
             self.apply_settings_requested.emit(discharge_type, value, cutoff, duration)
@@ -574,7 +579,7 @@ class AutomationPanel(QWidget):
 
     def _update_ui_running(self) -> None:
         """Update UI for running state."""
-        self.start_btn.setText("Abort Test")
+        self.start_btn.setText("Abort")
         self.status_label.setText("Running")
         self.status_label.setStyleSheet("color: orange; font-weight: bold;")
         self.type_combo.setEnabled(False)
@@ -585,7 +590,7 @@ class AutomationPanel(QWidget):
 
     def _update_ui_stopped(self) -> None:
         """Update UI for stopped state."""
-        self.start_btn.setText("Start Test")
+        self.start_btn.setText("Start")
         # Only show "Ready" if device is connected
         if self.test_runner and self.test_runner.device and self.test_runner.device.is_connected:
             self.status_label.setText("Ready")
@@ -607,7 +612,7 @@ class AutomationPanel(QWidget):
 
     def set_connected(self, connected: bool) -> None:
         """Update status label and button based on connection state."""
-        if self.start_btn.text() != "Abort Test":  # Not running
+        if self.start_btn.text() != "Abort":  # Not running
             if connected:
                 self.status_label.setText("Ready")
                 self.status_label.setStyleSheet("color: green; font-weight: bold;")
@@ -624,7 +629,7 @@ class AutomationPanel(QWidget):
             elapsed_seconds: Time elapsed since test started
             capacity_mah: Current capacity drawn in mAh
         """
-        if self.start_btn.text() != "Abort Test":
+        if self.start_btn.text() != "Abort":
             return  # Not running
 
         # Update elapsed time display
@@ -1078,7 +1083,7 @@ class AutomationPanel(QWidget):
 
     def _connect_save_signals(self) -> None:
         """Connect all form fields to save settings when changed."""
-        # Test Configuration fields
+        # Test Conditions fields
         self.type_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.value_spin.valueChanged.connect(self._on_settings_changed)
         self.cutoff_spin.valueChanged.connect(self._on_settings_changed)
@@ -1153,7 +1158,7 @@ class AutomationPanel(QWidget):
         self._loading_settings = True  # Prevent saves during load
 
         try:
-            # Load Test Configuration
+            # Load Test Conditions
             test_config = settings.get("test_config", {})
             if "discharge_type" in test_config:
                 self.type_combo.setCurrentIndex(test_config["discharge_type"])

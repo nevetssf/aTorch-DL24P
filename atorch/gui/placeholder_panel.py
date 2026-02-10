@@ -33,6 +33,16 @@ class PlaceholderPanel(QWidget):
         layout.addWidget(coming_soon)
 
 
+class BatteryLoadPanel(PlaceholderPanel):
+    """Placeholder for Battery Load testing."""
+
+    def __init__(self):
+        super().__init__(
+            "Battery Load Test",
+            "Test battery under various load conditions"
+        )
+
+
 class BatteryChargerPanel(PlaceholderPanel):
     """Placeholder for Battery Charger testing."""
 
@@ -60,4 +70,14 @@ class ChargerPanel(PlaceholderPanel):
         super().__init__(
             "Charger Test",
             "Test power adapter output and efficiency"
+        )
+
+
+class PowerBankPanel(PlaceholderPanel):
+    """Placeholder for Power Bank testing."""
+
+    def __init__(self):
+        super().__init__(
+            "Power Bank Test",
+            "Test power bank capacity, efficiency, and charging"
         )

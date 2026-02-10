@@ -58,6 +58,27 @@ class DeviceStatus:
     voltage_cutoff: Optional[float] = None  # Configured voltage cutoff (V)
     time_limit_hours: Optional[int] = None  # Configured time limit hours
     time_limit_minutes: Optional[int] = None  # Configured time limit minutes
+    # Resistance values (from USB HID device)
+    load_resistance_ohm: Optional[float] = None  # Load resistance measured by device
+    battery_resistance_ohm: Optional[float] = None  # Battery internal resistance
+
+    @property
+    def resistance_ohm(self) -> float:
+        """Get load resistance from device or calculate from V/I."""
+        # Use device-measured resistance if available, otherwise calculate
+        if self.load_resistance_ohm is not None:
+            return self.load_resistance_ohm
+        if self.current > 0.001:  # Avoid division by zero
+            return self.voltage / self.current
+        return 0.0
+
+    @property
+    def calculated_battery_resistance_ohm(self) -> float:
+        """Calculate battery internal resistance as total R minus load R."""
+        if self.current > 0.001 and self.load_resistance_ohm is not None:
+            total_resistance = self.voltage / self.current
+            return total_resistance - self.load_resistance_ohm
+        return 0.0
 
     @property
     def runtime_seconds(self) -> int:

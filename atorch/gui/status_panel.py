@@ -86,7 +86,7 @@ class StatusPanel(QWidget):
         self.current_label = StatusLabel()
         self.current_label.setStyleSheet("color: #29B6F6;")  # Light blue
         readings_layout.addWidget(self.current_label, row, 1)
-        self.current_unit_label = UnitLabel("A")
+        self.current_unit_label = UnitLabel("mA")
         readings_layout.addWidget(self.current_unit_label, row, 2)
         row += 1
 
@@ -96,8 +96,35 @@ class StatusPanel(QWidget):
         self.power_label = StatusLabel()
         self.power_label.setStyleSheet("color: #EF5350;")  # Red
         readings_layout.addWidget(self.power_label, row, 1)
-        self.power_unit_label = UnitLabel("W")
+        self.power_unit_label = UnitLabel("mW")
         readings_layout.addWidget(self.power_unit_label, row, 2)
+        row += 1
+
+        # Separator
+        line_resistance = QFrame()
+        line_resistance.setFrameShape(QFrame.HLine)
+        line_resistance.setFrameShadow(QFrame.Sunken)
+        readings_layout.addWidget(line_resistance, row, 0, 1, 3)
+        row += 1
+
+        # Resistance
+        self.resistance_row_label = QLabel("Resistance:")
+        readings_layout.addWidget(self.resistance_row_label, row, 0)
+        self.resistance_label = StatusLabel()
+        self.resistance_label.setStyleSheet("color: #66BB6A;")  # Green
+        readings_layout.addWidget(self.resistance_label, row, 1)
+        self.resistance_unit_label = UnitLabel("Ω")
+        readings_layout.addWidget(self.resistance_unit_label, row, 2)
+        row += 1
+
+        # Battery Resistance
+        self.battery_resistance_row_label = QLabel("Battery R:")
+        readings_layout.addWidget(self.battery_resistance_row_label, row, 0)
+        self.battery_resistance_label = StatusLabel()
+        self.battery_resistance_label.setStyleSheet("color: #5C6BC0;")  # Indigo
+        readings_layout.addWidget(self.battery_resistance_label, row, 1)
+        self.battery_resistance_unit_label = UnitLabel("Ω")
+        readings_layout.addWidget(self.battery_resistance_unit_label, row, 2)
         row += 1
 
         # Separator
@@ -123,7 +150,7 @@ class StatusPanel(QWidget):
         self.energy_label = StatusLabel()
         self.energy_label.setStyleSheet("color: #FF7043;")  # Deep orange
         readings_layout.addWidget(self.energy_label, row, 1)
-        self.energy_unit_label = UnitLabel("Wh")
+        self.energy_unit_label = UnitLabel("mWh")
         readings_layout.addWidget(self.energy_unit_label, row, 2)
         row += 1
 
@@ -288,6 +315,12 @@ class StatusPanel(QWidget):
         self.power_row_label.setEnabled(connected)
         self.power_label.setEnabled(connected)
         self.power_unit_label.setEnabled(connected)
+        self.resistance_row_label.setEnabled(connected)
+        self.resistance_label.setEnabled(connected)
+        self.resistance_unit_label.setEnabled(connected)
+        self.battery_resistance_row_label.setEnabled(connected)
+        self.battery_resistance_label.setEnabled(connected)
+        self.battery_resistance_unit_label.setEnabled(connected)
         self.capacity_row_label.setEnabled(connected)
         self.capacity_label.setEnabled(connected)
         self.capacity_unit_label.setEnabled(connected)
@@ -373,12 +406,24 @@ class StatusPanel(QWidget):
 
     def update_status(self, status: DeviceStatus) -> None:
         """Update display with device status."""
-        self.voltage_label.setText(f"{status.voltage:.2f}")
-        self.current_label.setText(f"{status.current:.3f}")
-        self.power_label.setText(f"{status.power:.2f}")
+        self.voltage_label.setText(f"{status.voltage:.3f}")
 
-        self.capacity_label.setText(f"{status.capacity_mah:.0f}")
-        self.energy_label.setText(f"{status.energy_wh:.3f}")
+        # Convert to milli-units for better readability
+        self.current_label.setText(f"{status.current * 1000:.3f}")  # A → mA
+        self.power_label.setText(f"{status.power * 1000:.3f}")  # W → mW
+
+        # Load resistance (from device)
+        self.resistance_label.setText(f"{status.resistance_ohm:.3f}")
+
+        # Battery internal resistance (calculated as total R - load R)
+        battery_r = status.calculated_battery_resistance_ohm
+        if battery_r > 0:
+            self.battery_resistance_label.setText(f"{battery_r:.3f}")
+        else:
+            self.battery_resistance_label.setText("---")
+
+        self.capacity_label.setText(f"{status.capacity_mah:.3f}")
+        self.energy_label.setText(f"{status.energy_wh * 1000:.3f}")  # Wh → mWh
 
         self.temp_label.setText(f"{status.temperature_c:.1f}")
         self.ext_temp_label.setText(f"{status.ext_temperature_c:.1f}")
@@ -435,6 +480,8 @@ class StatusPanel(QWidget):
         self.voltage_label.setText("---")
         self.current_label.setText("---")
         self.power_label.setText("---")
+        self.resistance_label.setText("---")
+        self.battery_resistance_label.setText("---")
         self.capacity_label.setText("---")
         self.energy_label.setText("---")
         self.temp_label.setText("---")
