@@ -63,3 +63,19 @@ The following test automation tabs are placeholders and need implementation:
 - **Device shows**: 10:24 (minutes:seconds)
 - **GUI shows**: Different value
 - **Notes**: Need to find correct offset and/or encoding for the load-on runtime counter
+
+### GUI Freezing During Long Tests - UNDER INVESTIGATION
+- **Issue**: GUI freezes after ~1-1.5 hours of continuous test running
+- **Observed freezes**: ~30min, ~1h26m, ~1h30m
+- **Fixes applied (2026-02-09)**:
+  1. Signal queue overflow prevention - skip updates if still processing previous one
+  2. Database commit batching - commit every 10s instead of per-reading
+  3. Reduced USB HID polling from 0.5s to 1.0s
+  4. Removed periodic auto-save during acquisition
+- **Status**: Testing in progress - user running long-duration test to verify
+- **If still freezing, investigate**:
+  - Debug file logging blocking main thread
+  - Plot panel memory with 3600+ data points
+  - Unbounded `_accumulated_readings` list growth
+  - Unbounded `_current_session.readings` list growth
+- **Reference**: See CLAUDE.md "GUI Freezing Issues" section for full details

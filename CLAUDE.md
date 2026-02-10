@@ -169,3 +169,88 @@ When debugging device communication issues:
   - Covers both PX100 (legacy) and Atorch protocols
   - Packet structures, checksum calculation, command codes
   - Hardware architecture details (HC32F030E8PA MCU, RN8209C power measurement)
+
+## GUI Freezing Issues - Session Notes (2026-02-09)
+
+### Problem
+The GUI was freezing after ~1-1.5 hours of continuous test running. User reported freezes at 30min, 1h26m, and 1h30m intervals.
+
+### Root Causes Identified
+
+1. **Signal Queue Overflow**: Device status updates were emitted at 2 Hz (0.5s intervals), but if `_update_ui_status()` occasionally took longer than 0.5s, Qt signals would queue up faster than they were processed. Over hours, this queue could grow to thousands of pending signals.
+
+2. **Database Commit Overhead**: `database.add_reading()` was calling `commit()` after every single INSERT. At 1 Hz logging, that's 5400+ commits over 1.5 hours. SQLite commits involve fsync which is expensive.
+
+3. **Periodic Auto-save (removed)**: Was writing full JSON files every 30 seconds, which blocked the main thread.
+
+### Fixes Implemented
+
+1. **Signal Queue Prevention** (`main_window.py`):
+   ```python
+   self._processing_status = False  # Flag in __init__
+
+   def _on_device_status(self, status):
+       if self._processing_status:
+           return  # Skip if still processing previous update
+       self.status_updated.emit(status)
+
+   def _update_ui_status(self, status):
+       self._processing_status = True
+       try:
+           self._do_update_ui_status(status)
+       finally:
+           self._processing_status = False
+   ```
+
+2. **Database Commit Batching** (`database.py`, `main_window.py`):
+   - `add_reading()` now has `commit=False` default parameter
+   - Added `database.commit()` method
+   - Main window commits every 10 seconds via `_last_db_commit_time` tracking
+   - Explicit `database.commit()` called when session ends
+
+3. **Reduced Polling Rate** (`device.py`):
+   - Changed `USBHIDDevice.POLL_INTERVAL` from 0.5s to 1.0s
+   - Now matches serial device rate, reduces main thread pressure
+
+4. **Removed Periodic Auto-save**:
+   - JSON auto-save during acquisition was removed
+   - Data only saved when test completes (load turns off) or user clicks Save
+
+### Key Code Locations
+
+- `main_window.py:95` - `_processing_status` flag initialization
+- `main_window.py:988-992` - Signal queue prevention in `_on_device_status`
+- `main_window.py:1014-1022` - `_update_ui_status` wrapper with try/finally
+- `main_window.py:1039-1044` - Periodic database commit logic
+- `database.py:149-185` - Modified `add_reading()` with optional commit
+- `device.py:591` - `POLL_INTERVAL = 1.0`
+
+### Testing Status
+
+User is currently running a long-duration test to verify fixes. Previous freezes occurred at:
+- ~30 minutes
+- ~1 hour 26 minutes
+- ~1 hour 30 minutes
+
+If freezing persists, investigate:
+1. Debug file logging (`_on_debug_message`) - writes to file on every device message if enabled
+2. Plot panel memory usage - pyqtgraph with 3600+ points
+3. `_accumulated_readings` list growth (unbounded Python list)
+4. `_current_session.readings` list growth (also unbounded)
+
+### Reference
+Forum post on PySide threading issues: https://forum.pythonguis.com/t/struggling-with-pyside-i-want-help-with-ui-freezing-issue/1951
+
+Key insight: Use QThreadPool with QRunnable for heavy operations, or implement rate limiting to prevent signal queue buildup.
+
+## Test Coverage
+
+118 tests total across 6 test files:
+- `test_protocol.py` (38) - Atorch protocol encoding/decoding
+- `test_database.py` (13) - SQLite operations and models
+- `test_profiles.py` (12) - Test profile serialization
+- `test_alerts.py` (30) - Alert conditions (voltage, temp, capacity, etc.)
+- `test_export.py` (19) - CSV and JSON export
+- `test_px100_protocol.py` (31) - PX100 protocol commands/parsing
+
+Run with: `pytest -v`
