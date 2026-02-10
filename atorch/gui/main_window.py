@@ -43,7 +43,8 @@ from .automation_panel import AutomationPanel
 from .history_panel import HistoryPanel
 from .settings_dialog import SettingsDialog, DeviceSettingsDialog
 from .debug_window import DebugWindow
-from .placeholder_panel import BatteryLoadPanel, BatteryChargerPanel, CableResistancePanel, ChargerPanel, PowerBankPanel
+from .battery_load_panel import BatteryLoadPanel
+from .placeholder_panel import BatteryChargerPanel, CableResistancePanel, ChargerPanel, PowerBankPanel
 
 
 class MainWindow(QMainWindow):

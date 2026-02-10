@@ -69,7 +69,7 @@ class AutomationPanel(QWidget):
         self._battery_presets_dir.mkdir(parents=True, exist_ok=True)
         self._test_presets_dir = self._atorch_dir / "test_presets"
         self._test_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._last_session_file = self._atorch_dir / "last_session.json"
+        self._last_session_file = self._atorch_dir / "battery_capacity_session.json"
 
         self._create_ui()
         self._connect_save_signals()

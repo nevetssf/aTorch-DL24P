@@ -136,16 +136,32 @@ class PlotPanel(QWidget):
     # Colors chosen for visibility on both dark (#1a1a1a) and light grey backgrounds
     # Medium luminance, high saturation, distinct hues spread across color wheel
     SERIES_CONFIG = [
-        ("Voltage", "#FFC107", "V"),      # Amber - warm yellow
-        ("Current", "#29B6F6", "A"),      # Light blue - cool
-        ("Power", "#EF5350", "W"),        # Red - attention
+        ("V", "#FFC107", "V"),            # Amber - warm yellow
+        ("I", "#29B6F6", "A"),            # Light blue - cool
+        ("P", "#EF5350", "W"),            # Red - attention
         ("Load R", "#66BB6A", "Ω"),       # Green - resistance
         ("Battery R", "#5C6BC0", "Ω"),    # Indigo - internal resistance
-        ("MOSFET Temp", "#26A69A", "°C"), # Teal - blue-green
-        ("Ext Temp", "#9CCC65", "°C"),    # Light green - yellow-green
+        ("MOSFET", "#26A69A", "°C"),      # Teal - blue-green
+        ("External", "#9CCC65", "°C"),    # Light green - yellow-green
         ("Capacity", "#AB47BC", "mAh"),   # Purple - distinct
         ("Energy", "#FF7043", "Wh"),      # Deep orange - warm
     ]
+
+    # Mapping from short names (used in checkboxes) to full names (used in X-axis dropdown and plot labels)
+    NAME_MAPPING = {
+        "V": "Voltage",
+        "I": "Current",
+        "P": "Power",
+        "MOSFET": "MOSFET Temp",
+        "External": "External Temp",
+        "Load R": "Load R",
+        "Battery R": "Battery R",
+        "Capacity": "Capacity",
+        "Energy": "Energy",
+    }
+
+    # Reverse mapping for looking up short names from full names
+    REVERSE_NAME_MAPPING = {v: k for k, v in NAME_MAPPING.items()}
 
     def __init__(self, max_points: int = 3600):
         super().__init__()
@@ -195,18 +211,20 @@ class PlotPanel(QWidget):
         for name, color, _ in self.SERIES_CONFIG:
             cb = QCheckBox(name)
             cb.setStyleSheet(f"QCheckBox {{ color: {color}; font-weight: bold; }}")
-            cb.setChecked(name == "Voltage")  # Default to Voltage only
+            cb.setChecked(name == "V")  # Default to V only
             cb.toggled.connect(lambda checked, n=name: self._on_series_toggled(n, checked))
             controls.addWidget(cb)
             self._checkboxes[name] = cb
-            self._visible[name] = (name == "Voltage")
+            self._visible[name] = (name == "V")
 
         controls.addStretch()
 
         # X-axis selector
         controls.addWidget(QLabel("X-Axis:"))
         self.x_axis_combo = QComboBox()
-        self.x_axis_combo.addItems(["Time", "Voltage", "Current", "Power", "Load R", "Battery R", "Capacity", "Energy"])
+        # Use full names in X-axis dropdown
+        x_axis_options = ["Time"] + [self.NAME_MAPPING[name] for name, _, _ in self.SERIES_CONFIG]
+        self.x_axis_combo.addItems(x_axis_options)
         self.x_axis_combo.setCurrentText("Time")
         self.x_axis_combo.currentTextChanged.connect(self._on_x_axis_changed)
         controls.addWidget(self.x_axis_combo)
@@ -282,7 +300,9 @@ class PlotPanel(QWidget):
             if i == 0:
                 # First series uses the main plot's left axis and viewbox
                 left_axis = self.plot_item.getAxis('left')
-                left_axis.setLabel(name, units=unit, color=color)
+                # Use full name for axis label
+                full_name = self.NAME_MAPPING.get(name, name)
+                left_axis.setLabel(full_name, units=unit, color=color)
                 left_axis.setPen(pg.mkPen(color, width=1))
                 left_axis.setTextPen(pg.mkPen(color))
 
@@ -307,7 +327,9 @@ class PlotPanel(QWidget):
 
                 # Create axis on right side
                 axis = pg.AxisItem('right')
-                axis.setLabel(name, units=unit, color=color)
+                # Use full name for axis label
+                full_name = self.NAME_MAPPING.get(name, name)
+                axis.setLabel(full_name, units=unit, color=color)
                 axis.setPen(pg.mkPen(color, width=1))
                 axis.setTextPen(pg.mkPen(color))
                 axis.linkToView(vb)
@@ -345,7 +367,11 @@ class PlotPanel(QWidget):
 
     def _on_x_axis_changed(self, param_name: str) -> None:
         """Handle X-axis parameter selection change."""
-        self._x_axis_param = param_name
+        # Convert full name to short name for internal use
+        if param_name != "Time" and param_name in self.REVERSE_NAME_MAPPING:
+            self._x_axis_param = self.REVERSE_NAME_MAPPING[param_name]
+        else:
+            self._x_axis_param = param_name
 
         # Enable/disable time controls based on selection
         is_time = (param_name == "Time")
@@ -359,13 +385,14 @@ class PlotPanel(QWidget):
         if is_time:
             self._update_time_axis_label()
         else:
-            # Get unit for selected parameter
+            # Get unit for selected parameter (use short name for lookup)
             param_unit = ""
             for name, _, unit in self.SERIES_CONFIG:
-                if name == param_name:
+                if name == self._x_axis_param:
                     param_unit = unit
                     break
             # This is a placeholder - actual scaled unit will be set in _update_plots
+            # Use full name in label
             self.plot_widget.setLabel("bottom", f"{param_name} ({param_unit})")
 
         # Redraw plot with new x-axis
@@ -450,13 +477,13 @@ class PlotPanel(QWidget):
         t = time_module.time() - self._start_time
 
         self._time_data.append(t)
-        self._data["Voltage"].append(status.voltage)
-        self._data["Current"].append(status.current)
-        self._data["Power"].append(status.power)
+        self._data["V"].append(status.voltage)
+        self._data["I"].append(status.current)
+        self._data["P"].append(status.power)
         self._data["Load R"].append(status.resistance_ohm)
         self._data["Battery R"].append(status.calculated_battery_resistance_ohm)
-        self._data["MOSFET Temp"].append(status.temperature_c)
-        self._data["Ext Temp"].append(status.ext_temperature_c)
+        self._data["MOSFET"].append(status.temperature_c)
+        self._data["External"].append(status.ext_temperature_c)
         self._data["Capacity"].append(status.capacity_mah)
         self._data["Energy"].append(status.energy_wh)
 
@@ -481,11 +508,11 @@ class PlotPanel(QWidget):
 
         for reading in session.readings:
             self._time_data.append(reading.runtime_seconds)
-            self._data["Voltage"].append(reading.voltage)
-            self._data["Current"].append(reading.current)
-            self._data["Power"].append(reading.power)
-            self._data["MOSFET Temp"].append(reading.temperature_c)
-            self._data["Ext Temp"].append(getattr(reading, 'ext_temperature_c', 0))
+            self._data["V"].append(reading.voltage)
+            self._data["I"].append(reading.current)
+            self._data["P"].append(reading.power)
+            self._data["MOSFET"].append(reading.temperature_c)
+            self._data["External"].append(getattr(reading, 'ext_temperature_c', 0))
             self._data["Capacity"].append(reading.capacity_mah)
             self._data["Energy"].append(reading.energy_wh)
 
@@ -501,11 +528,11 @@ class PlotPanel(QWidget):
 
         for reading in readings:
             self._time_data.append(reading.runtime_seconds)
-            self._data["Voltage"].append(reading.voltage)
-            self._data["Current"].append(reading.current)
-            self._data["Power"].append(reading.power)
-            self._data["MOSFET Temp"].append(reading.temperature_c)
-            self._data["Ext Temp"].append(getattr(reading, 'ext_temperature_c', 0))
+            self._data["V"].append(reading.voltage)
+            self._data["I"].append(reading.current)
+            self._data["P"].append(reading.power)
+            self._data["MOSFET"].append(reading.temperature_c)
+            self._data["External"].append(getattr(reading, 'ext_temperature_c', 0))
             self._data["Capacity"].append(reading.capacity_mah)
             self._data["Energy"].append(reading.energy_wh)
 
@@ -612,8 +639,9 @@ class PlotPanel(QWidget):
                     x_scale, x_display_unit = _get_unit_scale(x_max, x_unit)
                     x_display = x_raw * x_scale
 
-                    # Update x-axis label with scaled unit
-                    self.plot_widget.setLabel("bottom", f"{self._x_axis_param} ({x_display_unit})")
+                    # Update x-axis label with scaled unit (use full name)
+                    full_name = self.NAME_MAPPING.get(self._x_axis_param, self._x_axis_param)
+                    self.plot_widget.setLabel("bottom", f"{full_name} ({x_display_unit})")
             else:
                 x_display = np.array([])
 

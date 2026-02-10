@@ -106,11 +106,45 @@ Pattern used:
 ## User Data Locations
 
 All user data stored in `~/.atorch/`:
-- `last_session.json` - Persisted settings (restored on app restart)
+- `battery_capacity_session.json` - Battery Capacity panel state (restored on app restart)
+- `battery_load_session.json` - Battery Load panel state (restored on app restart)
 - `battery_presets/` - User-saved battery presets
-- `test_presets/` - User-saved test configuration presets
+- `test_presets/` - User-saved test configuration presets (Battery Capacity)
+- `battery_load_presets/` - User-saved test configuration presets (Battery Load)
 - `test_data/` - Auto-saved JSON test results
 - `tests.db` - SQLite database for test sessions
+
+## Test Automation Panel State Persistence
+
+**IMPORTANT**: All Test Automation panels MUST save and restore their state on app restart.
+
+Each panel should:
+1. Save all UI settings to a panel-specific JSON file in `~/.atorch/` (e.g., `battery_capacity_session.json`, `battery_load_session.json`)
+2. Implement `_save_session()` - saves all form fields to JSON
+3. Implement `_load_session()` - restores all form fields from JSON on startup
+4. Implement `_connect_save_signals()` - connects all UI widgets to trigger auto-save
+5. Use `_loading_settings` flag to prevent recursive saves during load
+6. Save whenever any field changes (auto-save pattern)
+
+State to persist includes:
+- Test configuration parameters (all spinboxes, combos, checkboxes)
+- Battery info fields (name, manufacturer, capacity, etc.)
+- Selected presets (both battery and test presets)
+- Any other user-configurable settings
+
+Pattern:
+```python
+self._loading_settings = False
+self._session_file = self._atorch_dir / "panel_name_session.json"
+
+def _connect_save_signals(self):
+    # Connect all widgets to _on_settings_changed
+    self.some_widget.valueChanged.connect(self._on_settings_changed)
+
+def _on_settings_changed(self):
+    if not self._loading_settings:
+        self._save_session()
+```
 
 ## Preset Organization
 
