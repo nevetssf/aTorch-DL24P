@@ -146,12 +146,13 @@ class Database:
         )
         self._conn.commit()
 
-    def add_reading(self, session_id: int, reading: Reading) -> int:
+    def add_reading(self, session_id: int, reading: Reading, commit: bool = False) -> int:
         """Add a reading to a session.
 
         Args:
             session_id: ID of the session
             reading: Reading to add
+            commit: Whether to commit immediately (default False for performance)
 
         Returns:
             ID of created reading
@@ -177,10 +178,16 @@ class Database:
                 reading.runtime_seconds,
             ),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
         reading.id = cursor.lastrowid
         reading.session_id = session_id
         return reading.id
+
+    def commit(self) -> None:
+        """Commit pending database changes."""
+        if self._conn:
+            self._conn.commit()
 
     def add_readings_batch(self, session_id: int, readings: list[Reading]) -> None:
         """Add multiple readings in a batch.

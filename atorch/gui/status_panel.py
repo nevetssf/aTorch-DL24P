@@ -241,7 +241,7 @@ class StatusPanel(QWidget):
 
         # Save and Clear buttons
         buttons_layout = QHBoxLayout()
-        self.save_btn = QPushButton("Save Data...")
+        self.save_btn = QPushButton("Export")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self._on_save_clicked)
         buttons_layout.addWidget(self.save_btn)
@@ -257,7 +257,7 @@ class StatusPanel(QWidget):
         self.logged_time_label = QLabel("Total Logged:")
         totals_layout.addWidget(self.logged_time_label)
         totals_layout.addStretch()
-        self.logging_time_label = StatusLabel("00:00:00")
+        self.logging_time_label = StatusLabel("0h 0m 0s")
         totals_layout.addWidget(self.logging_time_label)
         self.points_label = QLabel("(0 pts)")
         totals_layout.addWidget(self.points_label)
@@ -424,11 +424,11 @@ class StatusPanel(QWidget):
         h = total_seconds // 3600
         m = (total_seconds % 3600) // 60
         s = total_seconds % 60
-        self.logging_time_label.setText(f"{h:02d}:{m:02d}:{s:02d}")
+        self.logging_time_label.setText(f"{h}h {m}m {s}s")
 
     def clear_logging_time(self) -> None:
         """Reset the logging time display."""
-        self.logging_time_label.setText("00:00:00")
+        self.logging_time_label.setText("0h 0m 0s")
 
     def clear(self) -> None:
         """Clear all status displays."""
@@ -439,7 +439,7 @@ class StatusPanel(QWidget):
         self.energy_label.setText("---")
         self.temp_label.setText("---")
         self.ext_temp_label.setText("---")
-        self.logging_time_label.setText("00:00:00")
+        self.logging_time_label.setText("0h 0m 0s")
         self.load_status_label.setText("OFF")
         self.load_status_label.setStyleSheet("color: #888888;")
         self.warning_label.setText("")

@@ -15,6 +15,7 @@ except ImportError:
     HID_AVAILABLE = False
 
 from .atorch_protocol import AtorchProtocol, DeviceStatus
+from .px100_protocol import PX100Protocol
 
 
 class DeviceError(Exception):
@@ -35,8 +36,9 @@ class Device:
     BAUD_RATE = 9600
     CH340_VID = 0x1A86
     CH340_PID = 0x7523
-    READ_TIMEOUT = 0.1
+    READ_TIMEOUT = 1.0  # Longer timeout for Bluetooth stability
     STATUS_INTERVAL = 1.0  # Device reports every ~1 second
+    BT_INIT_DELAY = 2.0  # Bluetooth ports need time to initialize
 
     # Common USB-serial chip identifiers
     USB_CHIPS = ["ch340", "ch341", "cp210", "ftdi", "pl2303", "usb-serial", "usb serial", "usbserial"]
@@ -54,6 +56,7 @@ class Device:
         self._error_callback: Optional[Callable[[str], None]] = None
         self._debug_callback: Optional[Callable[[str, str, bytes], None]] = None
         self._lock = threading.Lock()
+        self._is_bluetooth = False  # Flag for Bluetooth connection (uses polling)
 
     @property
     def is_connected(self) -> bool:
@@ -148,6 +151,36 @@ class Device:
         return PortType.UNKNOWN
 
     @classmethod
+    def _is_bluetooth_port(cls, port_name: str) -> bool:
+        """Check if a port name indicates a Bluetooth connection.
+
+        Args:
+            port_name: The port device name (e.g., /dev/cu.DL24-BT)
+
+        Returns:
+            True if this appears to be a Bluetooth port
+        """
+        port_lower = port_name.lower()
+
+        # Check for Bluetooth identifiers in port name
+        for bt_id in cls.BT_IDENTIFIERS:
+            if bt_id in port_lower:
+                return True
+
+        # macOS: /dev/cu.* ports that aren't USB are typically Bluetooth
+        if port_lower.startswith("/dev/cu."):
+            # USB ports have patterns like usbserial, usbmodem, wchusbserial
+            usb_patterns = ["usbserial", "usbmodem", "wchusbserial", "usb"]
+            if not any(p in port_lower for p in usb_patterns):
+                return True
+
+        # Linux: /dev/rfcomm* are Bluetooth
+        if "/dev/rfcomm" in port_lower:
+            return True
+
+        return False
+
+    @classmethod
     def list_ports(cls, port_type: Optional[PortType] = None) -> list[tuple[str, str, PortType]]:
         """List available serial ports.
 
@@ -238,11 +271,25 @@ class Device:
             self._buffer = b""
             self._debug("INFO", f"Port opened successfully: {port}")
 
-            # Start read thread
+            # Check if this is a Bluetooth port and add initialization delay
+            self._is_bluetooth = self._is_bluetooth_port(port)
+            if self._is_bluetooth:
+                self._debug("INFO", f"Bluetooth port detected, waiting {self.BT_INIT_DELAY}s for initialization...")
+                time.sleep(self.BT_INIT_DELAY)
+                # Clear any garbage data that may have accumulated
+                self._serial.reset_input_buffer()
+                self._debug("INFO", "Bluetooth initialization complete, using active polling mode")
+
+            # Start read/poll thread
             self._running = True
-            self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
+            if self._is_bluetooth:
+                # Bluetooth uses active polling with PX100 protocol
+                self._read_thread = threading.Thread(target=self._poll_loop_bt, daemon=True)
+            else:
+                # USB serial listens for Atorch broadcasts
+                self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
             self._read_thread.start()
-            self._debug("INFO", "Read thread started, waiting for data...")
+            self._debug("INFO", "Communication thread started...")
 
             return True
 
@@ -293,6 +340,116 @@ class Device:
                     self._debug("ERROR", f"Unexpected error: {e}")
                     self._handle_error(f"Unexpected error: {e}")
         self._debug("INFO", "Read loop ended")
+
+    def _poll_loop_bt(self) -> None:
+        """Background thread for polling device via Bluetooth using PX100 protocol."""
+        self._debug("INFO", "Bluetooth poll loop started (PX100 protocol)")
+        poll_count = 0
+
+        while self._running and self._serial:
+            try:
+                poll_count += 1
+                self._debug("INFO", f"Bluetooth poll #{poll_count}")
+
+                # Query multiple values using PX100 protocol
+                voltage = self._px100_query(PX100Protocol.CMD_GET_VOLTAGE)
+                current = self._px100_query(PX100Protocol.CMD_GET_CURRENT)
+                on_off = self._px100_query(PX100Protocol.CMD_GET_ON_OFF)
+
+                if voltage is not None or current is not None:
+                    # Build a DeviceStatus from the polled values
+                    v = (voltage or 0) / 1000.0 if voltage else 0.0  # mV to V
+                    i = (current or 0) / 1000.0 if current else 0.0  # mA to A
+                    p = v * i
+                    load_on = (on_off == 1) if on_off is not None else False
+
+                    status = DeviceStatus(
+                        voltage=v,
+                        current=i,
+                        power=p,
+                        energy_wh=0.0,  # PX100 would need separate queries
+                        capacity_mah=0.0,
+                        temperature_c=0,
+                        temperature_f=32,
+                        ext_temperature_c=0,
+                        ext_temperature_f=32,
+                        hours=0,
+                        minutes=0,
+                        seconds=0,
+                        load_on=load_on,
+                        ureg=False,
+                        overcurrent=False,
+                        overvoltage=False,
+                        overtemperature=False,
+                        fan_rpm=0,
+                    )
+
+                    self._debug("PARSE", f"BT Status: {v:.2f}V {i:.3f}A {p:.2f}W Load={'ON' if load_on else 'OFF'}")
+                    self._last_status = status
+
+                    if self._status_callback:
+                        try:
+                            self._status_callback(status)
+                        except Exception:
+                            pass
+                else:
+                    self._debug("WARN", "No response from PX100 queries")
+
+                time.sleep(self.STATUS_INTERVAL)
+
+            except serial.SerialException as e:
+                if self._running:
+                    self._debug("ERROR", f"Bluetooth poll error: {e}")
+                    self._handle_error(f"Bluetooth poll error: {e}")
+                    self._running = False
+                break
+            except Exception as e:
+                if self._running:
+                    self._debug("ERROR", f"Unexpected error in BT poll: {e}")
+                time.sleep(1.0)
+
+        self._debug("INFO", "Bluetooth poll loop ended")
+
+    def _px100_query(self, cmd: int) -> Optional[int]:
+        """Send a PX100 query command and return the response value.
+
+        Args:
+            cmd: PX100 command byte (e.g., CMD_GET_VOLTAGE)
+
+        Returns:
+            Response value as integer, or None if no response
+        """
+        if not self.is_connected:
+            return None
+
+        with self._lock:
+            try:
+                # Build and send query
+                query = PX100Protocol.build_command(cmd, 0, 0)
+                self._debug("SEND", f"PX100 query cmd=0x{cmd:02X}", query)
+                self._serial.write(query)
+                self._serial.flush()
+
+                # Wait for response (8 bytes: CA CB CMD D1 D2 D3 CE CF)
+                time.sleep(0.1)
+                response = self._serial.read(8)
+
+                if response:
+                    self._debug("RECV", f"PX100 response ({len(response)} bytes)", response)
+                    parsed = PX100Protocol.parse_response(response)
+                    if parsed:
+                        self._debug("PARSE", f"PX100: cmd=0x{parsed['cmd']:02X} value={parsed['raw_value']}")
+                        return parsed['raw_value']
+                    else:
+                        self._debug("WARN", "Failed to parse PX100 response")
+                else:
+                    self._debug("WARN", f"No response to PX100 cmd=0x{cmd:02X}")
+
+                return None
+
+            except Exception as e:
+                self._debug("ERROR", f"PX100 query error: {e}")
+                return None
 
     def _process_buffer(self) -> None:
         """Process accumulated buffer data."""
@@ -431,7 +588,7 @@ class USBHIDDevice:
     SUB_CMD_CLEAR_DATA = 0x34  # Clear accumulated data (mAh, Wh, time)
 
     # Polling interval (device doesn't push data, we must poll)
-    POLL_INTERVAL = 0.5  # seconds
+    POLL_INTERVAL = 1.0  # seconds (1 Hz to match serial device rate)
 
     def __init__(self):
         self._device = None

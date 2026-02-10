@@ -286,13 +286,19 @@ class AutomationPanel(QWidget):
         control_layout.addWidget(self.status_label)
 
         # Elapsed time
-        self.elapsed_label = QLabel("00:00:00")
+        self.elapsed_label = QLabel("0h 0m 0s")
         self.elapsed_label.setAlignment(Qt.AlignCenter)
         font = self.elapsed_label.font()
         font.setPointSize(14)
         font.setBold(True)
         self.elapsed_label.setFont(font)
         control_layout.addWidget(self.elapsed_label)
+
+        # Remaining time estimate
+        self.remaining_label = QLabel("")
+        self.remaining_label.setAlignment(Qt.AlignCenter)
+        self.remaining_label.setStyleSheet("color: #666;")
+        control_layout.addWidget(self.remaining_label)
 
         control_layout.addStretch()
 
@@ -538,7 +544,7 @@ class AutomationPanel(QWidget):
         h = progress.elapsed_seconds // 3600
         m = (progress.elapsed_seconds % 3600) // 60
         s = progress.elapsed_seconds % 60
-        self.elapsed_label.setText(f"{h:02d}:{m:02d}:{s:02d}")
+        self.elapsed_label.setText(f"{h}h {m}m {s}s")
 
         # Update progress bar for cycle/stepped tests
         if progress.total_cycles > 1:
@@ -596,7 +602,8 @@ class AutomationPanel(QWidget):
         self.duration_spin.setEnabled(self.timed_checkbox.isChecked())
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("")
-        self.elapsed_label.setText("00:00:00")
+        self.elapsed_label.setText("0h 0m 0s")
+        self.remaining_label.setText("")
 
     def set_connected(self, connected: bool) -> None:
         """Update status label and button based on connection state."""
@@ -624,7 +631,7 @@ class AutomationPanel(QWidget):
         h = int(elapsed_seconds) // 3600
         m = (int(elapsed_seconds) % 3600) // 60
         s = int(elapsed_seconds) % 60
-        self.elapsed_label.setText(f"{h:02d}:{m:02d}:{s:02d}")
+        self.elapsed_label.setText(f"{h}h {m}m {s}s")
 
         # Method 1: If Timed is enabled, use time-based progress
         if self.timed_checkbox.isChecked():
@@ -635,7 +642,8 @@ class AutomationPanel(QWidget):
                 mins, secs = divmod(int(remaining), 60)
                 hours, mins = divmod(mins, 60)
                 self.progress_bar.setValue(progress)
-                self.progress_bar.setFormat(f"{progress}% ({hours:02d}:{mins:02d}:{secs:02d} remaining)")
+                self.progress_bar.setFormat(f"{progress}% ({hours}h {mins}m {secs}s remaining)")
+                self.remaining_label.setText(f"~{hours}h {mins}m {secs}s remaining")
                 return
 
         # Method 2: Use capacity-based progress (nominal capacity / current draw rate)
@@ -644,6 +652,21 @@ class AutomationPanel(QWidget):
             progress = min(100, int(100 * capacity_mah / nominal_capacity))
             self.progress_bar.setValue(progress)
             self.progress_bar.setFormat(f"{progress}% ({capacity_mah:.0f} / {nominal_capacity} mAh)")
+
+            # Estimate remaining time based on discharge rate
+            if elapsed_seconds > 10:  # Wait for stable rate
+                discharge_rate_mah_per_sec = capacity_mah / elapsed_seconds
+                if discharge_rate_mah_per_sec > 0:
+                    remaining_mah = nominal_capacity - capacity_mah
+                    remaining_secs = remaining_mah / discharge_rate_mah_per_sec
+                    if remaining_secs > 0:
+                        mins, secs = divmod(int(remaining_secs), 60)
+                        hours, mins = divmod(mins, 60)
+                        self.remaining_label.setText(f"~{hours}h {mins}m {secs}s remaining")
+                        return
+
+        # Clear remaining if can't estimate
+        self.remaining_label.setText("")
 
     def _load_battery_presets_list(self) -> None:
         """Load the list of battery presets into the combo box."""

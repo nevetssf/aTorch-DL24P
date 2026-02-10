@@ -139,6 +139,30 @@ python build.py  # Creates dist/aTorch DL24P.app (macOS) or .exe (Windows)
 
 Hidden imports required: PySide6, pyqtgraph, numpy, pandas, serial, hid
 
+## Debugging
+
+When debugging device communication issues:
+1. **Always check `debug.log`** in the project root - it contains timestamped SEND/RECV/INFO/ERROR events
+2. Run the app with Debug Log checkbox enabled (on by default)
+3. Look for:
+   - `RECV` entries to confirm data is being received
+   - `PARSE` entries to see decoded packet contents
+   - `ERROR` entries for communication failures
+4. Use `tail -f debug.log` to monitor in real-time
+
+## Protocol Differences: USB HID vs Bluetooth
+
+**USB HID** (primary, working):
+- Host must poll device - device does NOT push data
+- Uses custom HID protocol with `55 05` header
+- Polling every 500ms for counters (0x05) and live data (0x03)
+
+**Bluetooth/Serial** (not working - see TODO.md):
+- Tested both Atorch (`FF 55` header) and PX100 (`B1 B2` header) protocols
+- Device connects but never responds to any commands or queries
+- Likely uses proprietary protocol only supported by official app
+- **Recommendation**: Use USB HID instead (fully functional)
+
 ## External Resources
 
 - **DL24 Protocol Documentation**: https://www.improwis.com/projects/sw_dl24/

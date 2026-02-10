@@ -87,6 +87,11 @@ class MainWindow(QMainWindow):
         self._logging_start_time: Optional[datetime] = None  # Track when logging started
         self._accumulated_readings: list[Reading] = []  # Readings accumulated across sessions
         self._prev_load_on = False  # Track previous load state for cutoff detection
+        self._last_autosave_time: Optional[datetime] = None  # Track last periodic auto-save
+        self._autosave_interval = 30  # Auto-save every 30 seconds during test
+        self._last_db_commit_time: Optional[datetime] = None  # Track last database commit
+        self._db_commit_interval = 10  # Commit database every 10 seconds
+        self._processing_status = False  # Flag to prevent signal queue buildup
 
         # Setup
         self._setup_alerts()
@@ -381,13 +386,16 @@ class MainWindow(QMainWindow):
             )
             self.database.create_session(self._current_session)
             self._logging_enabled = True
+            self._last_autosave_time = None  # Reset autosave timer for new test
+            self._last_db_commit_time = None  # Reset db commit timer for new test
             # Turn on the load when logging starts
             if self.device and self.device.is_connected:
                 self.device.turn_on()
                 self.control_panel.power_switch.setChecked(True)
             self.statusbar.showMessage("Logging started")
         elif not enabled and self._current_session:
-            # End session
+            # End session - commit any pending data first
+            self.database.commit()
             self._current_session.end_time = datetime.now()
             self.database.update_session(self._current_session)
             num_readings = len(self._current_session.readings)
@@ -497,26 +505,36 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Export Error", str(e))
 
-    def _save_test_json(self, filename: Optional[str] = None) -> Optional[str]:
-        """Save test data to JSON file.
+    def _save_test_json_background(self, test_config: dict, battery_info: dict,
+                                      filename: str, readings: list) -> None:
+        """Save test data to JSON in background thread (periodic auto-save).
 
-        Saves test configuration, battery info, and all logged readings.
+        All data must be passed in - do NOT access Qt widgets from this method.
 
         Args:
-            filename: Optional filename to use. If None, uses the filename from automation panel.
+            test_config: Test configuration dict (gathered on main thread)
+            battery_info: Battery info dict (gathered on main thread)
+            filename: Filename to save as (gathered on main thread)
+            readings: Copy of readings list (gathered on main thread)
+        """
+        try:
+            self._write_test_json(filename, test_config, battery_info, readings)
+        except Exception:
+            pass  # Silent fail for background auto-save
+
+    def _write_test_json(self, filename: str, test_config: dict, battery_info: dict,
+                         readings: list) -> Optional[str]:
+        """Write test data to JSON file (thread-safe, no GUI access).
+
+        Args:
+            filename: Filename to save as
+            test_config: Test configuration dict
+            battery_info: Battery info dict
+            readings: List of Reading objects
 
         Returns:
-            Path to saved file, or None if save failed
+            Path to saved file, or None if failed
         """
-        # Get test configuration and battery info from automation panel
-        test_config = self.automation_panel.get_test_config()
-        battery_info = self.automation_panel.get_battery_info()
-
-        # Use provided filename or get from automation panel
-        if filename is None:
-            filename = self.automation_panel.filename_edit.text().strip()
-            if not filename:
-                filename = self.automation_panel.generate_test_filename()
         # Ensure .json extension
         if not filename.endswith('.json'):
             filename += '.json'
@@ -528,7 +546,7 @@ class MainWindow(QMainWindow):
 
         # Build test data structure
         readings_data = []
-        for reading in self._accumulated_readings:
+        for reading in readings:
             readings_data.append({
                 "timestamp": reading.timestamp.isoformat(),
                 "voltage": reading.voltage,
@@ -555,9 +573,7 @@ class MainWindow(QMainWindow):
                 "total_runtime_seconds": final_reading["runtime_seconds"],
             }
         else:
-            summary = {
-                "total_readings": 0,
-            }
+            summary = {"total_readings": 0}
 
         test_data = {
             "test_config": test_config,
@@ -570,9 +586,35 @@ class MainWindow(QMainWindow):
             with open(output_path, 'w') as f:
                 json.dump(test_data, f, indent=2)
             return str(output_path)
-        except Exception as e:
-            self.statusbar.showMessage(f"Failed to save test data: {e}")
+        except Exception:
             return None
+
+    def _save_test_json(self, filename: Optional[str] = None) -> Optional[str]:
+        """Save test data to JSON file (main thread version).
+
+        Saves test configuration, battery info, and all logged readings.
+
+        Args:
+            filename: Optional filename to use. If None, uses the filename from automation panel.
+
+        Returns:
+            Path to saved file, or None if save failed
+        """
+        # Get test configuration and battery info from automation panel
+        test_config = self.automation_panel.get_test_config()
+        battery_info = self.automation_panel.get_battery_info()
+
+        # Use provided filename or get from automation panel
+        if filename is None:
+            filename = self.automation_panel.filename_edit.text().strip()
+            if not filename:
+                filename = self.automation_panel.generate_test_filename()
+
+        result = self._write_test_json(filename, test_config, battery_info,
+                                       list(self._accumulated_readings))
+        if result is None:
+            self.statusbar.showMessage("Failed to save test data")
+        return result
 
     @Slot()
     def _show_settings(self) -> None:
@@ -719,6 +761,7 @@ class MainWindow(QMainWindow):
             )
             self.database.create_session(self._current_session)
             self._logging_enabled = True
+            self._last_autosave_time = None  # Reset autosave timer
             self.status_panel.log_switch.setChecked(True)
 
         # Turn on load
@@ -943,6 +986,9 @@ class MainWindow(QMainWindow):
         IMPORTANT: This runs in a background thread - only emit signals here,
         do NOT access GUI elements or perform database operations directly.
         """
+        # Skip if still processing previous update (prevents signal queue buildup)
+        if self._processing_status:
+            return
         # Emit signal to handle on main thread
         self.status_updated.emit(status)
 
@@ -970,6 +1016,15 @@ class MainWindow(QMainWindow):
     @Slot(DeviceStatus)
     def _update_ui_status(self, status: DeviceStatus) -> None:
         """Update UI with device status (runs on main thread via signal)."""
+        # Mark as processing to prevent signal queue buildup
+        self._processing_status = True
+        try:
+            self._do_update_ui_status(status)
+        finally:
+            self._processing_status = False
+
+    def _do_update_ui_status(self, status: DeviceStatus) -> None:
+        """Internal method to update UI with device status."""
         # Log data first (before UI update) if enabled
         if self._logging_enabled and self._current_session:
             reading = Reading(
@@ -987,6 +1042,14 @@ class MainWindow(QMainWindow):
             self._current_session.readings.append(reading)
             # Also accumulate for cross-session export
             self._accumulated_readings.append(reading)
+
+            # Periodic database commit (avoid committing every reading)
+            now = datetime.now()
+            if self._last_db_commit_time is None:
+                self._last_db_commit_time = now
+            elif (now - self._last_db_commit_time).total_seconds() >= self._db_commit_interval:
+                self._last_db_commit_time = now
+                self.database.commit()
 
         # Check alerts
         self.notifier.check(status)
@@ -1010,6 +1073,7 @@ class MainWindow(QMainWindow):
             self.status_panel.log_switch.setChecked(False)
             # End the current session properly so next Start Test works
             if self._current_session:
+                self.database.commit()  # Commit any pending readings
                 self._current_session.end_time = datetime.now()
                 self.database.update_session(self._current_session)
                 self._last_completed_session = self._current_session

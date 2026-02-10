@@ -201,7 +201,8 @@ class ControlPanel(QWidget):
         type_layout.addWidget(self.usb_hid_radio)
 
         self.bt_radio = QRadioButton("Bluetooth")
-        self.bt_radio.setToolTip("Bluetooth SPP")
+        self.bt_radio.setToolTip("Bluetooth not supported (protocol unknown)")
+        self.bt_radio.setEnabled(False)  # Disabled until protocol is reverse-engineered
         type_layout.addWidget(self.bt_radio)
 
         type_layout.addStretch()
@@ -509,7 +510,7 @@ class ControlPanel(QWidget):
         self.port_combo.setEnabled(not connected)
         self.refresh_btn.setEnabled(not connected)
         self.usb_hid_radio.setEnabled(not connected)
-        self.bt_radio.setEnabled(not connected)
+        # bt_radio stays disabled - Bluetooth protocol not yet supported
         self.connect_btn.setEnabled(not connected)
         self.disconnect_btn.setEnabled(connected)
 
@@ -693,6 +694,8 @@ class ControlPanel(QWidget):
         """Refresh the list of available ports/devices."""
         self.port_combo.clear()
 
+        dl24_index = -1  # Track first port with "DL24" in name
+
         if self._connection_type == ConnectionType.USB_HID:
             # List USB HID devices
             if USBHIDDevice.is_available():
@@ -702,15 +705,23 @@ class ControlPanel(QWidget):
                     if dev.get('serial'):
                         label += f" ({dev['serial']})"
                     self.port_combo.addItem(label, dev['path'])
-                    # Auto-select first device
-                    if self.port_combo.count() == 1:
-                        self.port_combo.setCurrentIndex(0)
+
+                    # Check for DL24 in product name (first match wins)
+                    if dl24_index < 0 and "DL24" in label.upper():
+                        dl24_index = self.port_combo.count() - 1
+
                 if not devices:
                     self.port_combo.addItem("No USB HID devices found", "")
+
+                # Auto-select: prefer DL24, otherwise first device
+                if dl24_index >= 0:
+                    self.port_combo.setCurrentIndex(dl24_index)
+                elif self.port_combo.count() > 0:
+                    self.port_combo.setCurrentIndex(0)
             else:
                 self.port_combo.addItem("hidapi not installed", "")
         else:
-            # List serial ports
+            # List serial ports (Bluetooth)
             port_type = None
             if self._connection_type == ConnectionType.SERIAL_USB:
                 port_type = PortType.USB
@@ -731,9 +742,21 @@ class ControlPanel(QWidget):
 
                 self.port_combo.addItem(label, port)
 
-                # Select likely DL24P port
-                if port in dl24p_ports:
-                    self.port_combo.setCurrentIndex(self.port_combo.count() - 1)
+                # Check for DL24 in port name or description (first match wins)
+                if dl24_index < 0 and ("DL24" in port.upper() or "DL24" in desc.upper()):
+                    dl24_index = self.port_combo.count() - 1
+
+            # Auto-select: prefer DL24, then DL24P USB ports, otherwise first
+            if dl24_index >= 0:
+                self.port_combo.setCurrentIndex(dl24_index)
+            elif dl24p_ports:
+                # Find first DL24P port in combo
+                for i in range(self.port_combo.count()):
+                    if self.port_combo.itemData(i) in dl24p_ports:
+                        self.port_combo.setCurrentIndex(i)
+                        break
+            elif self.port_combo.count() > 0:
+                self.port_combo.setCurrentIndex(0)
 
     @property
     def connection_type(self) -> str:

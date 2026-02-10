@@ -13,9 +13,9 @@ The following test automation tabs are placeholders and need implementation:
 - Consider code signing for macOS distribution
 
 ### Future Enhancements
-- Bluetooth connectivity support (USB HID is primary)
 - Export to Excel format improvements
 - Historical data comparison/overlay features
+- Gzip-compressed JSON (.json.gz) for smaller session files (built-in `gzip` module, 70-90% compression)
 
 ---
 
@@ -42,6 +42,20 @@ The following test automation tabs are placeholders and need implementation:
 ---
 
 ## Known Issues
+
+### Bluetooth Communication Not Working
+- **Issue**: DL24P connects via Bluetooth SPP but doesn't respond to commands
+- **Tested protocols**:
+  - Atorch protocol (`FF 55 ...`) - commands sent, no response
+  - PX100 protocol (`B1 B2 ...`) - queries sent, no response
+- **Port detected**: `/dev/cu.DL24_SPP` (macOS Bluetooth SPP)
+- **Possible causes**:
+  - Device may use proprietary protocol for Bluetooth (official app only)
+  - Bluetooth module may need unknown initialization sequence
+  - May only support one-way communication (app -> device)
+- **Current state**: USB HID works perfectly; Bluetooth disabled in UI
+- **Workaround**: Use USB HID connection (primary supported method)
+- **Next step**: Capture Bluetooth traffic from official iOS app using Apple's PacketLogger to reverse-engineer the protocol
 
 ### Device Timing Readout
 - **Issue**: The device time display in the GUI doesn't match the physical device display
