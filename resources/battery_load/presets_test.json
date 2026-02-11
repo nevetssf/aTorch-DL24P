@@ -1,0 +1,51 @@
+{
+  "Low Current Sweep": {
+    "load_type": "Current",
+    "min": 10.0,
+    "max": 100.0,
+    "step": 10.0,
+    "settle_time": 5
+  },
+  "Medium Current Sweep": {
+    "load_type": "Current",
+    "min": 100.0,
+    "max": 1000.0,
+    "step": 100.0,
+    "settle_time": 5
+  },
+  "High Current Sweep": {
+    "load_type": "Current",
+    "min": 500.0,
+    "max": 5000.0,
+    "step": 500.0,
+    "settle_time": 5
+  },
+  "Low Power Sweep": {
+    "load_type": "Power",
+    "min": 100.0,
+    "max": 1000.0,
+    "step": 100.0,
+    "settle_time": 5
+  },
+  "Medium Power Sweep": {
+    "load_type": "Power",
+    "min": 1000.0,
+    "max": 10000.0,
+    "step": 1000.0,
+    "settle_time": 5
+  },
+  "Low Resistance Sweep": {
+    "load_type": "Resistance",
+    "min": 1.0,
+    "max": 10.0,
+    "step": 1.0,
+    "settle_time": 5
+  },
+  "High Resistance Sweep": {
+    "load_type": "Resistance",
+    "min": 10.0,
+    "max": 100.0,
+    "step": 10.0,
+    "settle_time": 5
+  }
+}

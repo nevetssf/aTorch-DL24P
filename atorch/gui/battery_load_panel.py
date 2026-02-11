@@ -78,7 +78,7 @@ class BatteryLoadPanel(QWidget):
 
         # Presets section
         presets_layout = QHBoxLayout()
-        presets_layout.addWidget(QLabel("Presets:"))
+        presets_layout.addWidget(QLabel("Presets"))
         self.test_presets_combo = QComboBox()
         presets_layout.addWidget(self.test_presets_combo, 1)
 
@@ -101,7 +101,7 @@ class BatteryLoadPanel(QWidget):
         self.load_type_combo = QComboBox()
         self.load_type_combo.addItems(["Current", "Power", "Resistance"])
         self.load_type_combo.currentTextChanged.connect(self._on_load_type_changed)
-        params_layout.addRow("Load Type:", self.load_type_combo)
+        params_layout.addRow("Load Type", self.load_type_combo)
 
         # Min value
         self.min_spin = QDoubleSpinBox()
@@ -109,7 +109,7 @@ class BatteryLoadPanel(QWidget):
         self.min_spin.setDecimals(1)
         self.min_spin.setValue(10.0)
         self.min_spin.setSuffix(" mA")
-        params_layout.addRow("Min:", self.min_spin)
+        params_layout.addRow("Min", self.min_spin)
 
         # Max value
         self.max_spin = QDoubleSpinBox()
@@ -117,13 +117,13 @@ class BatteryLoadPanel(QWidget):
         self.max_spin.setDecimals(1)
         self.max_spin.setValue(100.0)
         self.max_spin.setSuffix(" mA")
-        params_layout.addRow("Max:", self.max_spin)
+        params_layout.addRow("Max", self.max_spin)
 
-        # Number of steps with preset dropdown
+        # Number of divisions with preset dropdown
         num_steps_layout = QHBoxLayout()
         self.num_steps_spin = QSpinBox()
-        self.num_steps_spin.setRange(2, 1000)
-        self.num_steps_spin.setValue(10)
+        self.num_steps_spin.setRange(1, 999)
+        self.num_steps_spin.setValue(10)  # 10 divisions = 11 measurement points
         num_steps_layout.addWidget(self.num_steps_spin)
 
         self.num_steps_preset_combo = QComboBox()
@@ -133,14 +133,14 @@ class BatteryLoadPanel(QWidget):
         self.num_steps_preset_combo.currentTextChanged.connect(self._on_num_steps_preset_changed)
         num_steps_layout.addWidget(self.num_steps_preset_combo)
 
-        params_layout.addRow("# Steps:", num_steps_layout)
+        params_layout.addRow("Divisions", num_steps_layout)
 
-        # Settle time
-        self.settle_time_spin = QSpinBox()
-        self.settle_time_spin.setRange(0, 3600)
-        self.settle_time_spin.setValue(5)
-        self.settle_time_spin.setSuffix(" s")
-        params_layout.addRow("Settle Time:", self.settle_time_spin)
+        # Dwell time
+        self.dwell_time_spin = QSpinBox()
+        self.dwell_time_spin.setRange(0, 3600)
+        self.dwell_time_spin.setValue(5)
+        self.dwell_time_spin.setSuffix(" s")
+        params_layout.addRow("Dwell Time", self.dwell_time_spin)
 
         # Voltage cutoff
         self.v_cutoff_spin = QDoubleSpinBox()
@@ -148,7 +148,7 @@ class BatteryLoadPanel(QWidget):
         self.v_cutoff_spin.setDecimals(2)
         self.v_cutoff_spin.setValue(3.0)
         self.v_cutoff_spin.setSuffix(" V")
-        params_layout.addRow("V Cutoff:", self.v_cutoff_spin)
+        params_layout.addRow("V Cutoff", self.v_cutoff_spin)
 
         conditions_layout.addWidget(params_group)
         conditions_layout.addStretch()
@@ -165,7 +165,7 @@ class BatteryLoadPanel(QWidget):
 
         # Start/Abort button
         self.start_btn = QPushButton("Start")
-        self.start_btn.setEnabled(False)  # Disabled until device connected
+        # Start button always enabled (auto-connect handles connection)
         control_layout.addWidget(self.start_btn)
 
         # Progress bar
@@ -214,7 +214,7 @@ class BatteryLoadPanel(QWidget):
         self.filename_edit.setPlaceholderText("Test filename...")
         control_layout.addWidget(self.filename_edit)
 
-        layout.addWidget(control_group)
+        layout.addWidget(control_group, 1)  # Stretch factor 1 to expand and fill available space
         layout.addStretch()
 
     def _on_load_type_changed(self, load_type: str):
@@ -470,7 +470,7 @@ class BatteryLoadPanel(QWidget):
             self.min_spin.setValue(preset_data.get("min", 10.0))
             self.max_spin.setValue(preset_data.get("max", 100.0))
             self.num_steps_spin.setValue(preset_data.get("num_steps", 10))
-            self.settle_time_spin.setValue(preset_data.get("settle_time", 5))
+            self.dwell_time_spin.setValue(preset_data.get("dwell_time", 5))
 
     def _save_test_preset(self):
         """Save current test conditions as a preset."""
@@ -491,7 +491,7 @@ class BatteryLoadPanel(QWidget):
             "min": self.min_spin.value(),
             "max": self.max_spin.value(),
             "num_steps": self.num_steps_spin.value(),
-            "settle_time": self.settle_time_spin.value()
+            "dwell_time": self.dwell_time_spin.value()
         }
         safe_name = "".join(c for c in preset_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
@@ -547,32 +547,28 @@ class BatteryLoadPanel(QWidget):
 
     def _start_test(self):
         """Start the stepped load test."""
-        if not self._device:
-            QMessageBox.warning(self, "No Device", "Please connect a device first.")
-            return
-
-        # Get test parameters
+        # Get test parameters (connection check will happen in main_window)
         load_type = self.load_type_combo.currentText()
         min_val = self.min_spin.value()
         max_val = self.max_spin.value()
-        num_steps = self.num_steps_spin.value()
-        settle_time = self.settle_time_spin.value()
+        num_divisions = self.num_steps_spin.value()
+        dwell_time = self.dwell_time_spin.value()
         v_cutoff = self.v_cutoff_spin.value()
 
         # Validate parameters
         if min_val >= max_val:
             QMessageBox.warning(self, "Invalid Parameters", "Min must be less than Max.")
             return
-        if num_steps < 2:
-            QMessageBox.warning(self, "Invalid Parameters", "# Steps must be at least 2.")
+        if num_divisions < 1:
+            QMessageBox.warning(self, "Invalid Parameters", "Divisions must be at least 1.")
             return
 
         # Emit signal that test is starting (triggers logging in main window)
         self.test_started.emit()
 
-        # Calculate step size
-        self._total_steps = num_steps
-        self._step_size = (max_val - min_val) / (num_steps - 1)
+        # Calculate actual number of steps (divisions + 1)
+        self._total_steps = num_divisions + 1
+        self._step_size = (max_val - min_val) / num_divisions
         self._current_step = 0
         self._current_value = min_val
 
@@ -601,11 +597,12 @@ class BatteryLoadPanel(QWidget):
 
         # Switch plot to show Load Type vs Voltage
         if self._plot_panel:
-            x_axis_name = {"Current": "Current", "Power": "Power", "Resistance": "Load R"}
+            x_axis_name = {"Current": "Current", "Power": "Power", "Resistance": "R Load"}
             self._plot_panel.x_axis_combo.setCurrentText(x_axis_name.get(load_type, "Current"))
             # Enable Voltage on Y-axis
-            if "V" in self._plot_panel._checkboxes:
-                self._plot_panel._checkboxes["V"].setChecked(True)
+            if "Y" in self._plot_panel._axis_dropdowns:
+                self._plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
+                self._plot_panel._axis_checkboxes["Y"].setChecked(True)
 
         # Update UI
         self.start_btn.setText("Abort")
@@ -615,8 +612,8 @@ class BatteryLoadPanel(QWidget):
         self._test_running = True
         self._test_start_time = time.time()
 
-        # Start timer for first settle period
-        self._test_timer.start(settle_time * 1000)  # Convert seconds to milliseconds
+        # Start timer for first dwell period
+        self._test_timer.start(dwell_time * 1000)  # Convert seconds to milliseconds
 
     def _abort_test(self):
         """Abort the running test."""
@@ -673,9 +670,9 @@ class BatteryLoadPanel(QWidget):
         self.status_label.setText(f"Step {self._current_step + 1}/{self._total_steps}: {self._current_value:.3f}")
         self._update_test_time()
 
-        # Start timer for next settle period
-        settle_time = self.settle_time_spin.value()
-        self._test_timer.start(settle_time * 1000)
+        # Start timer for next dwell period
+        dwell_time = self.dwell_time_spin.value()
+        self._test_timer.start(dwell_time * 1000)
 
     def _update_test_time(self):
         """Update the time label."""
@@ -708,7 +705,9 @@ class BatteryLoadPanel(QWidget):
 
     def set_connected(self, connected: bool):
         """Update UI based on connection status."""
-        self.start_btn.setEnabled(connected and not self._test_running)
+        # Start button always enabled (auto-connect handles connection)
+        # Only disable when test is running
+        self.start_btn.setEnabled(not self._test_running)
         if not connected:
             self.status_label.setText("Not Connected")
             self.status_label.setStyleSheet("color: red;")
@@ -806,7 +805,7 @@ class BatteryLoadPanel(QWidget):
         self.min_spin.valueChanged.connect(self._on_settings_changed)
         self.max_spin.valueChanged.connect(self._on_settings_changed)
         self.num_steps_spin.valueChanged.connect(self._on_settings_changed)
-        self.settle_time_spin.valueChanged.connect(self._on_settings_changed)
+        self.dwell_time_spin.valueChanged.connect(self._on_settings_changed)
         self.v_cutoff_spin.valueChanged.connect(self._on_settings_changed)
         self.test_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
@@ -833,7 +832,7 @@ class BatteryLoadPanel(QWidget):
                 "min": self.min_spin.value(),
                 "max": self.max_spin.value(),
                 "num_steps": self.num_steps_spin.value(),
-                "settle_time": self.settle_time_spin.value(),
+                "dwell_time": self.dwell_time_spin.value(),
                 "v_cutoff": self.v_cutoff_spin.value(),
                 "preset": self.test_presets_combo.currentText(),
             },
@@ -882,8 +881,8 @@ class BatteryLoadPanel(QWidget):
                 self.max_spin.setValue(test_config["max"])
             if "num_steps" in test_config:
                 self.num_steps_spin.setValue(test_config["num_steps"])
-            if "settle_time" in test_config:
-                self.settle_time_spin.setValue(test_config["settle_time"])
+            if "dwell_time" in test_config:
+                self.dwell_time_spin.setValue(test_config["dwell_time"])
             if "v_cutoff" in test_config:
                 self.v_cutoff_spin.setValue(test_config["v_cutoff"])
 
@@ -914,14 +913,14 @@ class BatteryLoadPanel(QWidget):
         """Get current test configuration as a dictionary.
 
         Returns:
-            Dictionary with load_type, min, max, step, settle_time, v_cutoff
+            Dictionary with load_type, min, max, num_steps (divisions), dwell_time, voltage_cutoff
         """
         return {
             "load_type": self.load_type_combo.currentText(),
             "min": self.min_spin.value(),
             "max": self.max_spin.value(),
-            "num_steps": self.num_steps_spin.value(),
-            "settle_time": self.settle_time_spin.value(),
+            "num_steps": self.num_steps_spin.value(),  # Now represents divisions (actual steps = divisions + 1)
+            "dwell_time": self.dwell_time_spin.value(),
             "voltage_cutoff": self.v_cutoff_spin.value(),
         }
 

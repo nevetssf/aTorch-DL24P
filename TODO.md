@@ -126,16 +126,22 @@ The following test automation tabs are placeholders and need implementation:
   - Monitor more payload samples to find consistent storage location
   - May need to capture USB traffic when battery R changes significantly
 
-### Window Recovery Responsivity
-- **Issue**: Application may be slow to respond when recovering the window after being minimized for extended periods
-- **Impact**: Affects usability when user returns to the app after leaving it minimized
-- **Investigation needed**:
-  - Check if GUI update throttling is too aggressive during minimized state
-  - Verify Qt event processing resumes properly on window restore
-  - Consider if data backlog builds up during minimize (plots, status updates)
-  - Test if polling thread continues running and queuing updates
-- **Possible solutions**:
-  - Detect window minimize/restore state changes
-  - Pause non-critical updates when minimized
-  - Force refresh/redraw on window restore event
-  - Clear stale queued updates on restore
+### Window Recovery Responsivity - FIXED
+- **Issue**: Application becomes sluggish when screen turns off or after running for extended periods
+- **Root causes identified**:
+  1. Lock contention between poll thread and GUI thread when macOS USB power management slows USB I/O
+     - Poll thread holds lock during USB read (500ms+ when power management active)
+     - GUI operations wait for lock causing sluggishness
+  2. Debug Window constantly updated on main thread even when hidden
+     - 6 messages per poll × 1 Hz = 21,600+ GUI operations per hour
+     - insertHtml() and DOM maintenance competes with UI responsiveness
+- **Fixes applied (2026-02-10)**:
+  1. Added 1-second timeout to lock acquisition for all GUI-called device methods
+     - Methods fail gracefully if lock busy instead of blocking GUI indefinitely
+     - Maintains command-response atomicity while preventing GUI freeze
+  2. Only update Debug Window when visible
+     - Skips all debug_window.log() calls when window is hidden
+     - Eliminates 21,600+ unnecessary GUI operations per hour
+- **Implementation**:
+  - `device.py` - Added `GUI_LOCK_TIMEOUT = 1.0` and `lock_timeout` parameter
+  - `main_window.py` - Added visibility check in `_on_debug_message()`

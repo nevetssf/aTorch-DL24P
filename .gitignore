@@ -46,7 +46,7 @@ Thumbs.db
 *.xlsx
 *.json
 !pyproject.toml
-!resources/*.json
+!resources/**/*.json
 
 # Profiles (user data)
 profiles/

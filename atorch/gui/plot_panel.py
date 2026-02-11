@@ -136,32 +136,19 @@ class PlotPanel(QWidget):
     # Colors chosen for visibility on both dark (#1a1a1a) and light grey backgrounds
     # Medium luminance, high saturation, distinct hues spread across color wheel
     SERIES_CONFIG = [
-        ("V", "#FFC107", "V"),            # Amber - warm yellow
-        ("I", "#29B6F6", "A"),            # Light blue - cool
-        ("P", "#EF5350", "W"),            # Red - attention
-        ("Load R", "#66BB6A", "Ω"),       # Green - resistance
-        ("Battery R", "#5C6BC0", "Ω"),    # Indigo - internal resistance
-        ("MOSFET", "#26A69A", "°C"),      # Teal - blue-green
-        ("External", "#9CCC65", "°C"),    # Light green - yellow-green
-        ("Capacity", "#AB47BC", "mAh"),   # Purple - distinct
-        ("Energy", "#FF7043", "Wh"),      # Deep orange - warm
+        ("Voltage", "#FFC107", "V"),            # Amber - warm yellow
+        ("Current", "#29B6F6", "A"),            # Light blue - cool
+        ("Power", "#EF5350", "W"),              # Red - attention
+        ("R Load", "#66BB6A", "Ω"),             # Green - resistance
+        ("R Battery", "#5C6BC0", "Ω"),          # Indigo - internal resistance
+        ("Temp MOSFET", "#26A69A", "°C"),       # Teal - blue-green
+        ("Temp External", "#9CCC65", "°C"),     # Light green - yellow-green
+        ("Capacity", "#AB47BC", "mAh"),         # Purple - distinct
+        ("Energy", "#FF7043", "Wh"),            # Deep orange - warm
     ]
 
-    # Mapping from short names (used in checkboxes) to full names (used in X-axis dropdown and plot labels)
-    NAME_MAPPING = {
-        "V": "Voltage",
-        "I": "Current",
-        "P": "Power",
-        "MOSFET": "MOSFET Temp",
-        "External": "External Temp",
-        "Load R": "Load R",
-        "Battery R": "Battery R",
-        "Capacity": "Capacity",
-        "Energy": "Energy",
-    }
-
-    # Reverse mapping for looking up short names from full names
-    REVERSE_NAME_MAPPING = {v: k for k, v in NAME_MAPPING.items()}
+    # Axis slot names
+    AXIS_SLOTS = ["Y", "Y1", "Y2", "Y3"]
 
     def __init__(self, max_points: int = 3600):
         super().__init__()
@@ -175,15 +162,16 @@ class PlotPanel(QWidget):
         # Start time for relative time calculation
         self._start_time: Optional[float] = None
 
-        # UI elements
-        self._checkboxes = {}
-        self._curves = {}
-        self._viewboxes = {}
-        self._axes = {}
-        self._visible = {}
-        self._unit_scales = {}  # Current scale factor per series
-        self._display_units = {}  # Current display unit per series
-        self._show_points = False  # Whether to show point markers
+        # Axis-centric UI elements (4 fixed axis slots)
+        self._axis_dropdowns = {}       # slot → QComboBox
+        self._axis_checkboxes = {}      # slot → QCheckBox
+        self._axis_selections = {}      # slot → parameter name or None
+        self._axis_enabled = {}         # slot → bool
+        self._axis_viewboxes = {}       # slot → ViewBox
+        self._axis_axes = {}            # slot → AxisItem
+        self._axis_curves = {}          # slot → PlotDataItem
+        self._display_units = {}        # slot → current display unit
+        self._show_points = False       # Whether to show point markers
 
         # Time window settings
         self._time_window_seconds = None  # None = Full, otherwise window size in seconds
@@ -207,30 +195,50 @@ class PlotPanel(QWidget):
         # Top controls row
         controls = QHBoxLayout()
 
-        # Data series checkboxes
-        for name, color, _ in self.SERIES_CONFIG:
-            cb = QCheckBox(name)
-            cb.setStyleSheet(f"QCheckBox {{ color: {color}; font-weight: bold; }}")
-            cb.setChecked(name == "V")  # Default to V only
-            cb.toggled.connect(lambda checked, n=name: self._on_series_toggled(n, checked))
+        # Parameter dropdown options: all 9 parameters
+        param_options = [name for name, _, _ in self.SERIES_CONFIG]
+
+        # Create 4 axis controls (Y, Y1, Y2, Y3)
+        for slot in self.AXIS_SLOTS:
+            # Checkbox to enable axis
+            cb = QCheckBox(f"{slot}:")
+            cb.setChecked(slot == "Y")  # Only Y enabled by default
+            cb.toggled.connect(lambda checked, s=slot: self._on_axis_enabled_changed(s, checked))
             controls.addWidget(cb)
-            self._checkboxes[name] = cb
-            self._visible[name] = (name == "V")
+            self._axis_checkboxes[slot] = cb
+
+            # Dropdown to select parameter
+            dropdown = QComboBox()
+            dropdown.addItems(param_options)
+            if slot == "Y":
+                dropdown.setCurrentText("Voltage")
+            elif slot == "Y1":
+                dropdown.setCurrentText("Current")
+            else:
+                dropdown.setCurrentText("Voltage")  # Default to Voltage for disabled axes
+            dropdown.currentTextChanged.connect(lambda text, s=slot: self._on_axis_selection_changed(s, text))
+            dropdown.setEnabled(cb.isChecked())
+            controls.addWidget(dropdown)
+            self._axis_dropdowns[slot] = dropdown
+
+            # Initialize state
+            self._axis_enabled[slot] = cb.isChecked()
+            self._axis_selections[slot] = dropdown.currentText() if cb.isChecked() else None
 
         controls.addStretch()
 
         # X-axis selector
-        controls.addWidget(QLabel("X-Axis:"))
+        controls.addWidget(QLabel("X"))
         self.x_axis_combo = QComboBox()
         # Use full names in X-axis dropdown
-        x_axis_options = ["Time"] + [self.NAME_MAPPING[name] for name, _, _ in self.SERIES_CONFIG]
+        x_axis_options = ["Time"] + [name for name, _, _ in self.SERIES_CONFIG]
         self.x_axis_combo.addItems(x_axis_options)
         self.x_axis_combo.setCurrentText("Time")
         self.x_axis_combo.currentTextChanged.connect(self._on_x_axis_changed)
         controls.addWidget(self.x_axis_combo)
 
         # Time window selector (only active when X-Axis is Time)
-        controls.addWidget(QLabel("Time Span:"))
+        controls.addWidget(QLabel("Time Span"))
         self.time_window_combo = QComboBox()
         self.time_window_combo.addItems([
             "Full",
@@ -248,6 +256,13 @@ class PlotPanel(QWidget):
         self.time_window_combo.setCurrentText("Full")
         self.time_window_combo.currentTextChanged.connect(self._on_time_window_changed)
         controls.addWidget(self.time_window_combo)
+
+        # Points checkbox
+        self.show_points_checkbox = QCheckBox("Points")
+        self.show_points_checkbox.setChecked(False)
+        self.show_points_checkbox.setToolTip("Show point markers on plot")
+        self.show_points_checkbox.toggled.connect(self._on_show_points_toggled)
+        controls.addWidget(self.show_points_checkbox)
 
         layout.addLayout(controls)
 
@@ -287,101 +302,124 @@ class PlotPanel(QWidget):
         QTimer.singleShot(0, self._on_resize)
 
     def _setup_series(self) -> None:
-        """Set up each data series with its own ViewBox and Y-axis."""
+        """Set up the 4 fixed axis slots."""
         # Hide the default right axis - we'll manage our own
         self.plot_item.hideAxis('right')
 
-        # Track right-side axis positions (start at column 3 to avoid conflicts)
-        right_axis_col = 3
+        # Y axis (left)
+        left_axis = self.plot_item.getAxis('left')
+        curve = self.plot_item.plot(pen=None)  # Initially no pen (will be set by appearance update)
 
-        for i, (name, color, unit) in enumerate(self.SERIES_CONFIG):
-            visible = self._visible.get(name, False)
+        # Enable performance optimizations for large datasets
+        curve.setDownsampling(auto=True, method='peak')
+        curve.setClipToView(True)
 
-            if i == 0:
-                # First series uses the main plot's left axis and viewbox
-                left_axis = self.plot_item.getAxis('left')
-                # Use full name for axis label
-                full_name = self.NAME_MAPPING.get(name, name)
-                left_axis.setLabel(full_name, units=unit, color=color)
-                left_axis.setPen(pg.mkPen(color, width=1))
-                left_axis.setTextPen(pg.mkPen(color))
+        self._axis_viewboxes["Y"] = self.main_vb
+        self._axis_axes["Y"] = left_axis
+        self._axis_curves["Y"] = curve
 
-                # Create curve in main viewbox
-                curve = self.plot_item.plot(pen=pg.mkPen(color, width=2))
+        # Y1, Y2, Y3 axes (right)
+        right_col = 3  # Start at column 3
+        for slot in ["Y1", "Y2", "Y3"]:
+            # Create ViewBox
+            vb = pg.ViewBox()
+            vb.setXLink(self.main_vb)
+            self.plot_item.scene().addItem(vb)
 
-                # Enable performance optimizations for large datasets
-                curve.setDownsampling(auto=True, method='peak')
-                curve.setClipToView(True)
+            # Create right axis
+            axis = pg.AxisItem('right')
+            axis.linkToView(vb)
+            self.plot_item.layout.addItem(axis, 2, right_col)
+            right_col += 1
 
-                self._curves[name] = curve
-                self._viewboxes[name] = self.main_vb
-                self._axes[name] = left_axis
+            # Create curve
+            curve = pg.PlotDataItem(pen=None)
 
-                # Set visibility
-                curve.setVisible(visible)
-                left_axis.setVisible(visible)
+            # Enable performance optimizations for large datasets
+            curve.setDownsampling(auto=True, method='peak')
+            curve.setClipToView(True)
 
-            else:
-                # Additional series get their own ViewBox and axis on the right
-                vb = pg.ViewBox()
-                self._viewboxes[name] = vb
+            vb.addItem(curve)
 
-                # Add viewbox to scene and link X axis
-                self.plot_item.scene().addItem(vb)
-                vb.setXLink(self.main_vb)
+            self._axis_viewboxes[slot] = vb
+            self._axis_axes[slot] = axis
+            self._axis_curves[slot] = curve
 
-                # Create axis on right side
-                axis = pg.AxisItem('right')
-                # Use full name for axis label
-                full_name = self.NAME_MAPPING.get(name, name)
-                axis.setLabel(full_name, units=unit, color=color)
-                axis.setPen(pg.mkPen(color, width=1))
-                axis.setTextPen(pg.mkPen(color))
-                axis.linkToView(vb)
-                self._axes[name] = axis
+        # Update appearance for all axes based on initial enabled state
+        self._update_all_axes_appearance()
 
-                # Add axis to the plot layout at next available column
-                self.plot_item.layout.addItem(axis, 2, right_axis_col)
-                right_axis_col += 1
-
-                # Create curve in this viewbox
-                curve = pg.PlotDataItem(pen=pg.mkPen(color, width=2))
-
-                # Enable performance optimizations for large datasets
-                curve.setDownsampling(auto=True, method='peak')
-                curve.setClipToView(True)
-
-                vb.addItem(curve)
-                self._curves[name] = curve
-
-                # Set initial visibility
-                curve.setVisible(visible)
-                axis.setVisible(visible)
+        # Set visibility based on enabled state
+        for slot in self.AXIS_SLOTS:
+            enabled = self._axis_enabled.get(slot, False)
+            self._axis_curves[slot].setVisible(enabled)
+            self._axis_axes[slot].setVisible(enabled)
 
     def _on_resize(self) -> None:
         """Handle main viewbox resize - sync all viewboxes."""
-        for name, vb in self._viewboxes.items():
+        for slot, vb in self._axis_viewboxes.items():
             if vb != self.main_vb:
                 vb.setGeometry(self.main_vb.sceneBoundingRect())
 
-    def _on_series_toggled(self, name: str, checked: bool) -> None:
-        """Handle checkbox toggle for a data series."""
-        self._visible[name] = checked
+    def _on_axis_selection_changed(self, slot: str, param_name: str) -> None:
+        """Handle dropdown selection change."""
+        # Update selection only if axis is enabled
+        if self._axis_enabled.get(slot, False):
+            self._axis_selections[slot] = param_name
+            self._update_axis_appearance(slot)
+            self._update_plots()
+        else:
+            # If disabled, just update the dropdown but don't apply
+            pass
 
-        if name in self._curves:
-            self._curves[name].setVisible(checked)
-        if name in self._axes:
-            self._axes[name].setVisible(checked)
+    def _on_axis_enabled_changed(self, slot: str, enabled: bool) -> None:
+        """Handle checkbox enable/disable."""
+        self._axis_enabled[slot] = enabled
+        self._axis_dropdowns[slot].setEnabled(enabled)
+
+        # Update selection based on enabled state
+        if enabled:
+            # When enabling, use the current dropdown value
+            self._axis_selections[slot] = self._axis_dropdowns[slot].currentText()
+        else:
+            # When disabling, clear selection
+            self._axis_selections[slot] = None
+
+        # Update appearance and visibility
+        self._update_axis_appearance(slot)
+
+        # Show/hide curve and axis
+        self._axis_curves[slot].setVisible(enabled)
+        self._axis_axes[slot].setVisible(enabled)
 
         self._update_plots()
 
+    def _update_axis_appearance(self, slot: str) -> None:
+        """Update axis label and color based on selected parameter."""
+        param_name = self._axis_selections[slot]
+        axis = self._axis_axes[slot]
+
+        if param_name is None:
+            axis.setLabel("", color="#999999")
+            return
+
+        # Find parameter config
+        for name, color, unit in self.SERIES_CONFIG:
+            if name == param_name:
+                axis.setLabel(name, units=unit, color=color)
+                axis.setPen(pg.mkPen(color, width=1))
+                axis.setTextPen(pg.mkPen(color))
+                # Update curve pen color
+                self._axis_curves[slot].setPen(pg.mkPen(color, width=2))
+                break
+
+    def _update_all_axes_appearance(self) -> None:
+        """Update appearance for all 4 axes."""
+        for slot in self.AXIS_SLOTS:
+            self._update_axis_appearance(slot)
+
     def _on_x_axis_changed(self, param_name: str) -> None:
         """Handle X-axis parameter selection change."""
-        # Convert full name to short name for internal use
-        if param_name != "Time" and param_name in self.REVERSE_NAME_MAPPING:
-            self._x_axis_param = self.REVERSE_NAME_MAPPING[param_name]
-        else:
-            self._x_axis_param = param_name
+        self._x_axis_param = param_name
 
         # Enable/disable time controls based on selection
         is_time = (param_name == "Time")
@@ -395,14 +433,13 @@ class PlotPanel(QWidget):
         if is_time:
             self._update_time_axis_label()
         else:
-            # Get unit for selected parameter (use short name for lookup)
+            # Get unit for selected parameter
             param_unit = ""
             for name, _, unit in self.SERIES_CONFIG:
-                if name == self._x_axis_param:
+                if name == param_name:
                     param_unit = unit
                     break
             # This is a placeholder - actual scaled unit will be set in _update_plots
-            # Use full name in label
             self.plot_widget.setLabel("bottom", f"{param_name} ({param_unit})")
 
         # Redraw plot with new x-axis
@@ -477,6 +514,10 @@ class PlotPanel(QWidget):
         self._time_scroll_position = value / 1000.0
         self._update_plots()
 
+    def _on_show_points_toggled(self, checked: bool) -> None:
+        """Handle show points checkbox toggle."""
+        self.set_show_points(checked)
+
     def add_data_point(self, status: DeviceStatus) -> None:
         """Add a new data point from device status."""
         # Initialize start time on first data point
@@ -487,13 +528,13 @@ class PlotPanel(QWidget):
         t = time_module.time() - self._start_time
 
         self._time_data.append(t)
-        self._data["V"].append(status.voltage)
-        self._data["I"].append(status.current)
-        self._data["P"].append(status.power)
-        self._data["Load R"].append(status.resistance_ohm)
-        self._data["Battery R"].append(status.calculated_battery_resistance_ohm)
-        self._data["MOSFET"].append(status.temperature_c)
-        self._data["External"].append(status.ext_temperature_c)
+        self._data["Voltage"].append(status.voltage)
+        self._data["Current"].append(status.current)
+        self._data["Power"].append(status.power)
+        self._data["R Load"].append(status.resistance_ohm)
+        self._data["R Battery"].append(status.calculated_battery_resistance_ohm)
+        self._data["Temp MOSFET"].append(status.temperature_c)
+        self._data["Temp External"].append(status.ext_temperature_c)
         self._data["Capacity"].append(status.capacity_mah)
         self._data["Energy"].append(status.energy_wh)
 
@@ -518,11 +559,13 @@ class PlotPanel(QWidget):
 
         for reading in session.readings:
             self._time_data.append(reading.runtime_seconds)
-            self._data["V"].append(reading.voltage)
-            self._data["I"].append(reading.current)
-            self._data["P"].append(reading.power)
-            self._data["MOSFET"].append(reading.temperature_c)
-            self._data["External"].append(getattr(reading, 'ext_temperature_c', 0))
+            self._data["Voltage"].append(reading.voltage)
+            self._data["Current"].append(reading.current)
+            self._data["Power"].append(reading.power)
+            self._data["R Load"].append(0)  # Not stored in historical data
+            self._data["R Battery"].append(0)  # Not stored in historical data
+            self._data["Temp MOSFET"].append(reading.temperature_c)
+            self._data["Temp External"].append(getattr(reading, 'ext_temperature_c', 0))
             self._data["Capacity"].append(reading.capacity_mah)
             self._data["Energy"].append(reading.energy_wh)
 
@@ -538,11 +581,13 @@ class PlotPanel(QWidget):
 
         for reading in readings:
             self._time_data.append(reading.runtime_seconds)
-            self._data["V"].append(reading.voltage)
-            self._data["I"].append(reading.current)
-            self._data["P"].append(reading.power)
-            self._data["MOSFET"].append(reading.temperature_c)
-            self._data["External"].append(getattr(reading, 'ext_temperature_c', 0))
+            self._data["Voltage"].append(reading.voltage)
+            self._data["Current"].append(reading.current)
+            self._data["Power"].append(reading.power)
+            self._data["R Load"].append(0)  # Not stored in historical data
+            self._data["R Battery"].append(0)  # Not stored in historical data
+            self._data["Temp MOSFET"].append(reading.temperature_c)
+            self._data["Temp External"].append(getattr(reading, 'ext_temperature_c', 0))
             self._data["Capacity"].append(reading.capacity_mah)
             self._data["Energy"].append(reading.energy_wh)
 
@@ -580,10 +625,18 @@ class PlotPanel(QWidget):
     def set_show_points(self, show: bool) -> None:
         """Toggle visibility of point markers on curves."""
         self._show_points = show
-        for name, color, _ in self.SERIES_CONFIG:
-            curve = self._curves.get(name)
-            if curve:
-                if show:
+        for slot in self.AXIS_SLOTS:
+            curve = self._axis_curves.get(slot)
+            if curve and self._axis_selections.get(slot):
+                # Get color for selected parameter
+                param_name = self._axis_selections[slot]
+                color = None
+                for name, c, _ in self.SERIES_CONFIG:
+                    if name == param_name:
+                        color = c
+                        break
+
+                if show and color:
                     curve.setSymbol('o')
                     curve.setSymbolSize(5)
                     curve.setSymbolBrush(color)
@@ -612,8 +665,8 @@ class PlotPanel(QWidget):
     def _update_plots(self) -> None:
         """Update all plot curves with current data."""
         if not self._time_data:
-            for name in self._curves:
-                self._curves[name].setData([], [])
+            for slot in self._axis_curves:
+                self._axis_curves[slot].setData([], [])
             self._update_time_axis_label()
             return
 
@@ -649,48 +702,59 @@ class PlotPanel(QWidget):
                     x_scale, x_display_unit = _get_unit_scale(x_max, x_unit)
                     x_display = x_raw * x_scale
 
-                    # Update x-axis label with scaled unit (use full name)
-                    full_name = self.NAME_MAPPING.get(self._x_axis_param, self._x_axis_param)
-                    self.plot_widget.setLabel("bottom", f"{full_name} ({x_display_unit})")
+                    # Update x-axis label with scaled unit
+                    self.plot_widget.setLabel("bottom", f"{self._x_axis_param} ({x_display_unit})")
             else:
                 x_display = np.array([])
 
         if len(x_display) == 0:
-            for name in self._curves:
-                self._curves[name].setData([], [])
+            for slot in self._axis_curves:
+                self._axis_curves[slot].setData([], [])
             return
 
-        # Update each series
-        for name, _, base_unit in self.SERIES_CONFIG:
-            data = np.array(self._data[name])
+        # Update each axis slot
+        for slot in self.AXIS_SLOTS:
+            if not self._axis_enabled.get(slot, False):
+                self._axis_curves[slot].setData([], [])
+                continue
 
-            if not self._visible.get(name, False) or len(data) == 0:
-                self._curves[name].setData([], [])
+            param_name = self._axis_selections.get(slot)
+            if param_name is None or param_name not in self._data:
+                self._axis_curves[slot].setData([], [])
+                continue
+
+            # Get parameter config
+            _, color, base_unit = next((cfg for cfg in self.SERIES_CONFIG if cfg[0] == param_name), (None, None, None))
+            if base_unit is None:
+                continue
+
+            # Get data
+            data = np.array(self._data[param_name])
+
+            if len(data) == 0:
+                self._axis_curves[slot].setData([], [])
                 continue
 
             # Determine unit scaling for nice integer display
-            if len(data) > 0:
-                y_max = np.max(data)
-                scale, display_unit = _get_unit_scale(y_max, base_unit)
+            y_max = np.max(data)
+            scale, display_unit = _get_unit_scale(y_max, base_unit)
 
-                # Scale the data
-                scaled_data = data * scale
+            # Scale the data
+            scaled_data = data * scale
 
-                self._curves[name].setData(x_display, scaled_data)
+            self._axis_curves[slot].setData(x_display, scaled_data)
 
-                # Update axis label if unit changed
-                if self._display_units.get(name) != display_unit:
-                    self._display_units[name] = display_unit
-                    self._axes[name].setLabel(display_unit)
+            # Update axis label if unit changed
+            if self._display_units.get(slot) != display_unit:
+                self._display_units[slot] = display_unit
+                self._axis_axes[slot].setLabel(param_name, units=display_unit, color=color)
 
-                # Auto-range Y using nice integers (min always 0)
-                scaled_max = np.max(scaled_data)
-                nice_max = _nice_axis_bounds_int(scaled_max)
+            # Auto-range Y using nice integers (min always 0)
+            scaled_max = np.max(scaled_data)
+            nice_max = _nice_axis_bounds_int(scaled_max)
 
-                vb = self._viewboxes[name]
-                vb.setYRange(0, nice_max, padding=0)
-            else:
-                self._curves[name].setData(x_display, data)
+            vb = self._axis_viewboxes[slot]
+            vb.setYRange(0, nice_max, padding=0)
 
         # Set X-axis range
         if self._x_axis_param != "Time":

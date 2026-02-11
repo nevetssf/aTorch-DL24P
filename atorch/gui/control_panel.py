@@ -194,7 +194,7 @@ class ControlPanel(QWidget):
 
         # Connection type selection (USB HID / Bluetooth)
         type_layout = QHBoxLayout()
-        type_layout.addWidget(QLabel("Type:"))
+        type_layout.addWidget(QLabel("Type"))
 
         self.usb_hid_radio = QRadioButton("USB HID")
         self.usb_hid_radio.setToolTip("USB HID (direct USB connection)")
@@ -210,7 +210,7 @@ class ControlPanel(QWidget):
 
         # Port selection
         port_layout = QHBoxLayout()
-        port_layout.addWidget(QLabel("Port:"))
+        port_layout.addWidget(QLabel("Port"))
         self.port_combo = QComboBox()
         self.port_combo.setMinimumWidth(150)
         port_layout.addWidget(self.port_combo)
@@ -297,7 +297,7 @@ class ControlPanel(QWidget):
 
         # On/Off toggle switch
         power_layout = QHBoxLayout()
-        self.load_label = QLabel("Load:")
+        self.load_label = QLabel("Load")
         power_layout.addWidget(self.load_label)
         power_layout.addStretch()
 
@@ -325,7 +325,7 @@ class ControlPanel(QWidget):
 
         # Current setting
         current_layout = QHBoxLayout()
-        self.current_label = QLabel("Current (A):")
+        self.current_label = QLabel("Current (A)")
         current_layout.addWidget(self.current_label)
         self.current_spin = QDoubleSpinBox()
         self.current_spin.setRange(0.0, 24.0)
@@ -355,7 +355,7 @@ class ControlPanel(QWidget):
 
         # Power setting (for CP mode)
         power_layout = QHBoxLayout()
-        self.power_label = QLabel("Power (W):")
+        self.power_label = QLabel("Power (W)")
         power_layout.addWidget(self.power_label)
         self.power_spin = QDoubleSpinBox()
         self.power_spin.setRange(0.0, 200.0)  # DL24P max is ~180W
@@ -375,7 +375,7 @@ class ControlPanel(QWidget):
 
         # Voltage setting (for CV mode)
         voltage_layout = QHBoxLayout()
-        self.voltage_label = QLabel("Voltage (V):")
+        self.voltage_label = QLabel("Voltage (V)")
         voltage_layout.addWidget(self.voltage_label)
         self.voltage_spin = QDoubleSpinBox()
         self.voltage_spin.setRange(0.0, 200.0)
@@ -395,7 +395,7 @@ class ControlPanel(QWidget):
 
         # Resistance setting (for CR mode)
         resistance_layout = QHBoxLayout()
-        self.resistance_label = QLabel("Resistance (Ω):")
+        self.resistance_label = QLabel("Resistance (Ω)")
         resistance_layout.addWidget(self.resistance_label)
         self.resistance_spin = QDoubleSpinBox()
         self.resistance_spin.setRange(0.1, 9999.0)
@@ -421,7 +421,7 @@ class ControlPanel(QWidget):
 
         # Voltage cutoff
         cutoff_layout = QHBoxLayout()
-        self.cutoff_label = QLabel("V Cutoff:")
+        self.cutoff_label = QLabel("V Cutoff")
         cutoff_layout.addWidget(self.cutoff_label)
         self.cutoff_spin = QDoubleSpinBox()
         self.cutoff_spin.setRange(0.0, 200.0)
@@ -447,7 +447,7 @@ class ControlPanel(QWidget):
 
         # Discharge time (hours and minutes)
         discharge_layout = QHBoxLayout()
-        self.time_limit_label = QLabel("Time Limit:")
+        self.time_limit_label = QLabel("Time Limit")
         discharge_layout.addWidget(self.time_limit_label)
 
         self.discharge_hours_spin = QSpinBox()

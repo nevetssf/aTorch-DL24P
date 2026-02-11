@@ -1,0 +1,152 @@
+{
+  "Canon LC-E6 (LP-E6/E6N/E6NH)": {
+    "name": "LC-E6",
+    "manufacturer": "Canon",
+    "model": "LC-E6E",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 1.2,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "notes": "For LP-E6, LP-E6N, LP-E6NH batteries"
+  },
+  "Canon LC-E17 (LP-E17)": {
+    "name": "LC-E17",
+    "manufacturer": "Canon",
+    "model": "LC-E17E",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 0.7,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "notes": "For LP-E17 battery (EOS RP, M series)"
+  },
+  "Canon LC-E19 (LP-E19)": {
+    "name": "LC-E19",
+    "manufacturer": "Canon",
+    "model": "LC-E19",
+    "chemistry": "Li-Ion (3S)",
+    "rated_output_current_a": 1.8,
+    "rated_voltage_v": 12.6,
+    "number_of_cells": 3,
+    "notes": "For LP-E19 battery (EOS-1D X Mark III)"
+  },
+  "Canon LC-E12 (LP-E12)": {
+    "name": "LC-E12",
+    "manufacturer": "Canon",
+    "model": "LC-E12C",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 0.55,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "notes": "For LP-E12 battery (EOS M series)"
+  },
+  "Leica BC-SCL4 (BP-SCL4/6)": {
+    "name": "BC-SCL4",
+    "manufacturer": "Leica",
+    "model": "BC-SCL4",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 1.25,
+    "rated_voltage_v": 9.45,
+    "number_of_cells": 2,
+    "notes": "For BP-SCL4, BP-SCL6 batteries (SL2/SL2-S)"
+  },
+  "Leica BC-SCL5 (BP-SCL5/7)": {
+    "name": "BC-SCL5",
+    "manufacturer": "Leica",
+    "model": "BC-SCL5",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 1.0,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "notes": "For BP-SCL5, BP-SCL7 batteries (Q2, Q3)"
+  },
+  "Leica BC-DC13 (BP-DC13)": {
+    "name": "BC-DC13",
+    "manufacturer": "Leica",
+    "model": "BC-DC13",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 0.65,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "notes": "For BP-DC13 battery (Leica C-Lux)"
+  },
+  "Panasonic DE-A79 (Lumix)": {
+    "name": "DE-A79B",
+    "manufacturer": "Panasonic",
+    "model": "DE-A79B",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 1.8,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "notes": "For DMW-BLJ31, DMW-BLK22, DMW-BLF19 batteries"
+  },
+  "Panasonic BQ-CC55 (Eneloop)": {
+    "name": "BQ-CC55",
+    "manufacturer": "Panasonic",
+    "model": "BQ-CC55E",
+    "chemistry": "NiMH",
+    "rated_output_current_a": 0.55,
+    "rated_voltage_v": 1.5,
+    "number_of_cells": 1,
+    "notes": "Smart charger for Eneloop AA/AAA, individual cell monitoring"
+  },
+  "Panasonic BQ-CC65 (Eneloop Pro)": {
+    "name": "BQ-CC65",
+    "manufacturer": "Panasonic",
+    "model": "BQ-CC65",
+    "chemistry": "NiMH",
+    "rated_output_current_a": 1.5,
+    "rated_voltage_v": 1.5,
+    "number_of_cells": 1,
+    "notes": "Fast charger for Eneloop Pro, USB powered"
+  },
+  "Generic NiMH AA/AAA Charger": {
+    "name": "NiMH Charger",
+    "manufacturer": "Generic",
+    "model": "Universal",
+    "chemistry": "NiMH",
+    "rated_output_current_a": 0.4,
+    "rated_voltage_v": 1.5,
+    "number_of_cells": 1,
+    "notes": "Standard NiMH charger for AA/AAA batteries"
+  },
+  "Nitecore UMS2 (Universal)": {
+    "name": "UMS2",
+    "manufacturer": "Nitecore",
+    "model": "UMS2",
+    "chemistry": "Li-Ion (1S)",
+    "rated_output_current_a": 3.0,
+    "rated_voltage_v": 4.2,
+    "number_of_cells": 1,
+    "notes": "Universal smart charger for 18650, 21700, etc."
+  },
+  "XTAR VC4S (Universal Li-Ion)": {
+    "name": "VC4S",
+    "manufacturer": "XTAR",
+    "model": "VC4S",
+    "chemistry": "Li-Ion (1S)",
+    "rated_output_current_a": 3.0,
+    "rated_voltage_v": 4.2,
+    "number_of_cells": 1,
+    "notes": "4-bay smart charger with LCD display"
+  },
+  "Sony BC-TRX (NP-FZ100)": {
+    "name": "BC-TRX",
+    "manufacturer": "Sony",
+    "model": "BC-TRX",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 1.5,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "notes": "For NP-FZ100 battery (Alpha 7/9 series)"
+  },
+  "Nikon MH-25a (EN-EL15)": {
+    "name": "MH-25a",
+    "manufacturer": "Nikon",
+    "model": "MH-25a",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 1.2,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "notes": "For EN-EL15 series batteries (Z series, D850)"
+  }
+}

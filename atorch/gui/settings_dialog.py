@@ -71,7 +71,7 @@ class SettingsDialog(QDialog):
         self.voltage_threshold_spin.setDecimals(2)
         self.voltage_threshold_spin.setValue(3.0)
         self.voltage_threshold_spin.setSuffix(" V")
-        voltage_layout.addRow("Threshold:", self.voltage_threshold_spin)
+        voltage_layout.addRow("Threshold", self.voltage_threshold_spin)
 
         alerts_layout.addWidget(voltage_group)
 
@@ -87,7 +87,7 @@ class SettingsDialog(QDialog):
         self.temp_threshold_spin.setRange(0, 150)
         self.temp_threshold_spin.setValue(70)
         self.temp_threshold_spin.setSuffix(" °C")
-        temp_layout.addRow("Threshold:", self.temp_threshold_spin)
+        temp_layout.addRow("Threshold", self.temp_threshold_spin)
 
         self.temp_external_check = QCheckBox("Use external probe")
         temp_layout.addRow("", self.temp_external_check)
@@ -108,7 +108,7 @@ class SettingsDialog(QDialog):
         self.max_points_spin.setRange(60, 36000)
         self.max_points_spin.setValue(3600)
         self.max_points_spin.setSuffix(" points")
-        plot_layout.addRow("Max data points:", self.max_points_spin)
+        plot_layout.addRow("Max data points", self.max_points_spin)
 
         display_layout.addWidget(plot_group)
         display_layout.addStretch()
@@ -199,7 +199,7 @@ class DeviceSettingsDialog(QDialog):
         # Brightness slider
         from PySide6.QtWidgets import QSlider
         brightness_layout = QHBoxLayout()
-        brightness_lbl = QLabel("Brightness:")
+        brightness_lbl = QLabel("Brightness")
         brightness_lbl.setMinimumWidth(70)
         brightness_layout.addWidget(brightness_lbl)
 
@@ -219,7 +219,7 @@ class DeviceSettingsDialog(QDialog):
 
         # Standby Brightness slider
         standby_brt_layout = QHBoxLayout()
-        standby_lbl = QLabel("Standby:")
+        standby_lbl = QLabel("Standby")
         standby_lbl.setMinimumWidth(70)
         standby_brt_layout.addWidget(standby_lbl)
 
@@ -239,7 +239,7 @@ class DeviceSettingsDialog(QDialog):
 
         # Standby Timeout
         timeout_layout = QHBoxLayout()
-        timeout_lbl = QLabel("Timeout:")
+        timeout_lbl = QLabel("Timeout")
         timeout_lbl.setMinimumWidth(70)
         timeout_layout.addWidget(timeout_lbl)
 

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
+    QGridLayout,
     QGroupBox,
     QLabel,
     QPushButton,
@@ -24,6 +25,9 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QInputDialog,
     QFileDialog,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
 )
 from PySide6.QtCore import Qt, Slot, Signal
 
@@ -97,7 +101,7 @@ class AutomationPanel(QWidget):
 
         # Test presets row (at top)
         test_presets_layout = QHBoxLayout()
-        test_presets_layout.addWidget(QLabel("Presets:"))
+        test_presets_layout.addWidget(QLabel("Presets"))
         self.test_presets_combo = QComboBox()
         test_presets_layout.addWidget(self.test_presets_combo, 1)
         self.test_presets_combo.currentIndexChanged.connect(self._on_test_preset_selected)
@@ -112,16 +116,21 @@ class AutomationPanel(QWidget):
         test_presets_layout.addWidget(self.delete_test_preset_btn)
         config_layout.addLayout(test_presets_layout)
 
+        # Parameters panel (contains discharge type, parameters, and apply button)
+        params_panel = QGroupBox()
+        params_panel_layout = QVBoxLayout(params_panel)
+        params_panel_layout.setContentsMargins(6, 6, 6, 6)
+
         # Discharge type selection
         type_layout = QHBoxLayout()
-        type_layout.addWidget(QLabel("Discharge Type:"))
+        type_layout.addWidget(QLabel("Discharge Type"))
         self.type_combo = QComboBox()
         self.type_combo.addItems(["CC", "CP", "CR"])
         self.type_combo.setToolTip("CC = Constant Current\nCP = Constant Power\nCR = Constant Resistance")
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
         self.type_combo.currentIndexChanged.connect(self._on_filename_field_changed)
         type_layout.addWidget(self.type_combo)
-        config_layout.addLayout(type_layout)
+        params_panel_layout.addLayout(type_layout)
 
         # Parameters form
         self.params_form = QFormLayout()
@@ -133,7 +142,7 @@ class AutomationPanel(QWidget):
         self.value_spin.setSingleStep(0.1)
         self.value_spin.setValue(0.5)
         self.value_spin.valueChanged.connect(self._on_filename_field_changed)
-        self.value_label = QLabel("Current (A):")
+        self.value_label = QLabel("Current (A)")
         self.value_label.setMinimumWidth(85)  # Fixed width to prevent layout jumping
         self.params_form.addRow(self.value_label, self.value_spin)
 
@@ -143,7 +152,7 @@ class AutomationPanel(QWidget):
         self.cutoff_spin.setDecimals(2)
         self.cutoff_spin.setSingleStep(0.1)
         self.cutoff_spin.setValue(3.0)
-        self.params_form.addRow("V Cutoff:", self.cutoff_spin)
+        self.params_form.addRow("V Cutoff", self.cutoff_spin)
 
         # Time Limit (optional duration limit)
         time_limit_layout = QHBoxLayout()
@@ -173,14 +182,17 @@ class AutomationPanel(QWidget):
         self.duration_spin.setValue(3600)
         self.duration_spin.setVisible(False)  # Hidden, calculated from hours/minutes
 
-        self.params_form.addRow("Time Limit:", time_limit_layout)
+        self.params_form.addRow("Time Limit", time_limit_layout)
 
-        config_layout.addLayout(self.params_form)
+        params_panel_layout.addLayout(self.params_form)
 
         # Apply button
         self.apply_btn = QPushButton("Apply")
         self.apply_btn.clicked.connect(self._on_apply_clicked)
-        config_layout.addWidget(self.apply_btn)
+        params_panel_layout.addWidget(self.apply_btn)
+
+        # Add parameters panel to config layout
+        config_layout.addWidget(params_panel)
 
         # Load test presets into dropdown
         self._load_test_presets_list()
@@ -194,7 +206,7 @@ class AutomationPanel(QWidget):
 
         # Presets row
         presets_layout = QHBoxLayout()
-        presets_layout.addWidget(QLabel("Presets:"))
+        presets_layout.addWidget(QLabel("Presets"))
         self.presets_combo = QComboBox()
         self.presets_combo.setSizePolicy(self.presets_combo.sizePolicy().horizontalPolicy(), self.presets_combo.sizePolicy().verticalPolicy())
         presets_layout.addWidget(self.presets_combo, 1)  # Stretch to fill available space
@@ -218,15 +230,15 @@ class AutomationPanel(QWidget):
         self.battery_name_edit = QLineEdit()
         self.battery_name_edit.setPlaceholderText("e.g., INR18650-30Q")
         self.battery_name_edit.textChanged.connect(self._on_filename_field_changed)
-        info_layout.addRow("Name:", self.battery_name_edit)
+        info_layout.addRow("Name", self.battery_name_edit)
 
         self.manufacturer_edit = QLineEdit()
         self.manufacturer_edit.setPlaceholderText("e.g., Samsung, LG, Panasonic")
-        info_layout.addRow("Manufacturer:", self.manufacturer_edit)
+        info_layout.addRow("Manufacturer", self.manufacturer_edit)
 
         self.oem_equiv_edit = QLineEdit()
         self.oem_equiv_edit.setPlaceholderText("e.g., 30Q, VTC6")
-        info_layout.addRow("OEM Equivalent:", self.oem_equiv_edit)
+        info_layout.addRow("OEM Equivalent", self.oem_equiv_edit)
 
         voltage_tech_layout = QHBoxLayout()
         self.rated_voltage_spin = QDoubleSpinBox()
@@ -240,7 +252,7 @@ class AutomationPanel(QWidget):
         self.technology_combo.addItems(["Li-Ion", "LiPo", "NiMH", "NiCd", "LiFePO4", "Lead Acid"])
         self.technology_combo.setToolTip("Battery chemistry/technology")
         voltage_tech_layout.addWidget(self.technology_combo)
-        info_layout.addRow("Rated Voltage:", voltage_tech_layout)
+        info_layout.addRow("Rated Voltage", voltage_tech_layout)
 
         capacity_layout = QHBoxLayout()
         self.nominal_capacity_spin = QSpinBox()
@@ -255,7 +267,7 @@ class AutomationPanel(QWidget):
         self.nominal_energy_spin.setValue(11.1)
         self.nominal_energy_spin.setSuffix(" Wh")
         capacity_layout.addWidget(self.nominal_energy_spin)
-        info_layout.addRow("Nominal Capacity:", capacity_layout)
+        info_layout.addRow("Capacity (Nom)", capacity_layout)
 
         info_main_layout.addWidget(specs_group)
 
@@ -266,12 +278,12 @@ class AutomationPanel(QWidget):
 
         self.serial_number_edit = QLineEdit()
         self.serial_number_edit.setPlaceholderText("e.g., SN123456")
-        instance_layout.addRow("Serial Number:", self.serial_number_edit)
+        instance_layout.addRow("Serial Number", self.serial_number_edit)
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setMaximumHeight(50)
         self.notes_edit.setPlaceholderText("Test notes...")
-        instance_layout.addRow("Notes:", self.notes_edit)
+        instance_layout.addRow("Notes", self.notes_edit)
 
         info_main_layout.addWidget(instance_group)
         layout.addWidget(info_group)
@@ -294,17 +306,18 @@ class AutomationPanel(QWidget):
         self.progress_bar.setValue(0)
         control_layout.addWidget(self.progress_bar)
 
-        # Status label
+        # Status label (bold, color-coded)
         self.status_label = QLabel("Not Connected")
         self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color: red; font-weight: bold;")
         control_layout.addWidget(self.status_label)
 
-        # Elapsed time
+        # Elapsed time (normal weight, larger font)
         self.elapsed_label = QLabel("0h 0m 0s")
         self.elapsed_label.setAlignment(Qt.AlignCenter)
         font = self.elapsed_label.font()
         font.setPointSize(14)
-        font.setBold(True)
+        font.setBold(False)  # Normal weight, not bold
         self.elapsed_label.setFont(font)
         control_layout.addWidget(self.elapsed_label)
 
@@ -313,6 +326,52 @@ class AutomationPanel(QWidget):
         self.remaining_label.setAlignment(Qt.AlignCenter)
         self.remaining_label.setStyleSheet("color: #666;")
         control_layout.addWidget(self.remaining_label)
+
+        # Reduce spacing before Test Summary
+        control_layout.addSpacing(-5)
+
+        # Test Summary table
+        summary_group = QGroupBox("Test Summary")
+        summary_layout = QVBoxLayout(summary_group)
+        summary_layout.setContentsMargins(6, 0, 6, 6)
+
+        self.summary_table = QTableWidget(1, 4)
+        self.summary_table.setHorizontalHeaderLabels(["Run Time", "Median V", "Capacity", "Energy"])
+        self.summary_table.verticalHeader().setVisible(False)
+        self.summary_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.summary_table.setSelectionMode(QTableWidget.NoSelection)
+        self.summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.summary_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        # Set all columns to stretch equally
+        for col in range(4):
+            self.summary_table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Stretch)
+
+        # Make the single row taller
+        self.summary_table.setRowHeight(0, 35)
+
+        # Create value items (store references for updates)
+        self.summary_runtime_item = QTableWidgetItem("--")
+        self.summary_voltage_item = QTableWidgetItem("--")
+        self.summary_capacity_item = QTableWidgetItem("--")
+        self.summary_energy_item = QTableWidgetItem("--")
+
+        # Center align all values
+        for item in [self.summary_runtime_item, self.summary_voltage_item,
+                     self.summary_capacity_item, self.summary_energy_item]:
+            item.setTextAlignment(Qt.AlignCenter)
+
+        self.summary_table.setItem(0, 0, self.summary_runtime_item)
+        self.summary_table.setItem(0, 1, self.summary_voltage_item)
+        self.summary_table.setItem(0, 2, self.summary_capacity_item)
+        self.summary_table.setItem(0, 3, self.summary_energy_item)
+
+        # Set fixed height to prevent scrolling
+        table_height = self.summary_table.horizontalHeader().height() + self.summary_table.rowHeight(0) + 2
+        self.summary_table.setFixedHeight(table_height)
+
+        summary_layout.addWidget(self.summary_table)
+        control_layout.addWidget(summary_group)
 
         control_layout.addStretch()
 
@@ -324,7 +383,6 @@ class AutomationPanel(QWidget):
         autosave_layout.addWidget(self.autosave_checkbox)
         self.save_btn = QPushButton("Save")
         self.save_btn.setMaximumWidth(50)
-        self.save_btn.setEnabled(False)  # Disabled when Auto Save is checked
         self.save_btn.clicked.connect(self._on_save_clicked)
         autosave_layout.addWidget(self.save_btn)
         self.load_btn = QPushButton("Load")
@@ -379,7 +437,6 @@ class AutomationPanel(QWidget):
     def _on_autosave_toggled(self, checked: bool) -> None:
         """Handle Auto Save checkbox toggle."""
         self.filename_edit.setReadOnly(checked)
-        self.save_btn.setEnabled(not checked)
         if checked:
             # Reset to auto-generated filename
             self._update_filename()
@@ -468,6 +525,8 @@ class AutomationPanel(QWidget):
             readings = data.get("readings", [])
             if readings:
                 self.session_loaded.emit(readings)
+                # Update summary with loaded data
+                self._update_summary_from_readings(readings)
 
         finally:
             self._loading_settings = False
@@ -538,16 +597,7 @@ class AutomationPanel(QWidget):
             # Emit with zeros to signal stop
             self.start_test_requested.emit(0, 0, 0, 0)
         else:
-            # Check if device is connected
-            if not self.test_runner or not self.test_runner.device or not self.test_runner.device.is_connected:
-                QMessageBox.warning(
-                    self,
-                    "Not Connected",
-                    "Please connect to the device first.",
-                )
-                return
-
-            # Get test parameters
+            # Get test parameters (connection check will happen in main_window)
             discharge_type = self.type_combo.currentIndex()  # 0=CC, 1=CP, 2=CR
             value = self.value_spin.value()
             cutoff = self.cutoff_spin.value()
@@ -577,8 +627,9 @@ class AutomationPanel(QWidget):
 
     def update_progress(self, progress: TestProgress) -> None:
         """Update UI with test progress."""
-        # Update status label
+        # Update status label with color coding
         self.status_label.setText(progress.message or progress.state.name)
+        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
 
         # Update elapsed time
         h = progress.elapsed_seconds // 3600
@@ -624,6 +675,13 @@ class AutomationPanel(QWidget):
         self.hours_spin.setEnabled(False)
         self.minutes_spin.setEnabled(False)
 
+        # Reset voltage readings and summary for new test
+        self._voltage_readings = []
+        self.summary_runtime_item.setText("--")
+        self.summary_voltage_item.setText("--")
+        self.summary_capacity_item.setText("--")
+        self.summary_energy_item.setText("--")
+
     def _update_ui_stopped(self) -> None:
         """Update UI for stopped state."""
         self.start_btn.setText("Start")
@@ -634,7 +692,7 @@ class AutomationPanel(QWidget):
             self.start_btn.setEnabled(True)
         else:
             self.status_label.setText("Not Connected")
-            self.status_label.setStyleSheet("color: red;")
+            self.status_label.setStyleSheet("color: red; font-weight: bold;")
             self.start_btn.setEnabled(False)
         self.type_combo.setEnabled(True)
         self.value_spin.setEnabled(True)
@@ -659,21 +717,32 @@ class AutomationPanel(QWidget):
                 self.status_label.setStyleSheet("color: red;")
                 self.start_btn.setEnabled(False)
 
-    def update_test_progress(self, elapsed_seconds: float, capacity_mah: float) -> None:
-        """Update progress bar and elapsed time based on test progress.
+    def update_test_progress(self, elapsed_seconds: float, capacity_mah: float, voltage: float = 0.0, energy_wh: float = 0.0) -> None:
+        """Update progress bar, elapsed time, and test summary.
 
         Args:
             elapsed_seconds: Time elapsed since test started
             capacity_mah: Current capacity drawn in mAh
+            voltage: Current voltage reading in V
+            energy_wh: Current energy in Wh
         """
         if self.start_btn.text() != "Abort":
             return  # Not running
+
+        # Store voltage reading for median calculation
+        if voltage > 0:
+            if not hasattr(self, '_voltage_readings'):
+                self._voltage_readings = []
+            self._voltage_readings.append(voltage)
 
         # Update elapsed time display
         h = int(elapsed_seconds) // 3600
         m = (int(elapsed_seconds) % 3600) // 60
         s = int(elapsed_seconds) % 60
         self.elapsed_label.setText(f"{h}h {m}m {s}s")
+
+        # Update test summary
+        self._update_test_summary(elapsed_seconds, capacity_mah, energy_wh)
 
         # Method 1: If Timed is enabled, use time-based progress
         if self.timed_checkbox.isChecked():
@@ -709,6 +778,116 @@ class AutomationPanel(QWidget):
 
         # Clear remaining if can't estimate
         self.remaining_label.setText("")
+
+    def _update_test_summary(self, elapsed_seconds: float, capacity_mah: float, energy_wh: float) -> None:
+        """Update the test summary box with current stats.
+
+        Args:
+            elapsed_seconds: Time elapsed since test started
+            capacity_mah: Current capacity drawn in mAh
+            energy_wh: Current energy in Wh
+        """
+        print(f"DEBUG: _update_test_summary called - elapsed={elapsed_seconds}, capacity={capacity_mah}, energy={energy_wh}")
+
+        # Run Time
+        h = int(elapsed_seconds) // 3600
+        m = (int(elapsed_seconds) % 3600) // 60
+        s = int(elapsed_seconds) % 60
+        runtime_text = f"{h}h {m}m {s}s"
+        print(f"DEBUG: Setting runtime to: {runtime_text}")
+        self.summary_runtime_item.setText(runtime_text)
+
+        # Median Voltage
+        if hasattr(self, '_voltage_readings') and self._voltage_readings:
+            sorted_voltages = sorted(self._voltage_readings)
+            n = len(sorted_voltages)
+            if n % 2 == 0:
+                median_v = (sorted_voltages[n//2 - 1] + sorted_voltages[n//2]) / 2
+            else:
+                median_v = sorted_voltages[n//2]
+            self.summary_voltage_item.setText(f"{median_v:.3f} V")
+        else:
+            self.summary_voltage_item.setText("--")
+
+        # Capacity with auto-scaling
+        if capacity_mah >= 1000:
+            self.summary_capacity_item.setText(f"{capacity_mah/1000:.3f} Ah")
+        else:
+            self.summary_capacity_item.setText(f"{capacity_mah:.1f} mAh")
+
+        # Energy (always in Wh since battery energies are typically in this range)
+        self.summary_energy_item.setText(f"{energy_wh:.2f} Wh")
+
+    def _update_summary_from_readings(self, readings: list) -> None:
+        """Update test summary from loaded readings.
+
+        Args:
+            readings: List of reading dictionaries from loaded JSON
+        """
+        if not readings:
+            print("DEBUG: No readings provided")
+            return
+
+        print(f"DEBUG: Updating summary from {len(readings)} readings")
+        print(f"DEBUG: First reading keys: {readings[0].keys() if readings else 'None'}")
+
+        # Calculate run time from first to last reading using timestamps
+        try:
+            from datetime import datetime
+            first_timestamp = datetime.fromisoformat(readings[0]["timestamp"])
+            last_timestamp = datetime.fromisoformat(readings[-1]["timestamp"])
+            elapsed_seconds = (last_timestamp - first_timestamp).total_seconds()
+            print(f"DEBUG: Elapsed seconds: {elapsed_seconds}")
+
+            h = int(elapsed_seconds) // 3600
+            m = (int(elapsed_seconds) % 3600) // 60
+            s = int(elapsed_seconds) % 60
+            self.summary_runtime_item.setText(f"{h}h {m}m {s}s")
+            print(f"DEBUG: Set runtime to {h}h {m}m {s}s")
+        except Exception as e:
+            print(f"DEBUG: Runtime error: {e}")
+            self.summary_runtime_item.setText("--")
+
+        # Calculate median voltage
+        try:
+            voltages = [r.get("voltage", 0) for r in readings if "voltage" in r]
+            print(f"DEBUG: Found {len(voltages)} voltage readings")
+            if voltages:
+                sorted_voltages = sorted(voltages)
+                n = len(sorted_voltages)
+                if n % 2 == 0:
+                    median_v = (sorted_voltages[n//2 - 1] + sorted_voltages[n//2]) / 2
+                else:
+                    median_v = sorted_voltages[n//2]
+                self.summary_voltage_item.setText(f"{median_v:.3f} V")
+                print(f"DEBUG: Set median voltage to {median_v:.3f} V")
+            else:
+                self.summary_voltage_item.setText("--")
+                print("DEBUG: No voltages found")
+        except Exception as e:
+            print(f"DEBUG: Voltage error: {e}")
+            self.summary_voltage_item.setText("--")
+
+        # Get final capacity
+        try:
+            capacity_mah = readings[-1].get("capacity_mah", 0)
+            print(f"DEBUG: Final capacity: {capacity_mah} mAh")
+            if capacity_mah >= 1000:
+                self.summary_capacity_item.setText(f"{capacity_mah/1000:.3f} Ah")
+            else:
+                self.summary_capacity_item.setText(f"{capacity_mah:.1f} mAh")
+        except Exception as e:
+            print(f"DEBUG: Capacity error: {e}")
+            self.summary_capacity_item.setText("--")
+
+        # Get final energy
+        try:
+            energy_wh = readings[-1].get("energy_wh", 0)
+            print(f"DEBUG: Final energy: {energy_wh} Wh")
+            self.summary_energy_item.setText(f"{energy_wh:.2f} Wh")
+        except Exception as e:
+            print(f"DEBUG: Energy error: {e}")
+            self.summary_energy_item.setText("--")
 
     def _load_battery_presets_list(self) -> None:
         """Load the list of battery presets into the combo box."""

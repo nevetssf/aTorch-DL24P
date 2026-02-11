@@ -123,6 +123,7 @@ class HistoryPanel(QWidget):
             return
 
         json_files = sorted(self._test_data_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        print(f"DEBUG: Found {len(json_files)} JSON files in {self._test_data_dir}")
 
         for json_file in json_files:
             try:
@@ -170,7 +171,7 @@ class HistoryPanel(QWidget):
                 conditions_str = ", ".join(conditions_parts) if conditions_parts else "N/A"
 
                 # Duration
-                duration_sec = summary_data.get("total_runtime_seconds", 0)
+                duration_sec = int(summary_data.get("total_runtime_seconds", 0))
                 h = duration_sec // 3600
                 m = (duration_sec % 3600) // 60
                 s = duration_sec % 60
@@ -199,6 +200,9 @@ class HistoryPanel(QWidget):
 
             except Exception as e:
                 # Skip files that can't be parsed
+                print(f"ERROR parsing {json_file.name}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
 
         # Populate table

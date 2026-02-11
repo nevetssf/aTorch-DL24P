@@ -45,7 +45,10 @@ from .settings_dialog import SettingsDialog, DeviceSettingsDialog
 from .debug_window import DebugWindow
 from .database_dialog import DatabaseDialog
 from .battery_load_panel import BatteryLoadPanel
-from .placeholder_panel import BatteryChargerPanel, CableResistancePanel, ChargerPanel, PowerBankPanel
+from .power_bank_panel import PowerBankPanel
+from .charger_panel import ChargerPanel
+from .battery_charger_panel import BatteryChargerPanel
+from .placeholder_panel import CableResistancePanel
 
 
 class MainWindow(QMainWindow):
@@ -101,6 +104,8 @@ class MainWindow(QMainWindow):
         self._last_completed_session: Optional[TestSession] = None  # Keep last session for export
         self._logging_enabled = False
         self._logging_start_time: Optional[datetime] = None  # Track when logging started
+        self._sample_interval = 1.0  # Sample interval in seconds (default 1s)
+        self._last_log_time: Optional[float] = None  # Timestamp of last logged reading
         # Limit accumulated readings to last 48 hours at 1 Hz = 172,800 max
         # This prevents unbounded growth during long tests
         from collections import deque
@@ -158,7 +163,8 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.control_panel)
 
         # Center: Plots
-        self.plot_panel = PlotPanel()
+        # Match plot capacity to accumulated_readings (48 hours at 1Hz)
+        self.plot_panel = PlotPanel(max_points=172800)
         splitter.addWidget(self.plot_panel)
 
         # Right panel: Status
@@ -214,9 +220,9 @@ class MainWindow(QMainWindow):
         self.bottom_tabs.addTab(self.cable_resistance_panel, "Cable Resistance")
 
         self.charger_panel = ChargerPanel()
-        self.bottom_tabs.addTab(self.charger_panel, "Charger")
+        self.bottom_tabs.addTab(self.charger_panel, "Wall Charger")
 
-        self.power_bank_panel = PowerBankPanel()
+        self.power_bank_panel = PowerBankPanel(None, self.database)  # test_runner set on connect
         self.bottom_tabs.addTab(self.power_bank_panel, "Power Bank")
 
         self.history_panel = HistoryPanel(self.database)
@@ -242,6 +248,29 @@ class MainWindow(QMainWindow):
         self.battery_load_panel.session_loaded.connect(self._on_session_loaded)
         self.battery_load_panel.export_csv_requested.connect(self._on_export_csv)
 
+        # Connect charger panel signals
+        self.charger_panel.test_started.connect(self._on_charger_start)
+        self.charger_panel.test_stopped.connect(self._on_charger_stop)
+        self.charger_panel.manual_save_requested.connect(self._on_charger_save)
+        self.charger_panel.session_loaded.connect(self._on_session_loaded)
+        self.charger_panel.export_csv_requested.connect(self._on_export_csv)
+
+        # Connect battery charger panel signals
+        self.battery_charger_panel.test_started.connect(self._on_battery_charger_start)
+        self.battery_charger_panel.test_stopped.connect(self._on_battery_charger_stop)
+        self.battery_charger_panel.manual_save_requested.connect(self._on_battery_charger_save)
+        self.battery_charger_panel.session_loaded.connect(self._on_session_loaded)
+        self.battery_charger_panel.export_csv_requested.connect(self._on_export_csv)
+
+        # Connect power bank panel signals
+        self.power_bank_panel.start_test_requested.connect(self._on_power_bank_start)
+        self.power_bank_panel.apply_settings_requested.connect(self._on_apply_settings)
+        self.power_bank_panel.manual_save_requested.connect(self._on_power_bank_save)
+        self.power_bank_panel.session_loaded.connect(self._on_session_loaded)
+        self.power_bank_panel.export_csv_requested.connect(self._on_export_csv)
+        self.power_bank_panel.test_started.connect(lambda: None)  # Placeholder for future use
+        self.power_bank_panel.test_stopped.connect(lambda: None)  # Placeholder for future use
+
         automation_content_layout.addWidget(self.bottom_tabs)
         self.automation_content.setFixedHeight(380)
         self.automation_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -257,7 +286,7 @@ class MainWindow(QMainWindow):
         self.control_panel.connect_requested.connect(self._connect_device)
         self.control_panel.disconnect_requested.connect(self._disconnect_device)
         self.status_panel.logging_toggled.connect(self._toggle_logging)
-        self.status_panel.show_points_toggled.connect(self._toggle_show_points)
+        self.status_panel.sample_time_changed.connect(self._set_sample_interval)
         self.status_panel.clear_requested.connect(self._clear_data)
         self.status_panel.save_requested.connect(self._export_session_with_name)
 
@@ -385,9 +414,12 @@ class MainWindow(QMainWindow):
             self.test_runner.set_complete_callback(self._on_test_complete)
             self.control_panel.test_runner = self.test_runner
             self.automation_panel.test_runner = self.test_runner
+            self.power_bank_panel.test_runner = self.test_runner
 
-            # Set device and plot references for Battery Load panel
+            # Set device and plot references for test panels
             self.battery_load_panel.set_device_and_plot(self.device, self.plot_panel)
+            self.charger_panel.set_device_and_plot(self.device, self.plot_panel)
+            self.battery_charger_panel.set_device_and_plot(self.device, self.plot_panel)
 
             self.connection_changed.emit(True)
             conn_type_str = "USB HID" if connection_type == ConnectionType.USB_HID else "Serial"
@@ -412,8 +444,10 @@ class MainWindow(QMainWindow):
         # Stop the test (update automation panel UI)
         self.automation_panel._update_ui_stopped()
 
-        # Clear device references from Battery Load panel
+        # Clear device references from test panels
         self.battery_load_panel.set_device_and_plot(None, None)
+        self.charger_panel.set_device_and_plot(None, None)
+        self.battery_charger_panel.set_device_and_plot(None, None)
 
         # Disconnect
         if self.device:
@@ -422,38 +456,88 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage("Disconnected")
 
     def _try_auto_connect(self) -> bool:
-        """Attempt to auto-connect if a DL24 device is detected in port list.
+        """Attempt to auto-connect if an aTorch device is detected in port list.
 
         Returns:
             True if connected (or already connected), False if connection failed
         """
+        import sys
+        sys.stderr.write("DEBUG: _try_auto_connect() called\n")
+        sys.stderr.flush()
+
         # Already connected
         if self.device and self.device.is_connected:
+            print("DEBUG: Already connected, returning True")
             return True
 
-        # Check if port looks like DL24
+        # Check if a port is selected
         port = self.control_panel.selected_port
+        print(f"DEBUG: Selected port: {port}")
+
         if not port:
+            print("DEBUG: No port selected")
+            QMessageBox.warning(
+                self,
+                "No Device Selected",
+                "Please select a device from the port dropdown and click Connect before starting the test."
+            )
             return False
 
-        # Get the port display text to check for DL24
+        # Get the port display text to check for aTorch device
         port_text = self.control_panel.port_combo.currentText()
-        if "DL24" not in port_text.upper():
+        port_text_upper = port_text.upper()
+        print(f"DEBUG: Port text: '{port_text}'")
+        print(f"DEBUG: Port text upper: '{port_text_upper}'")
+
+        # Check if port looks like an aTorch device (DL24, or other aTorch models)
+        is_atorch_device = any(keyword in port_text_upper for keyword in ["ATORCH", "DL24", "DL24P"])
+        print(f"DEBUG: Is aTorch device: {is_atorch_device}")
+
+        if not is_atorch_device:
+            print("DEBUG: Not an aTorch device, showing warning")
+            QMessageBox.warning(
+                self,
+                "Wrong Device Selected",
+                "The selected device does not appear to be an aTorch device.\n\n"
+                "Please select the correct aTorch device from the port dropdown and click Connect before starting the test."
+            )
             return False
 
         # Try to connect
         try:
+            # Print debug info to help troubleshoot
+            print(f"DEBUG: Auto-connecting to device: {port_text}")
+            print(f"DEBUG: Port: {port}")
+
             self._connect_device()
-            # Give it a moment to connect
-            QTimer.singleShot(100, lambda: None)  # Brief pause
-            return self.device and self.device.is_connected
+
+            # Check if connection succeeded
+            if self.device and self.device.is_connected:
+                print(f"DEBUG: Auto-connect succeeded!")
+                self.statusbar.showMessage(f"Auto-connected to {port_text}")
+                return True
+            else:
+                print(f"DEBUG: Auto-connect failed - device not connected")
+                QMessageBox.warning(
+                    self,
+                    "Auto-Connect Failed",
+                    f"Could not connect to device.\n\nPlease connect manually."
+                )
+                return False
         except Exception as e:
+            print(f"DEBUG: Auto-connect exception: {e}")
             QMessageBox.warning(
                 self,
                 "Auto-Connect Failed",
-                f"Could not connect to DL24 device:\n{e}\n\nPlease connect manually."
+                f"Could not connect to device:\n{e}\n\nPlease connect manually."
             )
             return False
+
+    @Slot(int)
+    def _set_sample_interval(self, seconds: int) -> None:
+        """Set the sample interval for data logging."""
+        self._sample_interval = float(seconds)
+        self._last_log_time = None  # Reset to force immediate log on next update
 
     @Slot(bool)
     def _toggle_logging(self, enabled: bool) -> None:
@@ -468,6 +552,7 @@ class MainWindow(QMainWindow):
             )
             self.database.create_session(self._current_session)
             self._logging_enabled = True
+            self._last_log_time = None  # Reset sample timer for new test
             self._last_autosave_time = None  # Reset autosave timer for new test
             self._last_db_commit_time = None  # Reset db commit timer for new test
             # Turn on the load when logging starts
@@ -762,8 +847,8 @@ class MainWindow(QMainWindow):
         tab_index = panel_type_to_tab.get(test_panel_type, 0)
         self.bottom_tabs.setCurrentIndex(tab_index)
 
-        # Only load data for battery_capacity and battery_load types (others are placeholders)
-        if test_panel_type not in ("battery_capacity", "battery_load"):
+        # Only load data for battery_capacity, battery_load, battery_charger, charger, and power_bank types (others are placeholders)
+        if test_panel_type not in ("battery_capacity", "battery_load", "battery_charger", "charger", "power_bank"):
             self.statusbar.showMessage(f"Selected {test_panel_type.replace('_', ' ').title()} test file (panel not yet implemented)")
             return
 
@@ -774,9 +859,24 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Load Error", f"Failed to load file: {e}")
             return
 
+        # Handle battery_charger test type
+        if test_panel_type == "battery_charger":
+            self._load_battery_charger_history(file_path, data)
+            return
+
+        # Handle charger test type
+        if test_panel_type == "charger":
+            self._load_charger_history(file_path, data)
+            return
+
         # Handle battery_load test type
         if test_panel_type == "battery_load":
             self._load_battery_load_history(file_path, data)
+            return
+
+        # Handle power_bank test type
+        if test_panel_type == "power_bank":
+            self._load_power_bank_history(file_path, data)
             return
 
         # Load test configuration into automation panel
@@ -825,13 +925,17 @@ class MainWindow(QMainWindow):
 
             # Set graph axes for battery capacity (Voltage vs Time)
             self.plot_panel.x_axis_combo.setCurrentText("Time")
-            if "V" in self.plot_panel._checkboxes:
-                self.plot_panel._checkboxes["V"].setChecked(True)
+            # Set Y axis to Voltage
+            if "Y" in self.plot_panel._axis_dropdowns:
+                self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
+                self.plot_panel._axis_checkboxes["Y"].setChecked(True)
 
             # Load readings for display
             readings = data.get("readings", [])
             if readings:
                 self._on_session_loaded(readings)
+                # Update test summary with loaded data
+                self.automation_panel._update_summary_from_readings(readings)
 
             self.statusbar.showMessage(f"Loaded Battery Capacity test: {Path(file_path).name}")
 
@@ -857,8 +961,11 @@ class MainWindow(QMainWindow):
                 self.battery_load_panel.max_spin.setValue(test_config["max"])
             if "num_steps" in test_config:
                 self.battery_load_panel.num_steps_spin.setValue(test_config["num_steps"])
-            if "settle_time" in test_config:
-                self.battery_load_panel.settle_time_spin.setValue(test_config["settle_time"])
+            # Support both old "settle_time" and new "dwell_time" for backwards compatibility
+            if "dwell_time" in test_config:
+                self.battery_load_panel.dwell_time_spin.setValue(test_config["dwell_time"])
+            elif "settle_time" in test_config:
+                self.battery_load_panel.dwell_time_spin.setValue(test_config["settle_time"])
             if "voltage_cutoff" in test_config:
                 self.battery_load_panel.v_cutoff_spin.setValue(test_config["voltage_cutoff"])
 
@@ -875,14 +982,15 @@ class MainWindow(QMainWindow):
             x_axis_map = {
                 "Current": "Current",
                 "Power": "Power",
-                "Resistance": "Load R",
+                "Resistance": "R Load",
             }
             x_axis = x_axis_map.get(load_type, "Current")
             self.plot_panel.x_axis_combo.setCurrentText(x_axis)
 
             # Enable Voltage on Y-axis for battery load tests
-            if "V" in self.plot_panel._checkboxes:
-                self.plot_panel._checkboxes["V"].setChecked(True)
+            if "Y" in self.plot_panel._axis_dropdowns:
+                self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
+                self.plot_panel._axis_checkboxes["Y"].setChecked(True)
 
             # Load readings for display
             readings = data.get("readings", [])
@@ -893,6 +1001,206 @@ class MainWindow(QMainWindow):
 
         finally:
             self.battery_load_panel._loading_settings = False
+
+    def _load_power_bank_history(self, file_path: str, data: dict) -> None:
+        """Load power bank test data from history.
+
+        Args:
+            file_path: Path to the JSON file
+            data: Parsed JSON data
+        """
+        # Load test configuration into power bank panel
+        self.power_bank_panel._loading_settings = True
+        try:
+            test_config = data.get("test_config", {})
+            if "output_voltage_index" in test_config:
+                self.power_bank_panel.output_voltage_combo.setCurrentIndex(test_config["output_voltage_index"])
+            if "current" in test_config:
+                self.power_bank_panel.current_spin.setValue(test_config["current"])
+            if "voltage_cutoff" in test_config:
+                self.power_bank_panel.cutoff_spin.setValue(test_config["voltage_cutoff"])
+            if "timed" in test_config:
+                self.power_bank_panel.timed_checkbox.setChecked(test_config["timed"])
+            if "duration_seconds" in test_config:
+                self.power_bank_panel.duration_spin.setValue(test_config["duration_seconds"])
+                self.power_bank_panel._sync_hours_minutes()
+
+            # Load power bank info
+            power_bank_info = data.get("power_bank_info", {})
+            if "name" in power_bank_info:
+                self.power_bank_panel.power_bank_name_edit.setText(power_bank_info["name"])
+            if "manufacturer" in power_bank_info:
+                self.power_bank_panel.manufacturer_edit.setText(power_bank_info["manufacturer"])
+            if "model" in power_bank_info:
+                self.power_bank_panel.model_edit.setText(power_bank_info["model"])
+            if "serial_number" in power_bank_info:
+                self.power_bank_panel.serial_number_edit.setText(power_bank_info["serial_number"])
+            if "rated_capacity_mah" in power_bank_info:
+                self.power_bank_panel.rated_capacity_spin.setValue(power_bank_info["rated_capacity_mah"])
+            if "rated_energy_wh" in power_bank_info:
+                self.power_bank_panel.rated_energy_spin.setValue(power_bank_info["rated_energy_wh"])
+            if "max_output_current_a" in power_bank_info:
+                self.power_bank_panel.max_output_current_spin.setValue(power_bank_info["max_output_current_a"])
+            if "usb_ports" in power_bank_info:
+                self.power_bank_panel.usb_ports_spin.setValue(power_bank_info["usb_ports"])
+            if "usb_pd" in power_bank_info:
+                self.power_bank_panel.usb_pd_checkbox.setChecked(power_bank_info["usb_pd"])
+            if "quick_charge" in power_bank_info:
+                self.power_bank_panel.quick_charge_checkbox.setChecked(power_bank_info["quick_charge"])
+            if "notes" in power_bank_info:
+                self.power_bank_panel.notes_edit.setPlainText(power_bank_info["notes"])
+
+            # Update filename
+            self.power_bank_panel.filename_edit.setText(Path(file_path).name)
+
+            # Set graph axes for power bank tests (Time vs Voltage)
+            self.plot_panel.x_axis_combo.setCurrentText("Time")
+            if "Y" in self.plot_panel._axis_dropdowns:
+                self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
+                self.plot_panel._axis_checkboxes["Y"].setChecked(True)
+
+            # Load readings for display
+            readings = data.get("readings", [])
+            if readings:
+                self._on_session_loaded(readings)
+
+            self.statusbar.showMessage(f"Loaded Power Bank test: {Path(file_path).name}")
+
+        finally:
+            self.power_bank_panel._loading_settings = False
+
+    def _load_charger_history(self, file_path: str, data: dict) -> None:
+        """Load charger test data from history.
+
+        Args:
+            file_path: Path to the JSON file
+            data: Parsed JSON data
+        """
+        # Load test configuration into charger panel
+        self.charger_panel._loading_settings = True
+        try:
+            test_config = data.get("test_config", {})
+            if "load_type" in test_config:
+                self.charger_panel.load_type_combo.setCurrentText(test_config["load_type"])
+            if "min" in test_config:
+                self.charger_panel.min_spin.setValue(test_config["min"])
+            if "max" in test_config:
+                self.charger_panel.max_spin.setValue(test_config["max"])
+            if "num_steps" in test_config:
+                self.charger_panel.num_steps_spin.setValue(test_config["num_steps"])
+            if "dwell_time" in test_config:
+                self.charger_panel.dwell_time_spin.setValue(test_config["dwell_time"])
+
+            # Load charger info
+            charger_info = data.get("charger_info", {})
+            if "name" in charger_info:
+                self.charger_panel.charger_name_edit.setText(charger_info["name"])
+            if "manufacturer" in charger_info:
+                self.charger_panel.manufacturer_edit.setText(charger_info["manufacturer"])
+            if "model" in charger_info:
+                self.charger_panel.model_edit.setText(charger_info["model"])
+            if "rated_output_w" in charger_info:
+                self.charger_panel.rated_output_spin.setValue(charger_info["rated_output_w"])
+            if "rated_voltage_v" in charger_info:
+                self.charger_panel.rated_voltage_spin.setValue(charger_info["rated_voltage_v"])
+            if "rated_current_a" in charger_info:
+                self.charger_panel.rated_current_spin.setValue(charger_info["rated_current_a"])
+            if "usb_ports" in charger_info:
+                self.charger_panel.usb_ports_edit.setText(charger_info["usb_ports"])
+            if "usb_pd" in charger_info:
+                self.charger_panel.usb_pd_checkbox.setChecked(charger_info["usb_pd"])
+            if "gan" in charger_info:
+                self.charger_panel.gan_checkbox.setChecked(charger_info["gan"])
+            if "notes" in charger_info:
+                self.charger_panel.notes_edit.setPlainText(charger_info["notes"])
+
+            # Update filename
+            self.charger_panel.filename_edit.setText(Path(file_path).name)
+
+            # Set graph axes based on load type (similar to battery load)
+            load_type = test_config.get("load_type", "Current")
+            x_axis_map = {
+                "Current": "Current",
+                "Power": "Power",
+                "Resistance": "R Load",
+            }
+            x_axis = x_axis_map.get(load_type, "Current")
+            self.plot_panel.x_axis_combo.setCurrentText(x_axis)
+
+            # Enable Voltage on Y-axis for charger tests
+            if "Y" in self.plot_panel._axis_dropdowns:
+                self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
+                self.plot_panel._axis_checkboxes["Y"].setChecked(True)
+
+            # Load readings for display
+            readings = data.get("readings", [])
+            if readings:
+                self._on_session_loaded(readings)
+
+            self.statusbar.showMessage(f"Loaded Charger test: {Path(file_path).name}")
+
+        finally:
+            self.charger_panel._loading_settings = False
+
+    def _load_battery_charger_history(self, file_path: str, data: dict) -> None:
+        """Load battery charger test data from history.
+
+        Args:
+            file_path: Path to the JSON file
+            data: Parsed JSON data
+        """
+        # Load test configuration into battery charger panel
+        self.battery_charger_panel._loading_settings = True
+        try:
+            test_config = data.get("test_config", {})
+            if "chemistry" in test_config:
+                self.battery_charger_panel.chemistry_combo.setCurrentText(test_config["chemistry"])
+            if "min_voltage" in test_config:
+                self.battery_charger_panel.min_voltage_spin.setValue(test_config["min_voltage"])
+            if "max_voltage" in test_config:
+                self.battery_charger_panel.max_voltage_spin.setValue(test_config["max_voltage"])
+            if "num_steps" in test_config:
+                self.battery_charger_panel.num_steps_spin.setValue(test_config["num_steps"])
+            if "dwell_time" in test_config:
+                self.battery_charger_panel.dwell_time_spin.setValue(test_config["dwell_time"])
+
+            # Load charger info
+            charger_info = data.get("charger_info", {})
+            if "name" in charger_info:
+                self.battery_charger_panel.charger_name_edit.setText(charger_info["name"])
+            if "manufacturer" in charger_info:
+                self.battery_charger_panel.manufacturer_edit.setText(charger_info["manufacturer"])
+            if "model" in charger_info:
+                self.battery_charger_panel.model_edit.setText(charger_info["model"])
+            if "chemistry" in charger_info:
+                self.battery_charger_panel.charger_chemistry_combo.setCurrentText(charger_info["chemistry"])
+            if "rated_output_current_a" in charger_info:
+                self.battery_charger_panel.rated_current_spin.setValue(charger_info["rated_output_current_a"])
+            if "rated_voltage_v" in charger_info:
+                self.battery_charger_panel.rated_voltage_spin.setValue(charger_info["rated_voltage_v"])
+            if "number_of_cells" in charger_info:
+                self.battery_charger_panel.num_cells_spin.setValue(charger_info["number_of_cells"])
+            if "notes" in charger_info:
+                self.battery_charger_panel.notes_edit.setPlainText(charger_info["notes"])
+
+            # Update filename
+            self.battery_charger_panel.filename_edit.setText(Path(file_path).name)
+
+            # Set graph axes for battery charger tests (Voltage vs Current)
+            self.plot_panel.x_axis_combo.setCurrentText("Voltage")
+            if "Y" in self.plot_panel._axis_dropdowns:
+                self.plot_panel._axis_dropdowns["Y"].setCurrentText("Current")
+                self.plot_panel._axis_checkboxes["Y"].setChecked(True)
+
+            # Load readings for display
+            readings = data.get("readings", [])
+            if readings:
+                self._on_session_loaded(readings)
+
+            self.statusbar.showMessage(f"Loaded Battery Charger test: {Path(file_path).name}")
+
+        finally:
+            self.battery_charger_panel._loading_settings = False
 
     @Slot(int, float, float, int)
     def _on_automation_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
@@ -965,6 +1273,12 @@ class MainWindow(QMainWindow):
             self.control_panel.discharge_mins_spin.setValue(minutes)
             if hasattr(self.device, 'set_discharge_time'):
                 self.device.set_discharge_time(hours, minutes)
+
+        # Configure plot for Battery Capacity test: Time vs Voltage
+        self.plot_panel.x_axis_combo.setCurrentText("Time")
+        if "Y" in self.plot_panel._axis_dropdowns:
+            self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
+            self.plot_panel._axis_checkboxes["Y"].setChecked(True)
 
         # Start logging (which also turns on the load)
         if not self._logging_enabled:
@@ -1117,6 +1431,292 @@ class MainWindow(QMainWindow):
         result = self._write_test_json(filename, test_config, battery_info,
                                        list(self._accumulated_readings),
                                        test_panel_type="battery_load")
+        if result is None:
+            self.statusbar.showMessage("Failed to save test data")
+        return result
+
+    @Slot()
+    def _on_charger_start(self) -> None:
+        """Handle test start from charger panel."""
+        # Auto-connect if DL24 device detected and not connected
+        if not self.device or not self.device.is_connected:
+            if not self._try_auto_connect():
+                return
+
+        # Clear data and previous session before starting new test
+        self._clear_data()
+        self._last_completed_session = None
+
+        # Clear device counters (mAh, Wh, time)
+        self.device.reset_counters()
+
+        # Start logging (which also turns on the load)
+        if not self._logging_enabled:
+            self.status_panel.log_switch.setChecked(True)
+            self._toggle_logging(True)
+
+        self.statusbar.showMessage("Charger test started")
+
+    @Slot()
+    def _on_charger_stop(self) -> None:
+        """Handle test stop from charger panel."""
+        # Stop logging and save data if auto-save is enabled
+        if self._logging_enabled:
+            num_readings = len(self._accumulated_readings)
+            # Save test data to JSON if auto-save is enabled
+            if self.charger_panel.autosave_checkbox.isChecked():
+                saved_path = self._save_charger_json()
+                if saved_path:
+                    self.statusbar.showMessage(
+                        f"Charger test complete: {num_readings} readings saved to {saved_path}"
+                    )
+                    # Refresh history panel to show new file
+                    self.history_panel.refresh()
+                else:
+                    self.statusbar.showMessage(
+                        f"Charger test complete: {num_readings} readings - click Save to export"
+                    )
+            else:
+                self.statusbar.showMessage(
+                    f"Charger test complete: {num_readings} readings - click Save to export"
+                )
+            self.status_panel.log_switch.setChecked(False)
+            self._toggle_logging(False)
+
+    @Slot(str)
+    def _on_charger_save(self, filename: str) -> None:
+        """Handle manual save request from charger panel.
+
+        Args:
+            filename: The filename to save as
+        """
+        if not self._accumulated_readings:
+            self.statusbar.showMessage("No data to save")
+            return
+
+        saved_path = self._save_charger_json(filename)
+        if saved_path:
+            self.statusbar.showMessage(f"Saved: {saved_path}")
+            # Refresh history panel to show new file
+            self.history_panel.refresh()
+
+    def _save_charger_json(self, filename: Optional[str] = None) -> Optional[str]:
+        """Save charger test data to JSON file.
+
+        Args:
+            filename: Optional filename to use. If None, uses the filename from charger panel.
+
+        Returns:
+            Path to saved file, or None if save failed
+        """
+        # Get test configuration and charger info from charger panel
+        test_config = self.charger_panel.get_test_config()
+        charger_info = self.charger_panel.get_charger_info()
+
+        # Use provided filename or get from charger panel
+        if filename is None:
+            filename = self.charger_panel.filename_edit.text().strip()
+            if not filename:
+                filename = self.charger_panel.generate_test_filename()
+
+        result = self._write_test_json(filename, test_config, charger_info,
+                                       list(self._accumulated_readings),
+                                       test_panel_type="charger")
+        if result is None:
+            self.statusbar.showMessage("Failed to save test data")
+        return result
+
+    @Slot()
+    def _on_battery_charger_start(self) -> None:
+        """Handle test start from battery charger panel."""
+        # Auto-connect if DL24 device detected and not connected
+        if not self.device or not self.device.is_connected:
+            if not self._try_auto_connect():
+                return
+
+        # Clear data and previous session before starting new test
+        self._clear_data()
+        self._last_completed_session = None
+
+        # Clear device counters (mAh, Wh, time)
+        self.device.reset_counters()
+
+        # Start logging (which also turns on the load)
+        if not self._logging_enabled:
+            self.status_panel.log_switch.setChecked(True)
+            self._toggle_logging(True)
+
+        self.statusbar.showMessage("Battery Charger test started")
+
+    @Slot()
+    def _on_battery_charger_stop(self) -> None:
+        """Handle test stop from battery charger panel."""
+        # Stop logging and save data if auto-save is enabled
+        if self._logging_enabled:
+            num_readings = len(self._accumulated_readings)
+            # Save test data to JSON if auto-save is enabled
+            if self.battery_charger_panel.autosave_checkbox.isChecked():
+                saved_path = self._save_battery_charger_json()
+                if saved_path:
+                    self.statusbar.showMessage(
+                        f"Battery Charger test complete: {num_readings} readings saved to {saved_path}"
+                    )
+                    # Refresh history panel to show new file
+                    self.history_panel.refresh()
+                else:
+                    self.statusbar.showMessage(
+                        f"Battery Charger test complete: {num_readings} readings - click Save to export"
+                    )
+            else:
+                self.statusbar.showMessage(
+                    f"Battery Charger test complete: {num_readings} readings - click Save to export"
+                )
+            self.status_panel.log_switch.setChecked(False)
+            self._toggle_logging(False)
+
+    @Slot(str)
+    def _on_battery_charger_save(self, filename: str) -> None:
+        """Handle manual save request from battery charger panel.
+
+        Args:
+            filename: The filename to save as
+        """
+        if not self._accumulated_readings:
+            self.statusbar.showMessage("No data to save")
+            return
+
+        saved_path = self._save_battery_charger_json(filename)
+        if saved_path:
+            self.statusbar.showMessage(f"Saved: {saved_path}")
+            # Refresh history panel to show new file
+            self.history_panel.refresh()
+
+    def _save_battery_charger_json(self, filename: Optional[str] = None) -> Optional[str]:
+        """Save battery charger test data to JSON file.
+
+        Args:
+            filename: Optional filename to use. If None, uses the filename from battery charger panel.
+
+        Returns:
+            Path to saved file, or None if save failed
+        """
+        # Get test configuration and charger info from battery charger panel
+        test_config = self.battery_charger_panel.get_test_config()
+        charger_info = self.battery_charger_panel.get_charger_info()
+
+        # Use provided filename or get from battery charger panel
+        if filename is None:
+            filename = self.battery_charger_panel.filename_edit.text().strip()
+            if not filename:
+                filename = self.battery_charger_panel.generate_test_filename()
+
+        result = self._write_test_json(filename, test_config, charger_info,
+                                       list(self._accumulated_readings),
+                                       test_panel_type="battery_charger")
+        if result is None:
+            self.statusbar.showMessage("Failed to save test data")
+        return result
+
+    @Slot(int, float, float, int)
+    def _on_power_bank_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
+        """Handle test start request from power bank panel.
+
+        Args:
+            discharge_type: Always 0 (CC mode for power banks)
+            value: Current in A
+            voltage_cutoff: Voltage cutoff in V
+            duration_s: Duration in seconds (0 for no limit)
+        """
+        if discharge_type == 0 and value == 0 and voltage_cutoff == 0:
+            # Stop request - save data and turn off logging
+            if self._logging_enabled:
+                num_readings = len(self._accumulated_readings)
+                if self.power_bank_panel.autosave_checkbox.isChecked():
+                    saved_path = self._save_power_bank_json()
+                    if saved_path:
+                        self.statusbar.showMessage(
+                            f"Power Bank test aborted: {num_readings} readings saved to {saved_path}"
+                        )
+                else:
+                    self.statusbar.showMessage(
+                        f"Power Bank test aborted: {num_readings} readings - click Save to export"
+                    )
+                self.status_panel.log_switch.setChecked(False)
+                self._toggle_logging(False)
+            return
+
+        # Auto-connect if DL24 device detected and not connected
+        if not self.device or not self.device.is_connected:
+            if not self._try_auto_connect():
+                return
+
+        # Clear data and previous session before starting new test
+        self._clear_data()
+        self._last_completed_session = None
+
+        # Clear device counters (mAh, Wh, time)
+        self.device.reset_counters()
+
+        # Set CC mode and current
+        self.control_panel.mode_btn_group.button(0).setChecked(True)  # CC button
+        self.control_panel.current_spin.setValue(value)
+        self.device.set_current(value)
+
+        # Set voltage cutoff
+        self.device.set_voltage_cutoff(voltage_cutoff)
+        self.control_panel.cutoff_spin.setValue(voltage_cutoff)
+
+        # Start logging (also turns on load)
+        if not self._logging_enabled:
+            self.status_panel.log_switch.setChecked(True)
+            self._toggle_logging(True)
+
+        # Configure plot for time vs voltage
+        self.plot_panel.x_axis_combo.setCurrentText("Time")
+        self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
+        self.plot_panel._axis_checkboxes["Y"].setChecked(True)
+
+        output_voltage = self.power_bank_panel.output_voltage_combo.currentText().split()[0]
+        self.statusbar.showMessage(f"Power Bank test started: {output_voltage} @ {value}A")
+
+    @Slot(str)
+    def _on_power_bank_save(self, filename: str) -> None:
+        """Handle manual save request from power bank panel.
+
+        Args:
+            filename: The filename to save as
+        """
+        if not self._accumulated_readings:
+            self.statusbar.showMessage("No data to save")
+            return
+
+        saved_path = self._save_power_bank_json(filename)
+        if saved_path:
+            self.statusbar.showMessage(f"Saved: {saved_path}")
+            self.history_panel.refresh()
+
+    def _save_power_bank_json(self, filename: Optional[str] = None) -> Optional[str]:
+        """Save power bank test data to JSON file.
+
+        Args:
+            filename: Optional filename to use. If None, uses the filename from power bank panel.
+
+        Returns:
+            Path to saved file, or None if save failed
+        """
+        # Get test configuration and power bank info from power bank panel
+        test_config = self.power_bank_panel.get_test_config()
+        power_bank_info = self.power_bank_panel.get_power_bank_info()
+
+        # Use provided filename or get from power bank panel
+        if filename is None:
+            filename = self.power_bank_panel.filename_edit.text().strip()
+            if not filename:
+                filename = self.power_bank_panel.generate_test_filename()
+
+        result = self._write_test_json(filename, test_config, power_bank_info,
+                                       list(self._accumulated_readings),
+                                       test_panel_type="power_bank")
         if result is None:
             self.statusbar.showMessage("Failed to save test data")
         return result
@@ -1362,26 +1962,41 @@ class MainWindow(QMainWindow):
         """Internal method to update UI with device status."""
         # Log data first (before UI update) if enabled
         if self._logging_enabled and self._current_session:
-            reading = Reading(
-                timestamp=datetime.now(),
-                voltage=status.voltage,
-                current=status.current,
-                power=status.power,
-                energy_wh=status.energy_wh,
-                capacity_mah=status.capacity_mah,
-                temperature_c=status.temperature_c,
-                ext_temperature_c=status.ext_temperature_c,
-                runtime_seconds=status.runtime_seconds,
-            )
-            # Queue reading for background database writer (non-blocking)
-            try:
-                self._db_queue.put_nowait((self._current_session.id, reading))
-            except:
-                pass  # Drop if queue full (very unlikely with 10k capacity)
+            # Check if enough time has elapsed since last log
+            import time
+            current_time = time.time()
+            should_log = False
 
-            # Don't append to _current_session.readings - it's an unbounded list that causes GUI hang
-            # All data is preserved in database and _accumulated_readings (bounded deque)
-            self._accumulated_readings.append(reading)
+            if self._last_log_time is None:
+                # First reading - always log
+                should_log = True
+            elif (current_time - self._last_log_time) >= self._sample_interval:
+                # Enough time has elapsed
+                should_log = True
+
+            if should_log:
+                self._last_log_time = current_time
+
+                reading = Reading(
+                    timestamp=datetime.now(),
+                    voltage=status.voltage,
+                    current=status.current,
+                    power=status.power,
+                    energy_wh=status.energy_wh,
+                    capacity_mah=status.capacity_mah,
+                    temperature_c=status.temperature_c,
+                    ext_temperature_c=status.ext_temperature_c,
+                    runtime_seconds=status.runtime_seconds,
+                )
+                # Queue reading for background database writer (non-blocking)
+                try:
+                    self._db_queue.put_nowait((self._current_session.id, reading))
+                except:
+                    pass  # Drop if queue full (very unlikely with 10k capacity)
+
+                # Don't append to _current_session.readings - it's an unbounded list that causes GUI hang
+                # All data is preserved in database and _accumulated_readings (bounded deque)
+                self._accumulated_readings.append(reading)
 
         # Check alerts
         self.notifier.check(status)
@@ -1389,7 +2004,8 @@ class MainWindow(QMainWindow):
         # Update test progress bar in automation panel
         if self._logging_enabled:
             elapsed = self.plot_panel.get_elapsed_time()
-            self.automation_panel.update_test_progress(elapsed, status.capacity_mah)
+            self.automation_panel.update_test_progress(elapsed, status.capacity_mah,
+                                                      status.voltage, status.energy_wh)
 
         # Pulse communication indicator to show data received
         self.control_panel.pulse_comm_indicator()
@@ -1475,6 +2091,10 @@ class MainWindow(QMainWindow):
         self.control_panel.set_connected(connected)
         self.status_panel.set_connected(connected)
         self.automation_panel.set_connected(connected)
+        self.battery_load_panel.set_connected(connected)
+        self.charger_panel.set_connected(connected)
+        self.battery_charger_panel.set_connected(connected)
+        self.power_bank_panel.set_connected(connected)
 
         # Update menu actions
         self.connect_action.setEnabled(not connected)
@@ -1609,6 +2229,10 @@ class MainWindow(QMainWindow):
                 self._debug_queue.put_nowait(log_line)
             except:
                 pass  # Drop message if queue is full
+
+        # Only update debug window if it's visible (prevents 21,600+ GUI ops/hour when hidden)
+        if not self.debug_window.isVisible():
+            return
 
         if event_type in ("SEND", "RECV"):
             self.debug_window.log(message, event_type)

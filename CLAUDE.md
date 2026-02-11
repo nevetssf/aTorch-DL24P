@@ -145,6 +145,43 @@ Pattern used:
 1. Device callback emits a signal: `self.status_updated.emit(status)`
 2. Main thread slot handles UI updates: `@Slot(DeviceStatus) def _update_ui_status()`
 
+## Lock Timeout for GUI Operations
+
+**Problem**: When screen turns off or system enters power management, macOS suspends/throttles USB devices. This causes USB I/O to become slow (1-3+ seconds instead of 500ms), and the poll thread holds the device lock during this slow I/O. Any GUI operation that needs the device (turn on/off, change settings) blocks waiting for the lock, making the GUI sluggish.
+
+**Solution**: All device methods called from GUI use a 1-second lock timeout:
+```python
+GUI_LOCK_TIMEOUT = 1.0  # seconds
+
+def turn_on(self) -> bool:
+    return self._send_command(..., lock_timeout=self.GUI_LOCK_TIMEOUT)
+```
+
+**Benefits**:
+- GUI operations fail gracefully after 1 second instead of blocking indefinitely
+- User gets immediate feedback (button press doesn't hang)
+- Command-response atomicity maintained (lock still held during USB I/O)
+- Poll thread unaffected (uses no timeout, blocks as needed)
+
+**Tradeoff**: GUI operations might fail if device is busy, but this is preferable to a frozen UI.
+
+## Debug Window Optimization
+
+**Problem**: Debug window was updated on every device poll (6 messages/second = 21,600/hour) even when hidden, causing GUI sluggishness over time. Each update performs HTML formatting, DOM updates, line counting, and scrolling on the main thread.
+
+**Solution**: Only update debug window when visible:
+```python
+def _on_debug_message(self, event_type: str, message: str, data: bytes) -> None:
+    # ... file logging ...
+
+    if not self.debug_window.isVisible():
+        return  # Skip GUI updates when hidden
+
+    self.debug_window.log(message, event_type)
+```
+
+**Impact**: Eliminates 21,600+ GUI operations per hour when debug window is closed, significantly improving long-term responsiveness.
+
 ## User Data Locations
 
 All user data stored in `~/.atorch/`:

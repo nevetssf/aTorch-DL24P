@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLineEdit,
     QCheckBox,
+    QComboBox,
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QFont
@@ -46,7 +47,7 @@ class StatusPanel(QWidget):
 
     # Signals for logging controls
     logging_toggled = Signal(bool)
-    show_points_toggled = Signal(bool)
+    sample_time_changed = Signal(int)  # Sample time in seconds
     clear_requested = Signal()
     save_requested = Signal(str)  # Passes battery name
 
@@ -71,7 +72,7 @@ class StatusPanel(QWidget):
         row = 0
 
         # Voltage
-        self.voltage_row_label = QLabel("Voltage:")
+        self.voltage_row_label = QLabel("Voltage")
         readings_layout.addWidget(self.voltage_row_label, row, 0)
         self.voltage_label = StatusLabel()
         self.voltage_label.setStyleSheet("color: #FFC107;")  # Amber
@@ -81,7 +82,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # Current
-        self.current_row_label = QLabel("Current:")
+        self.current_row_label = QLabel("Current")
         readings_layout.addWidget(self.current_row_label, row, 0)
         self.current_label = StatusLabel()
         self.current_label.setStyleSheet("color: #29B6F6;")  # Light blue
@@ -91,7 +92,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # Power
-        self.power_row_label = QLabel("Power:")
+        self.power_row_label = QLabel("Power")
         readings_layout.addWidget(self.power_row_label, row, 0)
         self.power_label = StatusLabel()
         self.power_label.setStyleSheet("color: #EF5350;")  # Red
@@ -108,7 +109,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # Resistance
-        self.resistance_row_label = QLabel("Resistance:")
+        self.resistance_row_label = QLabel("R Load")
         readings_layout.addWidget(self.resistance_row_label, row, 0)
         self.resistance_label = StatusLabel()
         self.resistance_label.setStyleSheet("color: #66BB6A;")  # Green
@@ -118,7 +119,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # Battery Resistance
-        self.battery_resistance_row_label = QLabel("Battery R:")
+        self.battery_resistance_row_label = QLabel("R Battery")
         readings_layout.addWidget(self.battery_resistance_row_label, row, 0)
         self.battery_resistance_label = StatusLabel()
         self.battery_resistance_label.setStyleSheet("color: #5C6BC0;")  # Indigo
@@ -135,7 +136,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # Capacity
-        self.capacity_row_label = QLabel("Capacity:")
+        self.capacity_row_label = QLabel("Capacity")
         readings_layout.addWidget(self.capacity_row_label, row, 0)
         self.capacity_label = StatusLabel()
         self.capacity_label.setStyleSheet("color: #AB47BC;")  # Purple
@@ -145,7 +146,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # Energy
-        self.energy_row_label = QLabel("Energy:")
+        self.energy_row_label = QLabel("Energy")
         readings_layout.addWidget(self.energy_row_label, row, 0)
         self.energy_label = StatusLabel()
         self.energy_label.setStyleSheet("color: #FF7043;")  # Deep orange
@@ -169,7 +170,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # MOSFET Temperature
-        self.temp_row_label = QLabel("MOSFET:")
+        self.temp_row_label = QLabel("Temp MOSFET")
         readings_layout.addWidget(self.temp_row_label, row, 0)
         self.temp_label = StatusLabel()
         self.temp_label.setStyleSheet("color: #26A69A;")  # Teal
@@ -179,7 +180,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # External Temperature
-        self.ext_temp_row_label = QLabel("External:")
+        self.ext_temp_row_label = QLabel("Temp External")
         readings_layout.addWidget(self.ext_temp_row_label, row, 0)
         self.ext_temp_label = StatusLabel()
         self.ext_temp_label.setStyleSheet("color: #9CCC65;")  # Light green
@@ -189,7 +190,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # Fan Speed
-        self.fan_row_label = QLabel("Fan:")
+        self.fan_row_label = QLabel("Fan")
         readings_layout.addWidget(self.fan_row_label, row, 0)
         self.fan_label = StatusLabel()
         readings_layout.addWidget(self.fan_label, row, 1)
@@ -205,7 +206,7 @@ class StatusPanel(QWidget):
         row += 1
 
         # Status (ON/OFF)
-        self.status_row_label = QLabel("Status:")
+        self.status_row_label = QLabel("Status")
         readings_layout.addWidget(self.status_row_label, row, 0)
         self.load_status_label = QLabel("OFF")
         self.load_status_label.setAlignment(Qt.AlignRight)
@@ -247,18 +248,20 @@ class StatusPanel(QWidget):
         self.log_label_on = QLabel("ON")
         logging_layout.addWidget(self.log_label_on)
 
-        self.show_points_checkbox = QCheckBox("Points")
-        self.show_points_checkbox.setChecked(False)
-        self.show_points_checkbox.setToolTip("Show point markers on plot")
-        self.show_points_checkbox.setEnabled(False)
-        self.show_points_checkbox.toggled.connect(self._on_show_points_toggled)
-        logging_layout.addWidget(self.show_points_checkbox)
+        # Sample time selector
+        logging_layout.addWidget(QLabel("Sample"))
+        self.sample_time_combo = QComboBox()
+        self.sample_time_combo.addItems(["1s", "2s", "5s", "10s"])
+        self.sample_time_combo.setCurrentText("1s")
+        self.sample_time_combo.setEnabled(False)
+        self.sample_time_combo.currentTextChanged.connect(self._on_sample_time_changed)
+        logging_layout.addWidget(self.sample_time_combo)
 
         log_layout.addLayout(logging_layout)
 
         # Filename prefix input
         name_layout = QHBoxLayout()
-        self.battery_label = QLabel("Prefix:")
+        self.battery_label = QLabel("Prefix")
         name_layout.addWidget(self.battery_label)
         self.battery_name_edit = QLineEdit()
         self.battery_name_edit.setText("battery")
@@ -341,13 +344,11 @@ class StatusPanel(QWidget):
         self.log_switch.setEnabled(connected)
         self.log_label_off.setEnabled(connected)
         self.log_label_on.setEnabled(connected)
+        self.sample_time_combo.setEnabled(connected)
 
         # Battery name
         self.battery_label.setEnabled(connected)
         self.battery_name_edit.setEnabled(connected)
-
-        # Show points checkbox
-        self.show_points_checkbox.setEnabled(connected)
 
         # Buttons
         self.clear_btn.setEnabled(connected)
@@ -356,7 +357,6 @@ class StatusPanel(QWidget):
         self.clear_log_btn.setEnabled(connected and not self.log_switch.isChecked())
 
         # Logged time and points
-        self.logged_time_label.setEnabled(connected)
         self.logging_time_label.setEnabled(connected)
         self.points_label.setEnabled(connected)
 
@@ -382,15 +382,17 @@ class StatusPanel(QWidget):
         self.clear_log_btn.setEnabled(not checked)
         self.logging_toggled.emit(checked)
 
+    @Slot(str)
+    def _on_sample_time_changed(self, text: str) -> None:
+        """Handle sample time selection change."""
+        # Parse text like "1s", "2s", etc. to get seconds
+        seconds = int(text.rstrip('s'))
+        self.sample_time_changed.emit(seconds)
+
     @Slot()
     def _on_clear_clicked(self) -> None:
         """Handle clear button click."""
         self.clear_requested.emit()
-
-    @Slot(bool)
-    def _on_show_points_toggled(self, checked: bool) -> None:
-        """Handle show points checkbox toggle."""
-        self.show_points_toggled.emit(checked)
 
     def set_points_count(self, count: int) -> None:
         """Set the logged points count display."""

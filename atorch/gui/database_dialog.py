@@ -43,7 +43,7 @@ class DatabaseDialog(QDialog):
         stats_layout = QGridLayout()
 
         # Location
-        stats_layout.addWidget(QLabel("Location:"), 0, 0, Qt.AlignRight)
+        stats_layout.addWidget(QLabel("Location"), 0, 0, Qt.AlignRight)
         self.location_label = QLabel()
         self.location_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.location_label.setWordWrap(True)
@@ -54,27 +54,27 @@ class DatabaseDialog(QDialog):
         stats_layout.addWidget(self.show_folder_btn, 0, 2)
 
         # File size
-        stats_layout.addWidget(QLabel("File Size:"), 1, 0, Qt.AlignRight)
+        stats_layout.addWidget(QLabel("File Size"), 1, 0, Qt.AlignRight)
         self.size_label = QLabel()
         stats_layout.addWidget(self.size_label, 1, 1, 1, 2)
 
         # Created
-        stats_layout.addWidget(QLabel("Created:"), 2, 0, Qt.AlignRight)
+        stats_layout.addWidget(QLabel("Created"), 2, 0, Qt.AlignRight)
         self.created_label = QLabel()
         stats_layout.addWidget(self.created_label, 2, 1, 1, 2)
 
         # Last modified
-        stats_layout.addWidget(QLabel("Last Modified:"), 3, 0, Qt.AlignRight)
+        stats_layout.addWidget(QLabel("Last Modified"), 3, 0, Qt.AlignRight)
         self.modified_label = QLabel()
         stats_layout.addWidget(self.modified_label, 3, 1, 1, 2)
 
         # Number of sessions
-        stats_layout.addWidget(QLabel("Sessions:"), 4, 0, Qt.AlignRight)
+        stats_layout.addWidget(QLabel("Sessions"), 4, 0, Qt.AlignRight)
         self.sessions_label = QLabel()
         stats_layout.addWidget(self.sessions_label, 4, 1, 1, 2)
 
         # Number of readings
-        stats_layout.addWidget(QLabel("Total Readings:"), 5, 0, Qt.AlignRight)
+        stats_layout.addWidget(QLabel("Total Readings"), 5, 0, Qt.AlignRight)
         self.readings_label = QLabel()
         stats_layout.addWidget(self.readings_label, 5, 1, 1, 2)
 

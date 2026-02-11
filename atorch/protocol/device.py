@@ -590,6 +590,9 @@ class USBHIDDevice:
     # Polling interval (device doesn't push data, we must poll)
     POLL_INTERVAL = 1.0  # seconds (1 Hz to match serial device rate)
 
+    # Lock timeout for GUI operations (prevent GUI freezing when USB is slow)
+    GUI_LOCK_TIMEOUT = 1.0  # seconds
+
     def __init__(self):
         self._device = None
         self._running = False
@@ -752,52 +755,86 @@ class USBHIDDevice:
 
         return bytes(packet)
 
-    def _send_command(self, cmd_type: int, sub_cmd: int, data: bytes = b'') -> bool:
-        """Send a command (no response expected)."""
+    def _send_command(self, cmd_type: int, sub_cmd: int, data: bytes = b'', lock_timeout: Optional[float] = None) -> bool:
+        """Send a command (no response expected).
+
+        Args:
+            cmd_type: Command type byte
+            sub_cmd: Sub-command byte
+            data: Optional data payload
+            lock_timeout: Timeout in seconds for acquiring lock (None = block indefinitely)
+
+        Returns:
+            True if command sent successfully, False otherwise
+        """
         if not self.is_connected:
             return False
 
-        with self._lock:
-            try:
-                cmd = self._build_command(cmd_type, sub_cmd, data)
-                self._debug("SEND", f"Cmd {cmd_type:02x}/{sub_cmd:02x} bytes={cmd[:10].hex()}", cmd[:16])
-                self._device.write(b'\x00' + cmd)
-                return True
-            except Exception as e:
-                self._debug("ERROR", f"Send error: {e}")
-                return False
+        # Try to acquire lock with timeout
+        acquired = self._lock.acquire(blocking=True, timeout=lock_timeout if lock_timeout else -1)
+        if not acquired:
+            self._debug("WARN", f"Lock timeout acquiring lock for cmd {cmd_type:02x}/{sub_cmd:02x}")
+            return False
 
-    def _send_and_receive(self, cmd_type: int, sub_cmd: int, data: bytes = b'') -> Optional[bytes]:
-        """Send command and wait for response."""
+        try:
+            cmd = self._build_command(cmd_type, sub_cmd, data)
+            self._debug("SEND", f"Cmd {cmd_type:02x}/{sub_cmd:02x} bytes={cmd[:10].hex()}", cmd[:16])
+            self._device.write(b'\x00' + cmd)
+            return True
+        except Exception as e:
+            self._debug("ERROR", f"Send error: {e}")
+            return False
+        finally:
+            self._lock.release()
+
+    def _send_and_receive(self, cmd_type: int, sub_cmd: int, data: bytes = b'', lock_timeout: Optional[float] = None) -> Optional[bytes]:
+        """Send command and wait for response.
+
+        Args:
+            cmd_type: Command type byte
+            sub_cmd: Sub-command byte
+            data: Optional data payload
+            lock_timeout: Timeout in seconds for acquiring lock (None = block indefinitely)
+
+        Returns:
+            Response bytes if successful, None otherwise
+        """
         if not self.is_connected:
             return None
 
-        with self._lock:
-            try:
-                cmd = self._build_command(cmd_type, sub_cmd, data)
-                self._debug("SEND", f"Cmd {cmd_type:02x}/{sub_cmd:02x}", cmd[:16])
+        # Try to acquire lock with timeout
+        acquired = self._lock.acquire(blocking=True, timeout=lock_timeout if lock_timeout else -1)
+        if not acquired:
+            self._debug("WARN", f"Lock timeout acquiring lock for cmd {cmd_type:02x}/{sub_cmd:02x}")
+            return None
 
-                # Send with report ID 0
-                self._device.write(b'\x00' + cmd)
+        try:
+            cmd = self._build_command(cmd_type, sub_cmd, data)
+            self._debug("SEND", f"Cmd {cmd_type:02x}/{sub_cmd:02x}", cmd[:16])
 
-                # Read response (short timeout)
-                time.sleep(0.05)  # Small delay before reading
-                response = self._device.read(64, timeout_ms=500)
-                if response:
-                    response = bytes(response)
-                    self._debug("RECV", f"Raw response ({len(response)} bytes): {response[:16].hex()}")
-                    if response[0] == self.RESP_HEADER and response[1] == self.PROTO_VERSION:
-                        self._debug("RECV", f"Resp {response[2]:02x}/{response[3]:02x}", response[:16])
-                        return response
-                    else:
-                        self._debug("WARN", f"Unexpected header: {response[:8].hex()}")
+            # Send with report ID 0
+            self._device.write(b'\x00' + cmd)
+
+            # Read response (short timeout)
+            time.sleep(0.05)  # Small delay before reading
+            response = self._device.read(64, timeout_ms=500)
+            if response:
+                response = bytes(response)
+                self._debug("RECV", f"Raw response ({len(response)} bytes): {response[:16].hex()}")
+                if response[0] == self.RESP_HEADER and response[1] == self.PROTO_VERSION:
+                    self._debug("RECV", f"Resp {response[2]:02x}/{response[3]:02x}", response[:16])
+                    return response
                 else:
-                    self._debug("WARN", "No response received")
-                return None
+                    self._debug("WARN", f"Unexpected header: {response[:8].hex()}")
+            else:
+                self._debug("WARN", "No response received")
+            return None
 
-            except Exception as e:
-                self._debug("ERROR", f"Communication error: {e}")
-                return None
+        except Exception as e:
+            self._debug("ERROR", f"Communication error: {e}")
+            return None
+        finally:
+            self._lock.release()
 
     def _parse_live_data(self, payload: bytes, counters: Optional[dict] = None) -> DeviceStatus:
         """Parse live data response (sub-cmd 0x03) into DeviceStatus."""
@@ -1083,16 +1120,19 @@ class USBHIDDevice:
 
     def turn_on(self) -> bool:
         """Turn the load on."""
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_POWER, b'\x01\x00\x00\x00')
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_POWER, b'\x01\x00\x00\x00',
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def turn_off(self) -> bool:
         """Turn the load off."""
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_POWER, b'\x00\x00\x00\x00')
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_POWER, b'\x00\x00\x00\x00',
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def set_current(self, current_a: float) -> bool:
         """Set the load current in CC mode."""
         data = struct.pack('>f', current_a)
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data)
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data,
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def set_power(self, power_w: float) -> bool:
         """Set the load power in CP mode.
@@ -1103,7 +1143,8 @@ class USBHIDDevice:
         # Use same sub-command as current (0x21) - device uses current mode to interpret value
         data = struct.pack('>f', power_w)
         self._debug("INFO", f"Setting power to {power_w}W")
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data)
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data,
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def set_voltage(self, voltage_v: float) -> bool:
         """Set the load voltage in CV mode.
@@ -1114,7 +1155,8 @@ class USBHIDDevice:
         # Use same sub-command as current (0x21) - device uses current mode to interpret value
         data = struct.pack('>f', voltage_v)
         self._debug("INFO", f"Setting voltage to {voltage_v}V")
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data)
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data,
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def set_resistance(self, resistance_ohm: float) -> bool:
         """Set the load resistance in CR mode.
@@ -1125,7 +1167,8 @@ class USBHIDDevice:
         # Use same sub-command as current (0x21) - device uses current mode to interpret value
         data = struct.pack('>f', resistance_ohm)
         self._debug("INFO", f"Setting resistance to {resistance_ohm}Ω")
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data)
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, data,
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def set_mode(self, mode: int, value: float = None) -> bool:
         """Set the load mode and optionally set the value for that mode.
@@ -1159,13 +1202,15 @@ class USBHIDDevice:
 
         # Send mode select command
         data = bytes([0x00, 0x00, 0x00, 0x00])
-        result = self._send_command(self.CMD_TYPE_SET, subcmd, data)
+        result = self._send_command(self.CMD_TYPE_SET, subcmd, data,
+                                    lock_timeout=self.GUI_LOCK_TIMEOUT)
 
         # If value provided, set it for this mode
         if result and value is not None:
             self._debug("INFO", f"Setting {mode_name} value to {value}")
             value_data = struct.pack('>f', value)
-            result = self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, value_data)
+            result = self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_CURRENT, value_data,
+                                       lock_timeout=self.GUI_LOCK_TIMEOUT)
 
         return result
 
@@ -1179,7 +1224,8 @@ class USBHIDDevice:
         # Data format: big-endian IEEE 754 float
         data = struct.pack('>f', voltage)
         self._debug("INFO", f"Setting voltage cutoff to {voltage}V")
-        return self._send_command(self.CMD_TYPE_SET, 0x29, data)
+        return self._send_command(self.CMD_TYPE_SET, 0x29, data,
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def set_brightness(self, level: int) -> bool:
         """Set screen brightness level.
@@ -1244,7 +1290,8 @@ class USBHIDDevice:
             # First send hours mode with 0 to clear hours
             data_hours = bytes([0x00, 0x00, 0x00, 0x01])
             self._debug("INFO", "Clearing hours (0h in hours mode) - sending data: " + data_hours.hex())
-            self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_DISCHARGE_TIME, data_hours)
+            self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_DISCHARGE_TIME, data_hours,
+                             lock_timeout=self.GUI_LOCK_TIMEOUT)
             import time
             time.sleep(0.1)  # Small delay between commands
             # Then send minutes mode with 0 to clear minutes
@@ -1263,12 +1310,14 @@ class USBHIDDevice:
                 msg = f"Setting discharge time to {hours}h (hours mode)"
 
         self._debug("INFO", f"{msg} - sending data: {data.hex()}")
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_DISCHARGE_TIME, data)
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_SET_DISCHARGE_TIME, data,
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def reset_counters(self) -> bool:
         """Clear accumulated data (mAh, Wh, time counters)."""
         self._debug("INFO", "Sending clear data command")
-        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_CLEAR_DATA, b'\x00\x00\x00\x00')
+        return self._send_command(self.CMD_TYPE_SET, self.SUB_CMD_CLEAR_DATA, b'\x00\x00\x00\x00',
+                                 lock_timeout=self.GUI_LOCK_TIMEOUT)
 
     def restore_defaults(self) -> bool:
         """Restore device to factory default settings."""

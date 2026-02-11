@@ -1,0 +1,86 @@
+{
+  "Li-Ion 1S Full Range": {
+    "chemistry": "Li-Ion (1S)",
+    "min_voltage": 2.5,
+    "max_voltage": 4.2,
+    "num_steps": 17,
+    "dwell_time": 10
+  },
+  "Li-Ion 1S Quick": {
+    "chemistry": "Li-Ion (1S)",
+    "min_voltage": 3.0,
+    "max_voltage": 4.2,
+    "num_steps": 12,
+    "dwell_time": 5
+  },
+  "Li-Ion 2S Full Range": {
+    "chemistry": "Li-Ion (2S)",
+    "min_voltage": 5.0,
+    "max_voltage": 8.4,
+    "num_steps": 17,
+    "dwell_time": 10
+  },
+  "Li-Ion 2S Quick": {
+    "chemistry": "Li-Ion (2S)",
+    "min_voltage": 6.0,
+    "max_voltage": 8.4,
+    "num_steps": 12,
+    "dwell_time": 5
+  },
+  "Li-Ion 3S Full Range": {
+    "chemistry": "Li-Ion (3S)",
+    "min_voltage": 7.5,
+    "max_voltage": 12.6,
+    "num_steps": 17,
+    "dwell_time": 10
+  },
+  "NiMH Single Cell": {
+    "chemistry": "NiMH",
+    "min_voltage": 0.9,
+    "max_voltage": 1.5,
+    "num_steps": 12,
+    "dwell_time": 8
+  },
+  "NiMH 4-Cell Pack": {
+    "chemistry": "NiMH",
+    "min_voltage": 3.6,
+    "max_voltage": 6.0,
+    "num_steps": 12,
+    "dwell_time": 8
+  },
+  "LiFePO4 1S": {
+    "chemistry": "LiFePO4",
+    "min_voltage": 2.5,
+    "max_voltage": 3.65,
+    "num_steps": 11,
+    "dwell_time": 10
+  },
+  "LiFePO4 4S": {
+    "chemistry": "LiFePO4",
+    "min_voltage": 10.0,
+    "max_voltage": 14.6,
+    "num_steps": 11,
+    "dwell_time": 10
+  },
+  "Lead Acid 12V": {
+    "chemistry": "Lead Acid",
+    "min_voltage": 10.5,
+    "max_voltage": 14.4,
+    "num_steps": 13,
+    "dwell_time": 15
+  },
+  "CC-CV Transition Test": {
+    "chemistry": "Li-Ion (1S)",
+    "min_voltage": 3.8,
+    "max_voltage": 4.3,
+    "num_steps": 10,
+    "dwell_time": 15
+  },
+  "High Resolution 1S": {
+    "chemistry": "Li-Ion (1S)",
+    "min_voltage": 2.5,
+    "max_voltage": 4.2,
+    "num_steps": 34,
+    "dwell_time": 5
+  }
+}

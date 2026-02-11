@@ -26,7 +26,7 @@ class BatteryInfoWidget(QGroupBox):
 
         # Presets row
         presets_layout = QHBoxLayout()
-        presets_layout.addWidget(QLabel("Presets:"))
+        presets_layout.addWidget(QLabel("Presets"))
         self.presets_combo = QComboBox()
         self.presets_combo.setSizePolicy(
             self.presets_combo.sizePolicy().horizontalPolicy(),
@@ -51,15 +51,15 @@ class BatteryInfoWidget(QGroupBox):
 
         self.battery_name_edit = QLineEdit()
         self.battery_name_edit.setPlaceholderText("e.g., INR18650-30Q")
-        info_layout.addRow("Name:", self.battery_name_edit)
+        info_layout.addRow("Name", self.battery_name_edit)
 
         self.manufacturer_edit = QLineEdit()
         self.manufacturer_edit.setPlaceholderText("e.g., Samsung, LG, Panasonic")
-        info_layout.addRow("Manufacturer:", self.manufacturer_edit)
+        info_layout.addRow("Manufacturer", self.manufacturer_edit)
 
         self.oem_equiv_edit = QLineEdit()
         self.oem_equiv_edit.setPlaceholderText("e.g., 30Q, VTC6")
-        info_layout.addRow("OEM Equivalent:", self.oem_equiv_edit)
+        info_layout.addRow("OEM Equivalent", self.oem_equiv_edit)
 
         voltage_tech_layout = QHBoxLayout()
         self.rated_voltage_spin = QDoubleSpinBox()
@@ -73,7 +73,7 @@ class BatteryInfoWidget(QGroupBox):
         self.technology_combo.addItems(["Li-Ion", "LiPo", "NiMH", "NiCd", "LiFePO4", "Lead Acid"])
         self.technology_combo.setToolTip("Battery chemistry/technology")
         voltage_tech_layout.addWidget(self.technology_combo)
-        info_layout.addRow("Rated Voltage:", voltage_tech_layout)
+        info_layout.addRow("Rated Voltage", voltage_tech_layout)
 
         capacity_layout = QHBoxLayout()
         self.nominal_capacity_spin = QSpinBox()
@@ -88,7 +88,7 @@ class BatteryInfoWidget(QGroupBox):
         self.nominal_energy_spin.setValue(11.1)
         self.nominal_energy_spin.setSuffix(" Wh")
         capacity_layout.addWidget(self.nominal_energy_spin)
-        info_layout.addRow("Nominal Capacity:", capacity_layout)
+        info_layout.addRow("Capacity (Nom)", capacity_layout)
 
         info_main_layout.addWidget(specs_group)
 
@@ -99,12 +99,12 @@ class BatteryInfoWidget(QGroupBox):
 
         self.serial_number_edit = QLineEdit()
         self.serial_number_edit.setPlaceholderText("e.g., SN123456")
-        instance_layout.addRow("Serial Number:", self.serial_number_edit)
+        instance_layout.addRow("Serial Number", self.serial_number_edit)
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setMaximumHeight(50)
         self.notes_edit.setPlaceholderText("Test notes...")
-        instance_layout.addRow("Notes:", self.notes_edit)
+        instance_layout.addRow("Notes", self.notes_edit)
 
         info_main_layout.addWidget(instance_group)
 
