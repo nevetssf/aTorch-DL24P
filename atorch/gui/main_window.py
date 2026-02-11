@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("aTorch DL24P Control")
+        self.setWindowTitle("DL24/P Test Bench")
         self.setMinimumSize(1200, 800)
 
         # Clear debug log file on startup
