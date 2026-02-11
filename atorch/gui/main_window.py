@@ -18,6 +18,9 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QTabWidget,
     QLabel,
+    QDialog,
+    QTextBrowser,
+    QPushButton,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QThread
 from PySide6.QtGui import QAction, QCloseEvent
@@ -48,7 +51,7 @@ from .battery_load_panel import BatteryLoadPanel
 from .power_bank_panel import PowerBankPanel
 from .charger_panel import ChargerPanel
 from .battery_charger_panel import BatteryChargerPanel
-from .placeholder_panel import CableResistancePanel
+from .cable_resistance_panel import CableResistancePanel
 
 
 class MainWindow(QMainWindow):
@@ -262,6 +265,13 @@ class MainWindow(QMainWindow):
         self.battery_charger_panel.session_loaded.connect(self._on_session_loaded)
         self.battery_charger_panel.export_csv_requested.connect(self._on_export_csv)
 
+        # Connect cable resistance panel signals
+        self.cable_resistance_panel.test_started.connect(self._on_cable_resistance_start)
+        self.cable_resistance_panel.test_stopped.connect(self._on_cable_resistance_stop)
+        self.cable_resistance_panel.manual_save_requested.connect(self._on_cable_resistance_save)
+        self.cable_resistance_panel.session_loaded.connect(self._on_session_loaded)
+        self.cable_resistance_panel.export_csv_requested.connect(self._on_export_csv)
+
         # Connect power bank panel signals
         self.power_bank_panel.start_test_requested.connect(self._on_power_bank_start)
         self.power_bank_panel.apply_settings_requested.connect(self._on_apply_settings)
@@ -363,6 +373,12 @@ class MainWindow(QMainWindow):
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
+        help_action = QAction("&Test Bench Help", self)
+        help_action.triggered.connect(self._show_help)
+        help_menu.addAction(help_action)
+
+        help_menu.addSeparator()
+
         about_action = QAction("&About", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
@@ -420,6 +436,7 @@ class MainWindow(QMainWindow):
             self.battery_load_panel.set_device_and_plot(self.device, self.plot_panel)
             self.charger_panel.set_device_and_plot(self.device, self.plot_panel)
             self.battery_charger_panel.set_device_and_plot(self.device, self.plot_panel)
+            self.cable_resistance_panel.set_device_and_plot(self.device, self.plot_panel)
 
             self.connection_changed.emit(True)
             conn_type_str = "USB HID" if connection_type == ConnectionType.USB_HID else "Serial"
@@ -448,6 +465,7 @@ class MainWindow(QMainWindow):
         self.battery_load_panel.set_device_and_plot(None, None)
         self.charger_panel.set_device_and_plot(None, None)
         self.battery_charger_panel.set_device_and_plot(None, None)
+        self.cable_resistance_panel.set_device_and_plot(None, None)
 
         # Disconnect
         if self.device:
@@ -808,11 +826,492 @@ class MainWindow(QMainWindow):
         """Show about dialog."""
         QMessageBox.about(
             self,
-            "About aTorch DL24P Control",
-            "aTorch DL24P Control & Logging Application\n\n"
-            "Version 0.1.0\n\n"
-            "Control your aTorch DL24P electronic load and log battery discharge data.",
+            "About DL24/P Test Bench",
+            "<h2>DL24/P Test Bench</h2>"
+            "<p><b>Version 1.0.0</b></p>"
+            "<p>Comprehensive test automation suite for the aTorch DL24P electronic load.</p>"
+            "<p>Features:</p>"
+            "<ul>"
+            "<li>Battery Capacity Testing</li>"
+            "<li>Battery Load Characterization</li>"
+            "<li>Battery Charger Testing (CC-CV analysis)</li>"
+            "<li>Cable Resistance Testing</li>"
+            "<li>Wall Charger Testing</li>"
+            "<li>Power Bank Testing</li>"
+            "<li>Real-time plotting and data logging</li>"
+            "<li>Preset management and session persistence</li>"
+            "<li>JSON and CSV export</li>"
+            "<li>SQLite database storage</li>"
+            "</ul>"
+            "<p>© 2026 • Built with PySide6 and pyqtgraph</p>"
+            "<p>For help and documentation, see Help → Test Bench Help</p>",
         )
+
+    @Slot()
+    def _show_help(self) -> None:
+        """Show comprehensive help documentation."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("DL24/P Test Bench Help")
+        dialog.resize(900, 700)
+
+        layout = QVBoxLayout(dialog)
+
+        # Create text browser for scrollable HTML content
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setHtml(self._get_help_html())
+        layout.addWidget(browser)
+
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+
+        dialog.exec()
+
+    def _get_help_html(self) -> str:
+        """Get comprehensive help documentation as HTML.
+
+        Returns:
+            HTML string with full documentation
+        """
+        return """
+        <html>
+        <head>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; }
+                h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+                h2 { color: #34495e; margin-top: 20px; border-bottom: 1px solid #bdc3c7; padding-bottom: 5px; }
+                h3 { color: #7f8c8d; margin-top: 15px; }
+                code { background-color: #ecf0f1; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
+                .note { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; }
+                .warning { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 10px; margin: 10px 0; }
+                .tip { background-color: #d1ecf1; border-left: 4px solid #17a2b8; padding: 10px; margin: 10px 0; }
+                ul { margin-left: 20px; }
+                li { margin: 5px 0; }
+            </style>
+        </head>
+        <body>
+            <h1>DL24/P Test Bench Documentation</h1>
+
+            <h2>Overview</h2>
+            <p>The DL24/P Test Bench is a comprehensive test automation suite for the aTorch DL24P electronic load.
+            It provides automated testing capabilities for batteries, chargers, cables, and power banks with real-time
+            data logging, visualization, and analysis.</p>
+
+            <h2>Getting Started</h2>
+
+            <h3>1. Connecting to the DL24P</h3>
+            <ul>
+                <li>Connect the aTorch DL24P to your computer via USB</li>
+                <li>Click <b>Device → Connect</b> or use the Connect button in the Control Panel</li>
+                <li>The device will auto-detect and connect via USB HID</li>
+                <li>Connection status is shown in the status bar and Control Panel</li>
+            </ul>
+
+            <h3>2. Basic Controls</h3>
+            <p>The Control Panel provides manual control of the electronic load:</p>
+            <ul>
+                <li><b>Mode Selection:</b> Choose CC (Constant Current), CP (Constant Power), CV (Constant Voltage), or CR (Constant Resistance)</li>
+                <li><b>Value Setting:</b> Set the load value (current, power, voltage, or resistance depending on mode)</li>
+                <li><b>Voltage Cutoff:</b> Set the minimum voltage before load automatically turns off (battery protection)</li>
+                <li><b>Load On/Off:</b> Toggle the load on or off</li>
+            </ul>
+
+            <div class="warning">
+                <b>Warning:</b> Always set an appropriate voltage cutoff when testing batteries to prevent over-discharge damage.
+            </div>
+
+            <h2>Test Automation Panels</h2>
+
+            <h3>Battery Capacity Test</h3>
+            <p>Measures battery capacity (mAh) and energy (Wh) by discharging at constant current until voltage cutoff is reached.</p>
+
+            <p><b>Configuration:</b></p>
+            <ul>
+                <li><b>Discharge Current:</b> Constant current to discharge the battery (e.g., 1.0A)</li>
+                <li><b>Voltage Cutoff:</b> Minimum voltage before test stops (e.g., 3.0V for Li-Ion)</li>
+                <li><b>Time Limit:</b> Optional maximum test duration</li>
+            </ul>
+
+            <p><b>Battery Info:</b> Enter battery details (name, manufacturer, chemistry, rated capacity, etc.) for documentation.</p>
+
+            <p><b>Typical Use:</b> Measure actual capacity of used batteries, verify new battery specifications, compare different battery brands.</p>
+
+            <div class="tip">
+                <b>Tip:</b> Use presets for common battery types (camera batteries, Eneloop NiMH, etc.) to quickly configure tests.
+            </div>
+
+            <h3>Battery Load Test</h3>
+            <p>Characterizes battery voltage vs. load by stepping through different load levels (current, power, or resistance).</p>
+
+            <p><b>Configuration:</b></p>
+            <ul>
+                <li><b>Load Type:</b> Current, Power, or Resistance</li>
+                <li><b>Min/Max Value:</b> Range of load to test (e.g., 0.5A to 3A)</li>
+                <li><b>Number of Steps:</b> How many measurement points (e.g., 10 steps)</li>
+                <li><b>Dwell Time:</b> How long to hold each load level for stable reading (e.g., 10 seconds)</li>
+            </ul>
+
+            <p><b>Results:</b> Voltage vs. load curve showing battery internal resistance and voltage drop characteristics.</p>
+
+            <p><b>Typical Use:</b> Measure battery internal resistance, evaluate high-drain performance, compare battery degradation over time.</p>
+
+            <h3>Battery Charger Test</h3>
+            <p>Tests battery chargers by simulating battery voltage levels using the DL24P in CV (Constant Voltage) mode.
+            The test steps through voltages from discharged to fully charged and measures the charger's current output,
+            revealing the CC-CV (Constant Current - Constant Voltage) charging profile.</p>
+
+            <p><b>Configuration:</b></p>
+            <ul>
+                <li><b>Chemistry:</b> Battery chemistry determines voltage range (Li-Ion 1S/2S/3S, NiMH, LiFePO4, etc.)</li>
+                <li><b>Min/Max Voltage:</b> Voltage range to simulate (e.g., 2.5V to 4.2V for Li-Ion 1S)</li>
+                <li><b>Number of Steps:</b> Voltage resolution (more steps = more detailed curve)</li>
+                <li><b>Dwell Time:</b> Settling time at each voltage (e.g., 10 seconds)</li>
+            </ul>
+
+            <p><b>Setup:</b></p>
+            <ol>
+                <li>Connect charger output to DL24P input</li>
+                <li>Configure test based on battery chemistry</li>
+                <li>Start test - DL24P will simulate battery voltage levels</li>
+                <li>View current vs. voltage plot showing CC-CV transition</li>
+            </ol>
+
+            <p><b>Results:</b> Current vs. voltage curve showing:</p>
+            <ul>
+                <li>Constant Current (CC) phase - charger delivers rated current</li>
+                <li>CC-CV transition point (typically 4.2V for Li-Ion)</li>
+                <li>Constant Voltage (CV) phase - current tapers as "battery" reaches full charge</li>
+            </ul>
+
+            <p><b>Typical Use:</b> Verify charger specifications, compare charging profiles, identify counterfeit chargers.</p>
+
+            <h3>Cable Resistance Test</h3>
+            <p>Measures USB cable resistance by stepping through current levels and measuring voltage drop.
+            Calculates resistance using Ohm's law: R = V_drop / I</p>
+
+            <p><b>Configuration:</b></p>
+            <ul>
+                <li><b>Source Voltage:</b> Voltage at power source (measure with multimeter, e.g., 5.00V)</li>
+                <li><b>Min/Max Current:</b> Current range to test (e.g., 0.5A to 3A for USB-C)</li>
+                <li><b>Number of Steps:</b> How many measurement points</li>
+                <li><b>Dwell Time:</b> Settling time at each current level</li>
+            </ul>
+
+            <p><b>Setup:</b></p>
+            <ol>
+                <li>Connect power source (USB charger, power supply) → cable under test → DL24P</li>
+                <li>Measure source voltage with multimeter and enter in Source Voltage field</li>
+                <li>Configure current range appropriate for cable rating</li>
+                <li>Start test</li>
+            </ol>
+
+            <p><b>Results:</b> Table showing current, voltage measured, voltage drop (mV), and resistance (mΩ) at each test point.</p>
+
+            <p><b>Quality Ratings:</b></p>
+            <ul>
+                <li><b>Excellent:</b> &lt; 200 mΩ (green) - High quality, thick gauge wire</li>
+                <li><b>Good:</b> 200-300 mΩ (light green) - Acceptable for most uses</li>
+                <li><b>Acceptable:</b> 300-500 mΩ (yellow) - Marginal for fast charging</li>
+                <li><b>Marginal:</b> 500-800 mΩ (orange) - Avoid for high-current use</li>
+                <li><b>Fail:</b> &gt; 800 mΩ (red) - Dangerous, do not use</li>
+            </ul>
+
+            <p><b>Typical Use:</b> Compare cable quality, identify counterfeit cables, verify USB-C 3A/5A rating, troubleshoot slow charging.</p>
+
+            <div class="note">
+                <b>Note:</b> This measures total cable resistance (VBUS + GND + contacts) which is sufficient for practical quality assessment.
+            </div>
+
+            <h3>Wall Charger Test</h3>
+            <p>Tests wall chargers (USB power adapters) by applying stepped loads and monitoring voltage regulation.</p>
+
+            <p><b>Configuration:</b></p>
+            <ul>
+                <li><b>Load Type:</b> Current, Power, or Resistance</li>
+                <li><b>Min/Max Load:</b> Range to test (e.g., 0.5A to 3A)</li>
+                <li><b>Number of Steps:</b> Measurement points</li>
+                <li><b>Dwell Time:</b> Settling time at each load</li>
+            </ul>
+
+            <p><b>Setup:</b></p>
+            <ol>
+                <li>Connect charger output to DL24P input</li>
+                <li>Configure load range not exceeding charger rating</li>
+                <li>Start test - load steps through configured range</li>
+            </ol>
+
+            <p><b>Results:</b> Voltage vs. load curve showing voltage regulation performance.</p>
+
+            <p><b>Analysis:</b></p>
+            <ul>
+                <li>Good chargers maintain stable voltage under load (e.g., 5V ± 0.25V)</li>
+                <li>Voltage droop indicates poor regulation or overload</li>
+                <li>Compare actual vs. rated output current</li>
+            </ul>
+
+            <p><b>Typical Use:</b> Verify charger specifications, identify fake/counterfeit chargers, test USB-PD negotiation at different voltages.</p>
+
+            <h3>Power Bank Test</h3>
+            <p>Measures power bank output capacity and efficiency at USB voltages (5V, 9V, 12V, 20V for USB-PD).</p>
+
+            <p><b>Configuration:</b></p>
+            <ul>
+                <li><b>Output Voltage:</b> USB voltage to test (5V, 9V, 12V, or 20V)</li>
+                <li><b>Discharge Current:</b> Constant current draw</li>
+                <li><b>Voltage Cutoff:</b> Minimum voltage before test stops</li>
+                <li><b>Time Limit:</b> Optional maximum duration</li>
+            </ul>
+
+            <p><b>Setup:</b></p>
+            <ol>
+                <li>Fully charge power bank</li>
+                <li>Connect power bank output to DL24P input</li>
+                <li>Configure discharge current (e.g., 2A for typical smartphone charging)</li>
+                <li>Start test - will run until voltage cutoff or power bank shuts off</li>
+            </ol>
+
+            <p><b>Results:</b></p>
+            <ul>
+                <li><b>Output Capacity:</b> Actual mAh delivered at test voltage</li>
+                <li><b>Output Energy:</b> Actual Wh delivered</li>
+                <li><b>Efficiency vs. Rated Capacity:</b> Percentage of rated capacity achieved</li>
+                <li><b>Efficiency vs. Rated Energy:</b> Percentage of rated energy achieved</li>
+            </ul>
+
+            <p><b>Analysis:</b> Power bank efficiency is typically 70-90% due to voltage conversion losses (3.7V internal cells → 5V+ output).
+            Lower efficiency may indicate poor quality or degraded cells.</p>
+
+            <p><b>Typical Use:</b> Verify power bank capacity claims, measure degradation over time, compare brands.</p>
+
+            <h2>Data Visualization & Analysis</h2>
+
+            <h3>Real-Time Plots</h3>
+            <p>The Plot Panel shows live data during tests with up to 4 customizable axes:</p>
+            <ul>
+                <li><b>Y Axis (left):</b> Primary parameter</li>
+                <li><b>Y1, Y2, Y3 Axes (right):</b> Additional parameters with independent scales</li>
+                <li><b>X Axis:</b> Choose Time, Capacity, Energy, or any measured parameter</li>
+            </ul>
+
+            <p><b>Available Parameters:</b> Voltage, Current, Power, Load R, Battery R, MOSFET, External, Capacity, Energy</p>
+
+            <p><b>Features:</b></p>
+            <ul>
+                <li>Auto-scaling with SI unit prefixes (mV/V, mA/A, mW/W, etc.)</li>
+                <li>Time window selection (30s to All data)</li>
+                <li>Interactive zoom and pan</li>
+                <li>Toggle data points on/off</li>
+            </ul>
+
+            <h3>Status Panel</h3>
+            <p>Shows live readings from the DL24P:</p>
+            <ul>
+                <li>Voltage, Current, Power</li>
+                <li>Accumulated Capacity (mAh) and Energy (Wh)</li>
+                <li>Internal and External temperature</li>
+                <li>MOSFET temperature</li>
+                <li>Calculated resistances</li>
+                <li>Elapsed time</li>
+            </ul>
+
+            <h2>Data Management</h2>
+
+            <h3>Logging</h3>
+            <p>Enable data logging to record all measurements:</p>
+            <ul>
+                <li>Toggle logging with the "Log Data" switch in Status Panel</li>
+                <li>Data is logged at 1 Hz (one reading per second)</li>
+                <li>Readings stored in SQLite database (~/.atorch/tests.db)</li>
+                <li>Also stored in memory for real-time plotting (last 48 hours)</li>
+            </ul>
+
+            <h3>Saving Test Results</h3>
+            <p>Test data can be saved in multiple formats:</p>
+            <ul>
+                <li><b>Auto-Save:</b> Check "Auto-save on completion" in test panels - saves JSON file when test completes</li>
+                <li><b>Manual Save:</b> Click "Save" button to save current data with custom filename</li>
+                <li><b>Export CSV:</b> Click "Export CSV" to save data in spreadsheet format</li>
+                <li><b>File Location:</b> All files saved to ~/.atorch/test_data/</li>
+            </ul>
+
+            <p><b>JSON File Format:</b> Includes test configuration, battery/device info, and all readings with timestamps.</p>
+
+            <h3>History Panel</h3>
+            <p>View and reload previous test data:</p>
+            <ul>
+                <li>Browse all saved JSON test files</li>
+                <li>Click file to load into plot panel and corresponding test panel</li>
+                <li>Filters by test type (Battery Capacity, Cable Resistance, etc.)</li>
+                <li>"Show Folder" button opens test_data directory</li>
+            </ul>
+
+            <h3>Database Management</h3>
+            <p>Access via <b>Tools → Database Management</b>:</p>
+            <ul>
+                <li>View database statistics (file size, number of sessions, total readings)</li>
+                <li>Database location: ~/.atorch/tests.db</li>
+                <li><b>Purge Database:</b> Permanently delete all sessions and readings (requires confirmation)</li>
+            </ul>
+
+            <div class="warning">
+                <b>Warning:</b> Database purge is permanent and cannot be undone. Exported JSON/CSV files are NOT affected.
+            </div>
+
+            <h2>Presets</h2>
+
+            <p>Each test panel includes preset management for quick configuration:</p>
+
+            <h3>Battery/Device Presets</h3>
+            <ul>
+                <li>Pre-configured settings for common batteries, cables, chargers, power banks</li>
+                <li>Includes manufacturer defaults (Canon, Nikon, Sony, Anker, Apple, etc.)</li>
+                <li>Save custom presets with "Save" button</li>
+                <li>Delete user presets (default presets cannot be deleted)</li>
+                <li>Stored in ~/.atorch/battery_presets/, ~/.atorch/cable_presets/, etc.</li>
+            </ul>
+
+            <h3>Test Configuration Presets</h3>
+            <ul>
+                <li>Pre-configured test parameters for common scenarios</li>
+                <li>Examples: "USB 2.0 Standard", "Fast Charge Test", "Li-Ion Full Range"</li>
+                <li>Save frequently-used test configurations</li>
+            </ul>
+
+            <h2>Settings & Preferences</h2>
+
+            <h3>Application Settings (File → Settings)</h3>
+            <ul>
+                <li><b>Auto-connect on startup:</b> Automatically connect to DL24P when app launches</li>
+                <li><b>Polling interval:</b> How often to query device (default: 1 second)</li>
+                <li><b>Data retention:</b> How long to keep data in memory (default: 48 hours)</li>
+            </ul>
+
+            <h3>Device Settings (Device → Settings)</h3>
+            <p>When connected to DL24P:</p>
+            <ul>
+                <li>Backlight brightness and timeout</li>
+                <li>Factory reset option</li>
+                <li>Counter reset (mAh, Wh, time)</li>
+            </ul>
+
+            <h2>Tips & Best Practices</h2>
+
+            <h3>Battery Testing</h3>
+            <ul>
+                <li>Always set appropriate voltage cutoff for battery chemistry to prevent damage</li>
+                <li>Li-Ion: 2.5V to 3.0V cutoff (3.0V recommended for safety)</li>
+                <li>NiMH: 0.9V to 1.0V cutoff per cell</li>
+                <li>LiFePO4: 2.5V cutoff</li>
+                <li>Use lower discharge current for capacity tests (0.5C or less for accuracy)</li>
+                <li>Allow battery to rest 30+ minutes before testing for stable voltage</li>
+            </ul>
+
+            <h3>Cable Testing</h3>
+            <ul>
+                <li>Measure source voltage accurately with multimeter before test</li>
+                <li>Use appropriate current range for cable rating (don't exceed 3A for USB-A, 5A for USB-C)</li>
+                <li>Test at room temperature for consistent results</li>
+                <li>Longer cables have higher resistance - compare same lengths</li>
+            </ul>
+
+            <h3>Charger Testing</h3>
+            <ul>
+                <li>Never exceed charger's rated output current/power</li>
+                <li>For wall chargers: verify voltage regulation under load</li>
+                <li>For battery chargers: use CV mode test to see CC-CV charging profile</li>
+                <li>Compare measured output vs. specifications to identify counterfeits</li>
+            </ul>
+
+            <h3>Data Logging</h3>
+            <ul>
+                <li>Enable logging before starting tests to capture all data</li>
+                <li>Use auto-save for unattended tests</li>
+                <li>Export to CSV for analysis in Excel/spreadsheet software</li>
+                <li>JSON files preserve all metadata and can be reloaded for plotting</li>
+            </ul>
+
+            <h2>Keyboard Shortcuts</h2>
+            <ul>
+                <li><b>Ctrl/Cmd + Q:</b> Quit application</li>
+                <li><b>Ctrl/Cmd + S:</b> Save current session (when in test panel)</li>
+                <li><b>Ctrl/Cmd + E:</b> Export to CSV</li>
+            </ul>
+
+            <h2>Troubleshooting</h2>
+
+            <h3>Device Won't Connect</h3>
+            <ul>
+                <li>Verify DL24P is connected via USB</li>
+                <li>Try different USB cable/port</li>
+                <li>Check Device → Connect menu</li>
+                <li>Restart application</li>
+                <li>On macOS: Grant USB permissions in System Settings → Privacy & Security</li>
+            </ul>
+
+            <h3>Readings Not Updating</h3>
+            <ul>
+                <li>Check connection status in Control Panel</li>
+                <li>Verify "Log Data" is enabled for data recording</li>
+                <li>Check debug console (View → Debug Console) for errors</li>
+            </ul>
+
+            <h3>Test Stops Prematurely</h3>
+            <ul>
+                <li>Check if voltage cutoff was reached</li>
+                <li>Verify time limit setting</li>
+                <li>Check DL24P internal temperature (may shut down if overheating)</li>
+                <li>Ensure adequate power source (battery/charger capacity)</li>
+            </ul>
+
+            <h3>Cannot Save Files</h3>
+            <ul>
+                <li>Verify ~/.atorch/test_data/ directory exists and is writable</li>
+                <li>Check disk space</li>
+                <li>Try different filename (avoid special characters)</li>
+            </ul>
+
+            <h2>Technical Specifications</h2>
+
+            <h3>DL24P Capabilities</h3>
+            <ul>
+                <li><b>Voltage Range:</b> 0-30V</li>
+                <li><b>Current Range:</b> 0-24A</li>
+                <li><b>Power:</b> Up to 150W (with active cooling)</li>
+                <li><b>Modes:</b> CC, CP, CV, CR</li>
+                <li><b>Resolution:</b> 10mV, 10mA</li>
+                <li><b>Communication:</b> USB HID (no drivers required)</li>
+            </ul>
+
+            <h3>Data Format</h3>
+            <ul>
+                <li><b>Logging Rate:</b> 1 Hz (1 reading/second)</li>
+                <li><b>Timestamp Resolution:</b> 1 second</li>
+                <li><b>Database:</b> SQLite 3</li>
+                <li><b>Export Formats:</b> JSON, CSV</li>
+            </ul>
+
+            <h2>File Locations</h2>
+            <ul>
+                <li><b>User Data Directory:</b> ~/.atorch/</li>
+                <li><b>Test Data (JSON/CSV):</b> ~/.atorch/test_data/</li>
+                <li><b>Database:</b> ~/.atorch/tests.db</li>
+                <li><b>Session Files:</b> ~/.atorch/*_session.json</li>
+                <li><b>User Presets:</b> ~/.atorch/*_presets/</li>
+            </ul>
+
+            <h2>Support & Resources</h2>
+            <ul>
+                <li><b>GitHub:</b> <a href="https://github.com/nevetssf/aTorch-DL24P">github.com/nevetssf/aTorch-DL24P</a></li>
+                <li><b>Version:</b> 1.0.0</li>
+                <li><b>License:</b> MIT</li>
+            </ul>
+
+            <p><i>Last updated: February 2026</i></p>
+        </body>
+        </html>
+        """
 
     @Slot(int)
     def _on_tab_changed(self, index: int) -> None:
@@ -848,7 +1347,7 @@ class MainWindow(QMainWindow):
         self.bottom_tabs.setCurrentIndex(tab_index)
 
         # Only load data for battery_capacity, battery_load, battery_charger, charger, and power_bank types (others are placeholders)
-        if test_panel_type not in ("battery_capacity", "battery_load", "battery_charger", "charger", "power_bank"):
+        if test_panel_type not in ("battery_capacity", "battery_load", "battery_charger", "cable_resistance", "charger", "power_bank"):
             self.statusbar.showMessage(f"Selected {test_panel_type.replace('_', ' ').title()} test file (panel not yet implemented)")
             return
 
@@ -862,6 +1361,11 @@ class MainWindow(QMainWindow):
         # Handle battery_charger test type
         if test_panel_type == "battery_charger":
             self._load_battery_charger_history(file_path, data)
+            return
+
+        # Handle cable_resistance test type
+        if test_panel_type == "cable_resistance":
+            self._load_cable_resistance_history(file_path, data)
             return
 
         # Handle charger test type
@@ -1201,6 +1705,63 @@ class MainWindow(QMainWindow):
 
         finally:
             self.battery_charger_panel._loading_settings = False
+
+    def _load_cable_resistance_history(self, file_path: str, data: dict) -> None:
+        """Load cable resistance test data from history.
+
+        Args:
+            file_path: Path to the JSON file
+            data: Parsed JSON data
+        """
+        # Load test configuration into cable resistance panel
+        self.cable_resistance_panel._loading_settings = True
+        try:
+            test_config = data.get("test_config", {})
+            if "source_voltage" in test_config:
+                self.cable_resistance_panel.source_voltage_spin.setValue(test_config["source_voltage"])
+            if "min_current" in test_config:
+                self.cable_resistance_panel.min_current_spin.setValue(test_config["min_current"])
+            if "max_current" in test_config:
+                self.cable_resistance_panel.max_current_spin.setValue(test_config["max_current"])
+            if "num_steps" in test_config:
+                self.cable_resistance_panel.num_steps_spin.setValue(test_config["num_steps"])
+            if "dwell_time" in test_config:
+                self.cable_resistance_panel.dwell_time_spin.setValue(test_config["dwell_time"])
+
+            # Load cable info
+            cable_info = data.get("cable_info", {})
+            if "name" in cable_info:
+                self.cable_resistance_panel.cable_name_edit.setText(cable_info["name"])
+            if "cable_type" in cable_info:
+                self.cable_resistance_panel.cable_type_combo.setCurrentText(cable_info["cable_type"])
+            if "rated_current" in cable_info:
+                self.cable_resistance_panel.rated_current_combo.setCurrentText(str(cable_info["rated_current"]))
+            if "length_m" in cable_info:
+                self.cable_resistance_panel.cable_length_spin.setValue(cable_info["length_m"])
+            if "wire_gauge" in cable_info:
+                gauge_text = str(cable_info["wire_gauge"]) if cable_info["wire_gauge"] != "Unknown" else "Unknown"
+                self.cable_resistance_panel.wire_gauge_combo.setCurrentText(gauge_text)
+            if "notes" in cable_info:
+                self.cable_resistance_panel.notes_edit.setPlainText(cable_info["notes"])
+
+            # Update filename
+            self.cable_resistance_panel.filename_edit.setText(Path(file_path).name)
+
+            # Set graph axes for cable resistance tests (Current vs Voltage)
+            self.plot_panel.x_axis_combo.setCurrentText("Current")
+            if "Y" in self.plot_panel._axis_dropdowns:
+                self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
+                self.plot_panel._axis_checkboxes["Y"].setChecked(True)
+
+            # Load readings for display
+            readings = data.get("readings", [])
+            if readings:
+                self._on_session_loaded(readings)
+
+            self.statusbar.showMessage(f"Loaded Cable Resistance test: {Path(file_path).name}")
+
+        finally:
+            self.cable_resistance_panel._loading_settings = False
 
     @Slot(int, float, float, int)
     def _on_automation_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
@@ -1613,6 +2174,97 @@ class MainWindow(QMainWindow):
         result = self._write_test_json(filename, test_config, charger_info,
                                        list(self._accumulated_readings),
                                        test_panel_type="battery_charger")
+        if result is None:
+            self.statusbar.showMessage("Failed to save test data")
+        return result
+
+    @Slot()
+    def _on_cable_resistance_start(self) -> None:
+        """Handle test start from cable resistance panel."""
+        # Auto-connect if DL24 device detected and not connected
+        if not self.device or not self.device.is_connected:
+            if not self._try_auto_connect():
+                return
+
+        # Clear data and previous session before starting new test
+        self._clear_data()
+        self._last_completed_session = None
+
+        # Clear device counters (mAh, Wh, time)
+        self.device.reset_counters()
+
+        # Start logging (which also turns on the load)
+        if not self._logging_enabled:
+            self.status_panel.log_switch.setChecked(True)
+            self._toggle_logging(True)
+
+        self.statusbar.showMessage("Cable Resistance test started")
+
+    @Slot()
+    def _on_cable_resistance_stop(self) -> None:
+        """Handle test stop from cable resistance panel."""
+        # Stop logging and save data if auto-save is enabled
+        if self._logging_enabled:
+            num_readings = len(self._accumulated_readings)
+            # Save test data to JSON if auto-save is enabled
+            if self.cable_resistance_panel.autosave_checkbox.isChecked():
+                saved_path = self._save_cable_resistance_json()
+                if saved_path:
+                    self.statusbar.showMessage(
+                        f"Cable Resistance test complete: {num_readings} readings saved to {saved_path}"
+                    )
+                    # Refresh history panel to show new file
+                    self.history_panel.refresh()
+                else:
+                    self.statusbar.showMessage(
+                        f"Cable Resistance test complete: {num_readings} readings - click Save to export"
+                    )
+            else:
+                self.statusbar.showMessage(
+                    f"Cable Resistance test complete: {num_readings} readings - click Save to export"
+                )
+            self.status_panel.log_switch.setChecked(False)
+            self._toggle_logging(False)
+
+    @Slot(str)
+    def _on_cable_resistance_save(self, filename: str) -> None:
+        """Handle manual save request from cable resistance panel.
+
+        Args:
+            filename: The filename to save as
+        """
+        if not self._accumulated_readings:
+            self.statusbar.showMessage("No data to save")
+            return
+
+        saved_path = self._save_cable_resistance_json(filename)
+        if saved_path:
+            self.statusbar.showMessage(f"Saved: {saved_path}")
+            # Refresh history panel to show new file
+            self.history_panel.refresh()
+
+    def _save_cable_resistance_json(self, filename: Optional[str] = None) -> Optional[str]:
+        """Save cable resistance test data to JSON file.
+
+        Args:
+            filename: Optional filename to use. If None, uses the filename from cable resistance panel.
+
+        Returns:
+            Path to saved file, or None if save failed
+        """
+        # Get test configuration and cable info from cable resistance panel
+        test_config = self.cable_resistance_panel.get_test_config()
+        cable_info = self.cable_resistance_panel.get_cable_info()
+
+        # Use provided filename or get from cable resistance panel
+        if filename is None:
+            filename = self.cable_resistance_panel.filename_edit.text().strip()
+            if not filename:
+                filename = self.cable_resistance_panel.generate_test_filename()
+
+        result = self._write_test_json(filename, test_config, cable_info,
+                                       list(self._accumulated_readings),
+                                       test_panel_type="cable_resistance")
         if result is None:
             self.statusbar.showMessage("Failed to save test data")
         return result
