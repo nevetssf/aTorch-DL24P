@@ -106,11 +106,20 @@ class TemperatureAlert(AlertCondition):
 
 
 class TestCompleteAlert(AlertCondition):
-    """Alert when test completes (load turns off)."""
+    """Alert when test completes (load turns off during active test)."""
 
     def __init__(self):
         self._was_on = False
         self._triggered = False
+        self._logging_active = False  # Track if a test is running
+
+    def set_logging_active(self, active: bool) -> None:
+        """Set whether logging/test is currently active.
+
+        Args:
+            active: True if test is running, False otherwise
+        """
+        self._logging_active = active
 
     def check(self, status: DeviceStatus) -> Optional[AlertResult]:
         if status.load_on:
@@ -118,7 +127,8 @@ class TestCompleteAlert(AlertCondition):
             self._triggered = False
             return None
 
-        if self._was_on and not status.load_on and not self._triggered:
+        # Only trigger if logging was active (test was running)
+        if self._was_on and not status.load_on and not self._triggered and self._logging_active:
             self._triggered = True
             return AlertResult(
                 triggered=True,

@@ -127,6 +127,12 @@ class MainWindow(QMainWindow):
         self._create_menus()
         self._create_statusbar()
 
+        # Load and apply tooltip preference
+        tooltips_enabled = self._load_tooltip_preference()
+        self.tooltips_action.setChecked(tooltips_enabled)
+        if not tooltips_enabled:
+            self._set_tooltips_enabled(False)
+
         # Update timer
         self._update_timer = QTimer(self)
         self._update_timer.timeout.connect(self._on_timer)
@@ -136,6 +142,99 @@ class MainWindow(QMainWindow):
         """Configure default alert conditions."""
         self.notifier.add_condition(TemperatureAlert(threshold=70))
         self.notifier.add_condition(TestCompleteAlert())
+
+    def _update_test_complete_alert_state(self, logging_active: bool) -> None:
+        """Update the TestCompleteAlert with the current logging state.
+
+        Args:
+            logging_active: True if test/logging is active, False otherwise
+        """
+        alert = self.notifier.get_condition(TestCompleteAlert)
+        if alert and hasattr(alert, 'set_logging_active'):
+            alert.set_logging_active(logging_active)
+
+    def _disable_controls_during_test(self) -> None:
+        """Disable UI controls that shouldn't be changed during a test."""
+        # Disable mode selection buttons
+        self.control_panel.cc_btn.setEnabled(False)
+        self.control_panel.cp_btn.setEnabled(False)
+        self.control_panel.cv_btn.setEnabled(False)
+        self.control_panel.cr_btn.setEnabled(False)
+
+        # Disable parameter spinboxes
+        self.control_panel.current_spin.setEnabled(False)
+        self.control_panel.power_spin.setEnabled(False)
+        self.control_panel.voltage_spin.setEnabled(False)
+        self.control_panel.resistance_spin.setEnabled(False)
+        self.control_panel.cutoff_spin.setEnabled(False)
+        self.control_panel.discharge_hours_spin.setEnabled(False)
+        self.control_panel.discharge_mins_spin.setEnabled(False)
+
+        # Disable Set buttons
+        self.control_panel.set_current_btn.setEnabled(False)
+        self.control_panel.set_power_btn.setEnabled(False)
+        self.control_panel.set_voltage_btn.setEnabled(False)
+        self.control_panel.set_resistance_btn.setEnabled(False)
+        self.control_panel.set_cutoff_btn.setEnabled(False)
+        self.control_panel.set_discharge_btn.setEnabled(False)
+
+        # Disable preset current buttons (0.1A, 0.2A, 0.5A, 1.0A)
+        for i in range(self.control_panel.preset_btns.count()):
+            widget = self.control_panel.preset_btns.itemAt(i).widget()
+            if widget:
+                widget.setEnabled(False)
+
+        # Disable data logging controls (except the load switch is handled by status panel)
+        self.status_panel.log_switch.setEnabled(False)
+        self.status_panel.sample_time_combo.setEnabled(False)
+        self.status_panel.battery_name_edit.setEnabled(False)
+
+        # Disable all test panel tabs except the current one
+        current_tab = self.bottom_tabs.currentIndex()
+        for i in range(self.bottom_tabs.count()):
+            if i != current_tab:
+                self.bottom_tabs.setTabEnabled(i, False)
+
+    def _enable_controls_after_test(self) -> None:
+        """Re-enable UI controls after a test completes."""
+        # Re-enable mode selection buttons (if connected)
+        if self.device and self.device.is_connected:
+            self.control_panel.cc_btn.setEnabled(True)
+            self.control_panel.cp_btn.setEnabled(True)
+            self.control_panel.cv_btn.setEnabled(True)
+            self.control_panel.cr_btn.setEnabled(True)
+
+            # Re-enable parameter spinboxes
+            self.control_panel.current_spin.setEnabled(True)
+            self.control_panel.power_spin.setEnabled(True)
+            self.control_panel.voltage_spin.setEnabled(True)
+            self.control_panel.resistance_spin.setEnabled(True)
+            self.control_panel.cutoff_spin.setEnabled(True)
+            self.control_panel.discharge_hours_spin.setEnabled(True)
+            self.control_panel.discharge_mins_spin.setEnabled(True)
+
+            # Re-enable Set buttons
+            self.control_panel.set_current_btn.setEnabled(True)
+            self.control_panel.set_power_btn.setEnabled(True)
+            self.control_panel.set_voltage_btn.setEnabled(True)
+            self.control_panel.set_resistance_btn.setEnabled(True)
+            self.control_panel.set_cutoff_btn.setEnabled(True)
+            self.control_panel.set_discharge_btn.setEnabled(True)
+
+            # Re-enable preset current buttons (0.1A, 0.2A, 0.5A, 1.0A)
+            for i in range(self.control_panel.preset_btns.count()):
+                widget = self.control_panel.preset_btns.itemAt(i).widget()
+                if widget:
+                    widget.setEnabled(True)
+
+            # Re-enable data logging controls
+            self.status_panel.log_switch.setEnabled(True)
+            self.status_panel.sample_time_combo.setEnabled(True)
+            self.status_panel.battery_name_edit.setEnabled(True)
+
+        # Re-enable all test panel tabs
+        for i in range(self.bottom_tabs.count()):
+            self.bottom_tabs.setTabEnabled(i, True)
 
     def _setup_callbacks(self) -> None:
         """Setup device callbacks (called when device is created)."""
@@ -250,6 +349,24 @@ class MainWindow(QMainWindow):
         self.battery_load_panel.manual_save_requested.connect(self._on_battery_load_save)
         self.battery_load_panel.session_loaded.connect(self._on_session_loaded)
         self.battery_load_panel.export_csv_requested.connect(self._on_export_csv)
+
+        # Synchronize battery info between Battery Capacity and Battery Load panels
+        # When battery info changes in automation panel, update battery load panel
+        for widget in [self.automation_panel.battery_name_edit, self.automation_panel.manufacturer_edit,
+                       self.automation_panel.oem_equiv_edit, self.automation_panel.serial_number_edit,
+                       self.automation_panel.rated_voltage_spin, self.automation_panel.technology_combo,
+                       self.automation_panel.nominal_capacity_spin, self.automation_panel.nominal_energy_spin]:
+            if hasattr(widget, 'textChanged'):
+                widget.textChanged.connect(self._sync_battery_info_to_load)
+            elif hasattr(widget, 'valueChanged'):
+                widget.valueChanged.connect(self._sync_battery_info_to_load)
+            elif hasattr(widget, 'currentIndexChanged'):
+                widget.currentIndexChanged.connect(self._sync_battery_info_to_load)
+        self.automation_panel.notes_edit.textChanged.connect(self._sync_battery_info_to_load)
+        self.automation_panel.battery_info_changed.connect(self._sync_battery_info_to_load)
+
+        # When battery info changes in battery load panel, update automation panel
+        self.battery_load_panel.battery_info_widget.settings_changed.connect(self._sync_battery_info_to_capacity)
 
         # Connect charger panel signals
         self.charger_panel.test_started.connect(self._on_charger_start)
@@ -376,6 +493,15 @@ class MainWindow(QMainWindow):
         help_action = QAction("&Test Bench Help", self)
         help_action.triggered.connect(self._show_help)
         help_menu.addAction(help_action)
+
+        help_menu.addSeparator()
+
+        # Tooltips toggle
+        self.tooltips_action = QAction("Show &Tooltips", self)
+        self.tooltips_action.setCheckable(True)
+        self.tooltips_action.setChecked(True)  # Default to enabled
+        self.tooltips_action.toggled.connect(self._toggle_tooltips)
+        help_menu.addAction(self.tooltips_action)
 
         help_menu.addSeparator()
 
@@ -570,6 +696,8 @@ class MainWindow(QMainWindow):
             )
             self.database.create_session(self._current_session)
             self._logging_enabled = True
+            self._update_test_complete_alert_state(True)  # Notify alert that test started
+            self._disable_controls_during_test()  # Lock UI controls during test
             self._last_log_time = None  # Reset sample timer for new test
             self._last_autosave_time = None  # Reset autosave timer for new test
             self._last_db_commit_time = None  # Reset db commit timer for new test
@@ -591,6 +719,8 @@ class MainWindow(QMainWindow):
             self._last_completed_session = self._current_session
             self._current_session = None
             self._logging_enabled = False
+            self._update_test_complete_alert_state(False)  # Notify alert that test stopped
+            self._enable_controls_after_test()  # Unlock UI controls after test
             self._logging_start_time = None
             # Turn off the load when logging stops
             if self.device and self.device.is_connected:
@@ -846,6 +976,133 @@ class MainWindow(QMainWindow):
             "<p>© 2026 • Built with PySide6 and pyqtgraph</p>"
             "<p>For help and documentation, see Help → Test Bench Help</p>",
         )
+
+    @Slot(bool)
+    def _toggle_tooltips(self, enabled: bool) -> None:
+        """Toggle tooltips on/off throughout the application.
+
+        Args:
+            enabled: True to show tooltips, False to hide them
+        """
+        # Save preference
+        self._save_tooltip_preference(enabled)
+
+        # Apply to all controls
+        self._set_tooltips_enabled(enabled)
+
+    def _save_tooltip_preference(self, enabled: bool) -> None:
+        """Save tooltip preference to settings file.
+
+        Args:
+            enabled: True if tooltips are enabled
+        """
+        settings_file = Path.home() / ".atorch" / "settings.json"
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Load existing settings or create new
+        settings = {}
+        if settings_file.exists():
+            try:
+                with open(settings_file, 'r') as f:
+                    settings = json.load(f)
+            except Exception:
+                pass
+
+        # Update tooltip preference
+        settings["tooltips_enabled"] = enabled
+
+        # Save settings
+        try:
+            with open(settings_file, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception:
+            pass
+
+    def _load_tooltip_preference(self) -> bool:
+        """Load tooltip preference from settings file.
+
+        Returns:
+            True if tooltips should be enabled (default), False otherwise
+        """
+        settings_file = Path.home() / ".atorch" / "settings.json"
+
+        if not settings_file.exists():
+            return True  # Default to enabled
+
+        try:
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+                return settings.get("tooltips_enabled", True)
+        except Exception:
+            return True  # Default to enabled on error
+
+    def _set_tooltips_enabled(self, enabled: bool) -> None:
+        """Enable or disable all tooltips in the application.
+
+        Args:
+            enabled: True to show tooltips, False to hide them
+        """
+        # Control Panel
+        for widget in [
+            self.control_panel.port_combo,
+            self.control_panel.refresh_btn,
+            self.control_panel.connect_btn,
+            self.control_panel.disconnect_btn,
+            self.control_panel.debug_log_checkbox,
+            self.control_panel.cc_btn,
+            self.control_panel.cp_btn,
+            self.control_panel.cv_btn,
+            self.control_panel.cr_btn,
+            self.control_panel.power_switch,
+            self.control_panel.current_spin,
+            self.control_panel.set_current_btn,
+            self.control_panel.power_spin,
+            self.control_panel.set_power_btn,
+            self.control_panel.voltage_spin,
+            self.control_panel.set_voltage_btn,
+            self.control_panel.resistance_spin,
+            self.control_panel.set_resistance_btn,
+            self.control_panel.cutoff_spin,
+            self.control_panel.set_cutoff_btn,
+            self.control_panel.discharge_hours_spin,
+            self.control_panel.discharge_mins_spin,
+            self.control_panel.set_discharge_btn,
+        ]:
+            if enabled:
+                # Restore original tooltip (stored in whatsThis)
+                widget.setToolTip(widget.whatsThis() if widget.whatsThis() else widget.toolTip())
+            else:
+                # Save current tooltip to whatsThis and clear tooltip
+                if widget.toolTip() and not widget.whatsThis():
+                    widget.setWhatsThis(widget.toolTip())
+                widget.setToolTip("")
+
+        # Preset current buttons
+        for i in range(self.control_panel.preset_btns.count()):
+            widget = self.control_panel.preset_btns.itemAt(i).widget()
+            if widget:
+                if enabled:
+                    widget.setToolTip(widget.whatsThis() if widget.whatsThis() else widget.toolTip())
+                else:
+                    if widget.toolTip() and not widget.whatsThis():
+                        widget.setWhatsThis(widget.toolTip())
+                    widget.setToolTip("")
+
+        # Status Panel
+        for widget in [
+            self.status_panel.log_switch,
+            self.status_panel.sample_time_combo,
+            self.status_panel.battery_name_edit,
+            self.status_panel.save_btn,
+            self.status_panel.clear_log_btn,
+            self.status_panel.clear_btn,
+        ]:
+            if enabled:
+                widget.setToolTip(widget.whatsThis() if widget.whatsThis() else widget.toolTip())
+            else:
+                if widget.toolTip() and not widget.whatsThis():
+                    widget.setWhatsThis(widget.toolTip())
+                widget.setToolTip("")
 
     @Slot()
     def _show_help(self) -> None:
@@ -1763,6 +2020,44 @@ class MainWindow(QMainWindow):
         finally:
             self.cable_resistance_panel._loading_settings = False
 
+    @Slot()
+    def _sync_battery_info_to_load(self) -> None:
+        """Sync battery info from Battery Capacity panel to Battery Load panel."""
+        # Avoid sync loops - check if battery load panel is currently loading settings
+        if not self.battery_load_panel._loading_settings:
+            battery_info = self.automation_panel.get_battery_info()
+            self.battery_load_panel.battery_info_widget.set_battery_info(battery_info)
+
+            # Also sync the preset dropdown selection
+            preset_name = self.automation_panel.presets_combo.currentText()
+            if preset_name and not preset_name.startswith("---"):
+                # Find matching preset in battery load panel
+                index = self.battery_load_panel.battery_info_widget.presets_combo.findText(preset_name)
+                if index >= 0:
+                    # Temporarily block signals to avoid triggering another sync
+                    self.battery_load_panel.battery_info_widget.presets_combo.blockSignals(True)
+                    self.battery_load_panel.battery_info_widget.presets_combo.setCurrentIndex(index)
+                    self.battery_load_panel.battery_info_widget.presets_combo.blockSignals(False)
+
+    @Slot()
+    def _sync_battery_info_to_capacity(self) -> None:
+        """Sync battery info from Battery Load panel to Battery Capacity panel."""
+        # Avoid sync loops - check if automation panel is currently loading settings
+        if not self.automation_panel._loading_settings:
+            battery_info = self.battery_load_panel.battery_info_widget.get_battery_info()
+            self.automation_panel.set_battery_info(battery_info)
+
+            # Also sync the preset dropdown selection
+            preset_name = self.battery_load_panel.battery_info_widget.presets_combo.currentText()
+            if preset_name and not preset_name.startswith("---"):
+                # Find matching preset in automation panel
+                index = self.automation_panel.presets_combo.findText(preset_name)
+                if index >= 0:
+                    # Temporarily block signals to avoid triggering another sync
+                    self.automation_panel.presets_combo.blockSignals(True)
+                    self.automation_panel.presets_combo.setCurrentIndex(index)
+                    self.automation_panel.presets_combo.blockSignals(False)
+
     @Slot(int, float, float, int)
     def _on_automation_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
         """Handle test start request from automation panel.
@@ -1857,6 +2152,8 @@ class MainWindow(QMainWindow):
             self.database.update_session(self._current_session)
             self._current_session = None
             self._logging_enabled = False
+            self._update_test_complete_alert_state(False)  # Notify alert that test paused
+            self._enable_controls_after_test()  # Unlock UI controls when paused
             self._logging_start_time = None
             self.status_panel.log_switch.setChecked(False)
 
@@ -1880,6 +2177,8 @@ class MainWindow(QMainWindow):
             )
             self.database.create_session(self._current_session)
             self._logging_enabled = True
+            self._update_test_complete_alert_state(True)  # Notify alert that test resumed
+            self._disable_controls_during_test()  # Lock UI controls during resumed test
             self._last_autosave_time = None  # Reset autosave timer
             self.status_panel.log_switch.setChecked(True)
 
@@ -2670,6 +2969,8 @@ class MainWindow(QMainWindow):
             # Load turned off while logging - stop logging immediately
             num_readings = len(self._accumulated_readings)
             self._logging_enabled = False  # Stop immediately to prevent more data
+            self._update_test_complete_alert_state(False)  # Notify alert that test stopped
+            self._enable_controls_after_test()  # Unlock UI controls after test complete
             self.status_panel.log_switch.setChecked(False)
             # End the current session properly so next Start Test works
             if self._current_session:

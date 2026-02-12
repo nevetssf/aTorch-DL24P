@@ -57,6 +57,20 @@ class Notifier:
         for condition in self._conditions:
             condition.reset()
 
+    def get_condition(self, condition_type: type) -> Optional[AlertCondition]:
+        """Get a specific condition by type.
+
+        Args:
+            condition_type: The class type of the condition to find
+
+        Returns:
+            The condition instance if found, None otherwise
+        """
+        for condition in self._conditions:
+            if isinstance(condition, condition_type):
+                return condition
+        return None
+
     def check(self, status: DeviceStatus) -> list[AlertResult]:
         """Check all conditions against current status.
 

@@ -18,6 +18,8 @@ class BatteryInfoWidget(QGroupBox):
         super().__init__(title)
         self.setFixedWidth(fixed_width)
 
+        self._loading = False  # Flag to prevent signal emission during programmatic updates
+
         self._create_ui()
 
     def _create_ui(self):
@@ -113,15 +115,20 @@ class BatteryInfoWidget(QGroupBox):
 
     def _connect_change_signals(self):
         """Connect all input widgets to emit settings_changed signal."""
-        self.battery_name_edit.textChanged.connect(lambda: self.settings_changed.emit())
-        self.manufacturer_edit.textChanged.connect(lambda: self.settings_changed.emit())
-        self.oem_equiv_edit.textChanged.connect(lambda: self.settings_changed.emit())
-        self.serial_number_edit.textChanged.connect(lambda: self.settings_changed.emit())
-        self.rated_voltage_spin.valueChanged.connect(lambda: self.settings_changed.emit())
-        self.technology_combo.currentIndexChanged.connect(lambda: self.settings_changed.emit())
-        self.nominal_capacity_spin.valueChanged.connect(lambda: self.settings_changed.emit())
-        self.nominal_energy_spin.valueChanged.connect(lambda: self.settings_changed.emit())
-        self.notes_edit.textChanged.connect(lambda: self.settings_changed.emit())
+        self.battery_name_edit.textChanged.connect(lambda: self._emit_changed())
+        self.manufacturer_edit.textChanged.connect(lambda: self._emit_changed())
+        self.oem_equiv_edit.textChanged.connect(lambda: self._emit_changed())
+        self.serial_number_edit.textChanged.connect(lambda: self._emit_changed())
+        self.rated_voltage_spin.valueChanged.connect(lambda: self._emit_changed())
+        self.technology_combo.currentIndexChanged.connect(lambda: self._emit_changed())
+        self.nominal_capacity_spin.valueChanged.connect(lambda: self._emit_changed())
+        self.nominal_energy_spin.valueChanged.connect(lambda: self._emit_changed())
+        self.notes_edit.textChanged.connect(lambda: self._emit_changed())
+
+    def _emit_changed(self):
+        """Emit settings_changed signal if not currently loading."""
+        if not self._loading:
+            self.settings_changed.emit()
 
     def get_battery_info(self) -> dict:
         """Get battery info as a dictionary."""
@@ -138,30 +145,41 @@ class BatteryInfoWidget(QGroupBox):
         }
 
     def set_battery_info(self, info: dict):
-        """Set battery info from a dictionary."""
-        if "name" in info:
-            self.battery_name_edit.setText(info["name"])
-        if "manufacturer" in info:
-            self.manufacturer_edit.setText(info["manufacturer"])
-        if "oem_equivalent" in info:
-            self.oem_equiv_edit.setText(info["oem_equivalent"])
-        if "serial_number" in info:
-            self.serial_number_edit.setText(info["serial_number"])
-        if "rated_voltage" in info:
-            self.rated_voltage_spin.setValue(info["rated_voltage"])
-        if "technology" in info:
-            index = self.technology_combo.findText(info["technology"])
-            if index >= 0:
-                self.technology_combo.setCurrentIndex(index)
-        # Handle both formats for backwards compatibility with preset files
-        if "nominal_capacity_mah" in info:
-            self.nominal_capacity_spin.setValue(info["nominal_capacity_mah"])
-        elif "nominal_capacity" in info:
-            self.nominal_capacity_spin.setValue(info["nominal_capacity"])
+        """Set battery info from a dictionary.
 
-        if "nominal_energy_wh" in info:
-            self.nominal_energy_spin.setValue(info["nominal_energy_wh"])
-        elif "nominal_energy" in info:
-            self.nominal_energy_spin.setValue(info["nominal_energy"])
-        if "notes" in info:
-            self.notes_edit.setPlainText(info["notes"])
+        Args:
+            info: Dictionary containing battery information
+        """
+        # Set loading flag to prevent signal emission
+        was_loading = self._loading
+        self._loading = True
+
+        try:
+            if "name" in info:
+                self.battery_name_edit.setText(info["name"])
+            if "manufacturer" in info:
+                self.manufacturer_edit.setText(info["manufacturer"])
+            if "oem_equivalent" in info:
+                self.oem_equiv_edit.setText(info["oem_equivalent"])
+            if "serial_number" in info:
+                self.serial_number_edit.setText(info["serial_number"])
+            if "rated_voltage" in info:
+                self.rated_voltage_spin.setValue(info["rated_voltage"])
+            if "technology" in info:
+                index = self.technology_combo.findText(info["technology"])
+                if index >= 0:
+                    self.technology_combo.setCurrentIndex(index)
+            # Handle both formats for backwards compatibility with preset files
+            if "nominal_capacity_mah" in info:
+                self.nominal_capacity_spin.setValue(info["nominal_capacity_mah"])
+            elif "nominal_capacity" in info:
+                self.nominal_capacity_spin.setValue(info["nominal_capacity"])
+
+            if "nominal_energy_wh" in info:
+                self.nominal_energy_spin.setValue(info["nominal_energy_wh"])
+            elif "nominal_energy" in info:
+                self.nominal_energy_spin.setValue(info["nominal_energy"])
+            if "notes" in info:
+                self.notes_edit.setPlainText(info["notes"])
+        finally:
+            self._loading = was_loading

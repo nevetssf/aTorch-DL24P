@@ -180,12 +180,41 @@ class HistoryPanel(QWidget):
                 # Summary (result)
                 capacity = summary_data.get("final_capacity_mah", 0)
                 energy = summary_data.get("final_energy_wh", 0)
-                battery_name = battery_info.get("name", "")
+
+                # Extract manufacturer and device name based on test type
+                manufacturer = ""
+                device_name = ""
+
+                if test_panel_type in ["battery_capacity", "battery_load"]:
+                    manufacturer = battery_info.get("manufacturer", "")
+                    device_name = battery_info.get("name", "")
+                elif test_panel_type == "battery_charger":
+                    charger_info = data.get("charger_info", {})
+                    manufacturer = charger_info.get("manufacturer", "")
+                    device_name = charger_info.get("name", "")
+                elif test_panel_type == "charger":
+                    charger_info = data.get("charger_info", {})
+                    manufacturer = charger_info.get("manufacturer", "")
+                    device_name = charger_info.get("name", "")
+                elif test_panel_type == "power_bank":
+                    power_bank_info = data.get("power_bank_info", {})
+                    manufacturer = power_bank_info.get("manufacturer", "")
+                    device_name = power_bank_info.get("name", "")
+                elif test_panel_type == "cable_resistance":
+                    cable_info = data.get("cable_info", {})
+                    device_name = cable_info.get("name", "")
+                    # Cable resistance doesn't have manufacturer field
+
+                # Build summary with manufacturer prefix
+                if manufacturer:
+                    full_name = f"{manufacturer} {device_name}".strip()
+                else:
+                    full_name = device_name
 
                 if capacity > 0 or energy > 0:
-                    summary_str = f"{battery_name}: {capacity:.0f} mAh / {energy:.2f} Wh"
+                    summary_str = f"{full_name}: {capacity:.0f} mAh / {energy:.2f} Wh"
                 else:
-                    summary_str = f"{battery_name}: No data recorded"
+                    summary_str = f"{full_name}: No data recorded"
 
                 self._test_files.append({
                     "path": str(json_file),

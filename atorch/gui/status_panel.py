@@ -22,16 +22,11 @@ from .control_panel import ToggleSwitch
 
 
 class StatusLabel(QLabel):
-    """Large status display label."""
+    """Status display label."""
 
     def __init__(self, text: str = "---"):
         super().__init__(text)
         self.setAlignment(Qt.AlignRight)
-
-        font = QFont()
-        font.setPointSize(16)
-        font.setBold(True)
-        self.setFont(font)
 
 
 class UnitLabel(QLabel):
@@ -67,7 +62,7 @@ class StatusPanel(QWidget):
         # Main readings
         self.readings_group = QGroupBox("Live Readings")
         readings_layout = QGridLayout(self.readings_group)
-        readings_layout.setSpacing(8)
+        readings_layout.setSpacing(6)
 
         row = 0
 
@@ -158,6 +153,7 @@ class StatusPanel(QWidget):
         # Clear button for capacity/energy
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setEnabled(False)
+        self.clear_btn.setToolTip("Clear capacity, energy, and time counters on device")
         self.clear_btn.clicked.connect(self._on_clear_clicked)
         readings_layout.addWidget(self.clear_btn, row, 0, 1, 3)
         row += 1
@@ -210,10 +206,6 @@ class StatusPanel(QWidget):
         readings_layout.addWidget(self.status_row_label, row, 0)
         self.load_status_label = QLabel("OFF")
         self.load_status_label.setAlignment(Qt.AlignRight)
-        font = QFont()
-        font.setPointSize(16)
-        font.setBold(True)
-        self.load_status_label.setFont(font)
         readings_layout.addWidget(self.load_status_label, row, 1)
         self.warning_label = QLabel("")
         self.warning_label.setStyleSheet("color: red; font-weight: bold;")
@@ -242,6 +234,7 @@ class StatusPanel(QWidget):
 
         self.log_switch = ToggleSwitch()
         self.log_switch.setEnabled(False)
+        self.log_switch.setToolTip("Start/stop data logging - records voltage, current, power, and capacity over time")
         self.log_switch.toggled.connect(self._on_logging_toggled)
         logging_layout.addWidget(self.log_switch)
 
@@ -254,6 +247,7 @@ class StatusPanel(QWidget):
         self.sample_time_combo.addItems(["1s", "2s", "5s", "10s"])
         self.sample_time_combo.setCurrentText("1s")
         self.sample_time_combo.setEnabled(False)
+        self.sample_time_combo.setToolTip("Data logging sample interval - how often readings are recorded")
         self.sample_time_combo.currentTextChanged.connect(self._on_sample_time_changed)
         logging_layout.addWidget(self.sample_time_combo)
 
@@ -266,6 +260,7 @@ class StatusPanel(QWidget):
         self.battery_name_edit = QLineEdit()
         self.battery_name_edit.setText("battery")
         self.battery_name_edit.setEnabled(False)
+        self.battery_name_edit.setToolTip("Filename prefix for exported data files")
         name_layout.addWidget(self.battery_name_edit)
         log_layout.addLayout(name_layout)
 
@@ -273,11 +268,13 @@ class StatusPanel(QWidget):
         buttons_layout = QHBoxLayout()
         self.save_btn = QPushButton("Export")
         self.save_btn.setEnabled(False)
+        self.save_btn.setToolTip("Export logged data to JSON or CSV file")
         self.save_btn.clicked.connect(self._on_save_clicked)
         buttons_layout.addWidget(self.save_btn)
 
         self.clear_log_btn = QPushButton("Clear")
         self.clear_log_btn.setEnabled(False)
+        self.clear_log_btn.setToolTip("Clear accumulated readings and start fresh")
         self.clear_log_btn.clicked.connect(self._on_clear_clicked)
         buttons_layout.addWidget(self.clear_log_btn)
         log_layout.addLayout(buttons_layout)

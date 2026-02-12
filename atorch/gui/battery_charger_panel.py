@@ -758,16 +758,39 @@ class BatteryChargerPanel(QWidget):
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
 
     def generate_test_filename(self) -> str:
-        """Generate a test filename based on charger info and test conditions."""
+        """Generate a test filename based on charger info and test conditions.
+
+        Format: BatteryCharger_{Manufacturer}_{ChargerName}_{Chemistry}_{MinV}-{MaxV}_{NumSteps}-steps_{Timestamp}.json
+        Example: BatteryCharger_Canon_LC-E6_Li-Ion-2S_5.0-8.4V_17-steps_20260210_143022.json
+        """
         import datetime
+        manufacturer = self.charger_manufacturer_edit.text().strip() or "Unknown"
+        safe_manufacturer = "".join(c if c.isalnum() or c in "-" else "-" for c in manufacturer).strip("-")
+
         charger_name = self.charger_name_edit.text().strip()
         if not charger_name:
             charger_name = "Charger"
-        # Replace spaces and special chars with underscores
-        safe_name = "".join(c if c.isalnum() else "_" for c in charger_name)
-        chemistry = self.chemistry_combo.currentText().replace(" ", "_")
+        # Sanitize charger name
+        safe_name = "".join(c if c.isalnum() or c in "-" else "-" for c in charger_name).strip("-")
+
+        chemistry = self.chemistry_combo.currentText().replace(" ", "-").replace("(", "").replace(")", "")
+        min_voltage = self.min_voltage_spin.value()
+        max_voltage = self.max_voltage_spin.value()
+        num_steps = self.num_divisions_spin.value()
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"{safe_name}_{chemistry}_{timestamp}.json"
+
+        parts = [
+            "BatteryCharger",
+            safe_manufacturer,
+            safe_name,
+            chemistry,
+            f"{min_voltage}-{max_voltage}V",
+            f"{num_steps}-steps",
+            timestamp,
+        ]
+
+        return "_".join(parts) + ".json"
 
     def _update_filename(self):
         """Update the filename field with auto-generated name."""
@@ -860,6 +883,9 @@ class BatteryChargerPanel(QWidget):
         self.charger_num_cells_spin.valueChanged.connect(self._on_settings_changed)
         self.charger_notes_edit.textChanged.connect(self._on_settings_changed)
         self.charger_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
+
+        # Filename update for manufacturer field
+        self.charger_manufacturer_edit.textChanged.connect(self._update_filename)
 
         # Auto Save checkbox
         self.autosave_checkbox.toggled.connect(self._on_settings_changed)

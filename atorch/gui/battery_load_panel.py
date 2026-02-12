@@ -101,6 +101,7 @@ class BatteryLoadPanel(QWidget):
         self.load_type_combo = QComboBox()
         self.load_type_combo.addItems(["Current", "Power", "Resistance"])
         self.load_type_combo.currentTextChanged.connect(self._on_load_type_changed)
+        self.load_type_combo.currentTextChanged.connect(lambda: self._update_filename())
         params_layout.addRow("Load Type", self.load_type_combo)
 
         # Min value
@@ -109,6 +110,7 @@ class BatteryLoadPanel(QWidget):
         self.min_spin.setDecimals(1)
         self.min_spin.setValue(10.0)
         self.min_spin.setSuffix(" mA")
+        self.min_spin.valueChanged.connect(lambda: self._update_filename())
         params_layout.addRow("Min", self.min_spin)
 
         # Max value
@@ -117,6 +119,7 @@ class BatteryLoadPanel(QWidget):
         self.max_spin.setDecimals(1)
         self.max_spin.setValue(100.0)
         self.max_spin.setSuffix(" mA")
+        self.max_spin.valueChanged.connect(lambda: self._update_filename())
         params_layout.addRow("Max", self.max_spin)
 
         # Number of divisions with preset dropdown
@@ -124,6 +127,7 @@ class BatteryLoadPanel(QWidget):
         self.num_steps_spin = QSpinBox()
         self.num_steps_spin.setRange(1, 999)
         self.num_steps_spin.setValue(10)  # 10 divisions = 11 measurement points
+        self.num_steps_spin.valueChanged.connect(lambda: self._update_filename())
         num_steps_layout.addWidget(self.num_steps_spin)
 
         self.num_steps_preset_combo = QComboBox()
@@ -351,6 +355,8 @@ class BatteryLoadPanel(QWidget):
 
         if preset_data:
             self.battery_info_widget.set_battery_info(preset_data)
+            # Trigger sync to automation panel after preset load
+            self.battery_info_widget.settings_changed.emit()
 
     def _save_battery_preset(self):
         """Save current battery info as a preset."""
@@ -547,6 +553,10 @@ class BatteryLoadPanel(QWidget):
 
     def _start_test(self):
         """Start the stepped load test."""
+        # Update filename if autosave is enabled
+        if self.autosave_checkbox.isChecked():
+            self._update_filename()
+
         # Get test parameters (connection check will happen in main_window)
         load_type = self.load_type_combo.currentText()
         min_val = self.min_spin.value()
@@ -716,16 +726,41 @@ class BatteryLoadPanel(QWidget):
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
 
     def generate_test_filename(self) -> str:
-        """Generate a test filename based on battery info and test conditions."""
+        """Generate a test filename based on battery info and test conditions.
+
+        Format: BatteryLoad_{Manufacturer}_{BatteryName}_{LoadType}_{MinValue}-{MaxValue}_{NumSteps}-steps_{Timestamp}.json
+        Example: BatteryLoad_Canon_LP-E6_Current_0.5-3.0A_10-steps_20260210_143022.json
+        """
         import datetime
+        manufacturer = self.battery_info_widget.manufacturer_edit.text().strip() or "Unknown"
         battery_name = self.battery_info_widget.battery_name_edit.text().strip()
         if not battery_name:
             battery_name = "Battery"
-        # Replace spaces and special chars with underscores
-        safe_name = "".join(c if c.isalnum() else "_" for c in battery_name)
+        # Sanitize manufacturer and battery name
+        safe_manufacturer = "".join(c if c.isalnum() or c in "-" else "-" for c in manufacturer).strip("-")
+        safe_name = "".join(c if c.isalnum() or c in "-" else "-" for c in battery_name).strip("-")
+
         load_type = self.load_type_combo.currentText()
+        min_value = self.min_spin.value()
+        max_value = self.max_spin.value()
+        num_steps = self.num_steps_spin.value()
+
+        # Get unit for load type
+        unit_map = {"Current": "A", "Power": "W", "Resistance": "ohm"}
+        unit = unit_map.get(load_type, "")
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"{safe_name}_{load_type}_{timestamp}.json"
+
+        parts = [
+            "BatteryLoad",
+            safe_name,
+            load_type,
+            f"{min_value}-{max_value}{unit}",
+            f"{num_steps}-steps",
+            timestamp,
+        ]
+
+        return "_".join(parts) + ".json"
 
     def _update_filename(self):
         """Update the filename field with auto-generated name."""
@@ -811,6 +846,7 @@ class BatteryLoadPanel(QWidget):
 
         # Battery Info fields (via widget signal)
         self.battery_info_widget.settings_changed.connect(self._on_settings_changed)
+        self.battery_info_widget.settings_changed.connect(lambda: self._update_filename())
 
         # Auto Save checkbox
         self.autosave_checkbox.toggled.connect(self._on_settings_changed)

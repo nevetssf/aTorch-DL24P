@@ -203,6 +203,7 @@ class PlotPanel(QWidget):
             # Checkbox to enable axis
             cb = QCheckBox(f"{slot}:")
             cb.setChecked(slot == "Y")  # Only Y enabled by default
+            cb.setToolTip(f"Enable {slot} axis for plotting additional parameters")
             cb.toggled.connect(lambda checked, s=slot: self._on_axis_enabled_changed(s, checked))
             controls.addWidget(cb)
             self._axis_checkboxes[slot] = cb
@@ -216,6 +217,7 @@ class PlotPanel(QWidget):
                 dropdown.setCurrentText("Current")
             else:
                 dropdown.setCurrentText("Voltage")  # Default to Voltage for disabled axes
+            dropdown.setToolTip(f"Select parameter to plot on {slot} axis")
             dropdown.currentTextChanged.connect(lambda text, s=slot: self._on_axis_selection_changed(s, text))
             dropdown.setEnabled(cb.isChecked())
             controls.addWidget(dropdown)
@@ -234,6 +236,7 @@ class PlotPanel(QWidget):
         x_axis_options = ["Time"] + [name for name, _, _ in self.SERIES_CONFIG]
         self.x_axis_combo.addItems(x_axis_options)
         self.x_axis_combo.setCurrentText("Time")
+        self.x_axis_combo.setToolTip("Select X-axis parameter (Time for time-series, or other for characteristic curves)")
         self.x_axis_combo.currentTextChanged.connect(self._on_x_axis_changed)
         controls.addWidget(self.x_axis_combo)
 
@@ -254,6 +257,7 @@ class PlotPanel(QWidget):
             "24h",
         ])
         self.time_window_combo.setCurrentText("Full")
+        self.time_window_combo.setToolTip("Time window to display (Full shows all data)")
         self.time_window_combo.currentTextChanged.connect(self._on_time_window_changed)
         controls.addWidget(self.time_window_combo)
 

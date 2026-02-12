@@ -773,16 +773,43 @@ class ChargerPanel(QWidget):
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
 
     def generate_test_filename(self) -> str:
-        """Generate a test filename based on charger info and test conditions."""
+        """Generate a test filename based on charger info and test conditions.
+
+        Format: WallCharger_{Manufacturer}_{ChargerName}_{LoadType}_{MinValue}-{MaxValue}_{NumSteps}-steps_{Timestamp}.json
+        Example: WallCharger_Apple_20W_Current_0.5-3.0A_5-steps_20260210_143022.json
+        """
         import datetime
+        manufacturer = self.charger_manufacturer_edit.text().strip() or "Unknown"
+        safe_manufacturer = "".join(c if c.isalnum() or c in "-" else "-" for c in manufacturer).strip("-")
+
         charger_name = self.charger_name_edit.text().strip()
         if not charger_name:
             charger_name = "Charger"
-        # Replace spaces and special chars with underscores
-        safe_name = "".join(c if c.isalnum() else "_" for c in charger_name)
+        # Sanitize charger name
+        safe_name = "".join(c if c.isalnum() or c in "-" else "-" for c in charger_name).strip("-")
+
         load_type = self.load_type_combo.currentText()
+        min_value = self.min_spin.value()
+        max_value = self.max_spin.value()
+        num_steps = self.num_steps_spin.value()
+
+        # Get unit for load type
+        unit_map = {"Current": "A", "Power": "W", "Resistance": "ohm"}
+        unit = unit_map.get(load_type, "")
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"{safe_name}_{load_type}_{timestamp}.json"
+
+        parts = [
+            "WallCharger",
+            safe_manufacturer,
+            safe_name,
+            load_type,
+            f"{min_value}-{max_value}{unit}",
+            f"{num_steps}-steps",
+            timestamp,
+        ]
+
+        return "_".join(parts) + ".json"
 
     def _update_filename(self):
         """Update the filename field with auto-generated name."""
@@ -877,6 +904,9 @@ class ChargerPanel(QWidget):
         self.gan_checkbox.toggled.connect(self._on_settings_changed)
         self.charger_notes_edit.textChanged.connect(self._on_settings_changed)
         self.charger_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
+
+        # Filename update for manufacturer field
+        self.charger_manufacturer_edit.textChanged.connect(self._update_filename)
 
         # Auto Save checkbox
         self.autosave_checkbox.toggled.connect(self._on_settings_changed)

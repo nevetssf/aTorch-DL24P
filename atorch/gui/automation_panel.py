@@ -49,6 +49,8 @@ class AutomationPanel(QWidget):
     apply_settings_requested = Signal(int, float, float, int)
     # Signal emitted when manual Save is clicked (filename)
     manual_save_requested = Signal(str)
+    # Signal emitted when battery info changes (for syncing with battery load panel)
+    battery_info_changed = Signal()
     # Signal emitted when session is loaded from file (readings list)
     session_loaded = Signal(list)  # List of reading dicts
     # Signal emitted when Export CSV is clicked
@@ -96,22 +98,25 @@ class AutomationPanel(QWidget):
 
         # Left: Test configuration
         config_group = QGroupBox("Test Conditions")
-        config_group.setMaximumWidth(320)
+        config_group.setFixedWidth(350)
         config_layout = QVBoxLayout(config_group)
 
         # Test presets row (at top)
         test_presets_layout = QHBoxLayout()
         test_presets_layout.addWidget(QLabel("Presets"))
         self.test_presets_combo = QComboBox()
+        self.test_presets_combo.setToolTip("Load saved test configuration presets")
         test_presets_layout.addWidget(self.test_presets_combo, 1)
         self.test_presets_combo.currentIndexChanged.connect(self._on_test_preset_selected)
         self.save_test_preset_btn = QPushButton("Save")
         self.save_test_preset_btn.setMaximumWidth(50)
+        self.save_test_preset_btn.setToolTip("Save current test configuration as preset")
         self.save_test_preset_btn.clicked.connect(self._save_test_preset)
         test_presets_layout.addWidget(self.save_test_preset_btn)
         self.delete_test_preset_btn = QPushButton("Delete")
         self.delete_test_preset_btn.setMaximumWidth(50)
         self.delete_test_preset_btn.setEnabled(False)
+        self.delete_test_preset_btn.setToolTip("Delete selected test preset")
         self.delete_test_preset_btn.clicked.connect(self._delete_test_preset)
         test_presets_layout.addWidget(self.delete_test_preset_btn)
         config_layout.addLayout(test_presets_layout)
@@ -141,6 +146,7 @@ class AutomationPanel(QWidget):
         self.value_spin.setDecimals(3)
         self.value_spin.setSingleStep(0.1)
         self.value_spin.setValue(0.5)
+        self.value_spin.setToolTip("Discharge value (current/power/resistance depending on type)")
         self.value_spin.valueChanged.connect(self._on_filename_field_changed)
         self.value_label = QLabel("Current (A)")
         self.value_label.setMinimumWidth(85)  # Fixed width to prevent layout jumping
@@ -152,6 +158,8 @@ class AutomationPanel(QWidget):
         self.cutoff_spin.setDecimals(2)
         self.cutoff_spin.setSingleStep(0.1)
         self.cutoff_spin.setValue(3.0)
+        self.cutoff_spin.setToolTip("Stop test when battery voltage drops below this value")
+        self.cutoff_spin.valueChanged.connect(self._on_filename_field_changed)
         self.params_form.addRow("V Cutoff", self.cutoff_spin)
 
         # Time Limit (optional duration limit)
@@ -167,6 +175,7 @@ class AutomationPanel(QWidget):
         self.hours_spin.setValue(1)
         self.hours_spin.setSuffix("h")
         self.hours_spin.setEnabled(False)
+        self.hours_spin.setToolTip("Maximum test duration in hours")
         time_limit_layout.addWidget(self.hours_spin)
 
         self.minutes_spin = QSpinBox()
@@ -174,6 +183,7 @@ class AutomationPanel(QWidget):
         self.minutes_spin.setValue(0)
         self.minutes_spin.setSuffix("m")
         self.minutes_spin.setEnabled(False)
+        self.minutes_spin.setToolTip("Maximum test duration in minutes")
         time_limit_layout.addWidget(self.minutes_spin)
 
         # Keep duration_spin for backwards compatibility with existing code
@@ -188,6 +198,7 @@ class AutomationPanel(QWidget):
 
         # Apply button
         self.apply_btn = QPushButton("Apply")
+        self.apply_btn.setToolTip("Apply test settings to device without starting test")
         self.apply_btn.clicked.connect(self._on_apply_clicked)
         params_panel_layout.addWidget(self.apply_btn)
 
@@ -209,15 +220,18 @@ class AutomationPanel(QWidget):
         presets_layout.addWidget(QLabel("Presets"))
         self.presets_combo = QComboBox()
         self.presets_combo.setSizePolicy(self.presets_combo.sizePolicy().horizontalPolicy(), self.presets_combo.sizePolicy().verticalPolicy())
+        self.presets_combo.setToolTip("Load saved battery specifications")
         presets_layout.addWidget(self.presets_combo, 1)  # Stretch to fill available space
         self.presets_combo.currentIndexChanged.connect(self._on_preset_selected)
         self.save_preset_btn = QPushButton("Save")
         self.save_preset_btn.setMaximumWidth(50)
+        self.save_preset_btn.setToolTip("Save current battery info as preset")
         self.save_preset_btn.clicked.connect(self._save_battery_preset)
         presets_layout.addWidget(self.save_preset_btn)
         self.delete_preset_btn = QPushButton("Delete")
         self.delete_preset_btn.setMaximumWidth(50)
         self.delete_preset_btn.setEnabled(False)  # Disabled until a user preset is selected
+        self.delete_preset_btn.setToolTip("Delete selected battery preset")
         self.delete_preset_btn.clicked.connect(self._delete_battery_preset)
         presets_layout.addWidget(self.delete_preset_btn)
         info_main_layout.addLayout(presets_layout)
@@ -229,15 +243,18 @@ class AutomationPanel(QWidget):
 
         self.battery_name_edit = QLineEdit()
         self.battery_name_edit.setPlaceholderText("e.g., INR18650-30Q")
+        self.battery_name_edit.setToolTip("Battery model name or designation")
         self.battery_name_edit.textChanged.connect(self._on_filename_field_changed)
         info_layout.addRow("Name", self.battery_name_edit)
 
         self.manufacturer_edit = QLineEdit()
         self.manufacturer_edit.setPlaceholderText("e.g., Samsung, LG, Panasonic")
+        self.manufacturer_edit.setToolTip("Battery manufacturer")
         info_layout.addRow("Manufacturer", self.manufacturer_edit)
 
         self.oem_equiv_edit = QLineEdit()
         self.oem_equiv_edit.setPlaceholderText("e.g., 30Q, VTC6")
+        self.oem_equiv_edit.setToolTip("OEM equivalent model name")
         info_layout.addRow("OEM Equivalent", self.oem_equiv_edit)
 
         voltage_tech_layout = QHBoxLayout()
@@ -246,6 +263,7 @@ class AutomationPanel(QWidget):
         self.rated_voltage_spin.setDecimals(2)
         self.rated_voltage_spin.setValue(3.7)
         self.rated_voltage_spin.setSuffix(" V")
+        self.rated_voltage_spin.setToolTip("Rated/nominal voltage (e.g., 3.7V for Li-Ion, 1.2V for NiMH)")
         voltage_tech_layout.addWidget(self.rated_voltage_spin)
 
         self.technology_combo = QComboBox()
@@ -259,6 +277,7 @@ class AutomationPanel(QWidget):
         self.nominal_capacity_spin.setRange(0, 100000)
         self.nominal_capacity_spin.setValue(3000)
         self.nominal_capacity_spin.setSuffix(" mAh")
+        self.nominal_capacity_spin.setToolTip("Manufacturer's rated capacity in mAh")
         capacity_layout.addWidget(self.nominal_capacity_spin)
 
         self.nominal_energy_spin = QDoubleSpinBox()
@@ -266,6 +285,7 @@ class AutomationPanel(QWidget):
         self.nominal_energy_spin.setDecimals(2)
         self.nominal_energy_spin.setValue(11.1)
         self.nominal_energy_spin.setSuffix(" Wh")
+        self.nominal_energy_spin.setToolTip("Manufacturer's rated energy in Wh")
         capacity_layout.addWidget(self.nominal_energy_spin)
         info_layout.addRow("Capacity (Nom)", capacity_layout)
 
@@ -278,11 +298,13 @@ class AutomationPanel(QWidget):
 
         self.serial_number_edit = QLineEdit()
         self.serial_number_edit.setPlaceholderText("e.g., SN123456")
+        self.serial_number_edit.setToolTip("Serial number or batch code for tracking individual cells")
         instance_layout.addRow("Serial Number", self.serial_number_edit)
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setMaximumHeight(50)
         self.notes_edit.setPlaceholderText("Test notes...")
+        self.notes_edit.setToolTip("Additional notes about the battery or test conditions")
         instance_layout.addRow("Notes", self.notes_edit)
 
         info_main_layout.addWidget(instance_group)
@@ -297,6 +319,7 @@ class AutomationPanel(QWidget):
 
         # Start/Abort button
         self.start_btn = QPushButton("Start")
+        self.start_btn.setToolTip("Start capacity test - applies settings and begins discharge")
         self.start_btn.clicked.connect(self._on_start_clicked)
         control_layout.addWidget(self.start_btn)
 
@@ -379,22 +402,27 @@ class AutomationPanel(QWidget):
         autosave_layout = QHBoxLayout()
         self.autosave_checkbox = QCheckBox("Auto Save")
         self.autosave_checkbox.setChecked(True)
+        self.autosave_checkbox.setToolTip("Automatically save test data when test completes")
         self.autosave_checkbox.toggled.connect(self._on_autosave_toggled)
         autosave_layout.addWidget(self.autosave_checkbox)
         self.save_btn = QPushButton("Save")
         self.save_btn.setMaximumWidth(50)
+        self.save_btn.setToolTip("Manually save test data to JSON file")
         self.save_btn.clicked.connect(self._on_save_clicked)
         autosave_layout.addWidget(self.save_btn)
         self.load_btn = QPushButton("Load")
         self.load_btn.setMaximumWidth(50)
+        self.load_btn.setToolTip("Load previous test data from JSON file")
         self.load_btn.clicked.connect(self._on_load_clicked)
         autosave_layout.addWidget(self.load_btn)
         self.export_btn = QPushButton("Export")
         self.export_btn.setMaximumWidth(60)
+        self.export_btn.setToolTip("Export test data to CSV file")
         self.export_btn.clicked.connect(self._on_export_clicked)
         autosave_layout.addWidget(self.export_btn)
         self.show_folder_btn = QPushButton("Show Folder")
         self.show_folder_btn.setMaximumWidth(80)
+        self.show_folder_btn.setToolTip("Open folder containing saved test data files")
         self.show_folder_btn.clicked.connect(self._on_show_folder_clicked)
         autosave_layout.addWidget(self.show_folder_btn)
         control_layout.addLayout(autosave_layout)
@@ -989,6 +1017,9 @@ class AutomationPanel(QWidget):
         if tech_index >= 0:
             self.technology_combo.setCurrentIndex(tech_index)
 
+        # Emit signal to trigger sync to battery load panel
+        self.battery_info_changed.emit()
+
     @Slot()
     def _save_battery_preset(self) -> None:
         """Save current battery info as a preset."""
@@ -1267,34 +1298,40 @@ class AutomationPanel(QWidget):
     def generate_test_filename(self) -> str:
         """Generate a cross-platform compatible filename for test data.
 
-        Format: BatteryName_DischargeType_Value_YYYYMMDD_HHMMSS.json
-        Example: Canon_LP-E6NH_CC_0.5A_20260209_093000.json
+        Format: BatteryCapacity_{Manufacturer}_{BatteryName}_{DischargeType}_{Value}_{Cutoff}V_{YYYYMMDD_HHMMSS}.json
+        Example: BatteryCapacity_Canon_LP-E6NH_CC_0.5A_3.0V-cutoff_20260209_093000.json
 
         Returns:
             Filename string (without path)
         """
+        manufacturer = self.manufacturer_edit.text().strip() or "Unknown"
         battery_name = self.battery_name_edit.text().strip() or "Unknown"
         type_names = ["CC", "CP", "CR"]
         type_units = ["A", "W", "ohm"]
         discharge_type = self.type_combo.currentIndex()
         value = self.value_spin.value()
+        cutoff = self.cutoff_spin.value()
 
         # Create timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        # Sanitize manufacturer and battery name
+        safe_manufacturer = "".join(c if c.isalnum() or c in "-" else "-" for c in manufacturer).strip("-")
+        safe_battery_name = "".join(c if c.isalnum() or c in "-" else "-" for c in battery_name).strip("-")
+
         # Build filename parts
         parts = [
-            battery_name,
+            "BatteryCapacity",
+            safe_manufacturer,
+            safe_battery_name,
             type_names[discharge_type],
             f"{value}{type_units[discharge_type]}",
+            f"{cutoff}V-cutoff",
             timestamp,
         ]
 
-        # Join and sanitize (allow alphanumeric, spaces, hyphens, underscores, periods)
         filename = "_".join(parts)
-        safe_filename = "".join(c for c in filename if c.isalnum() or c in " -_.").strip()
-
-        return f"{safe_filename}.json"
+        return f"{filename}.json"
 
     # Session persistence methods
 
@@ -1431,3 +1468,56 @@ class AutomationPanel(QWidget):
             self._loading_settings = False
             # Update filename after loading settings
             self._update_filename()
+
+    def get_battery_info(self) -> dict:
+        """Get battery info as a dictionary (compatible with BatteryInfoWidget format)."""
+        return {
+            "name": self.battery_name_edit.text(),
+            "manufacturer": self.manufacturer_edit.text(),
+            "oem_equivalent": self.oem_equiv_edit.text(),
+            "serial_number": self.serial_number_edit.text(),
+            "rated_voltage": self.rated_voltage_spin.value(),
+            "technology": self.technology_combo.currentText(),
+            "nominal_capacity_mah": self.nominal_capacity_spin.value(),
+            "nominal_energy_wh": self.nominal_energy_spin.value(),
+            "notes": self.notes_edit.toPlainText(),
+        }
+
+    def set_battery_info(self, info: dict):
+        """Set battery info from a dictionary (compatible with BatteryInfoWidget format).
+
+        Args:
+            info: Dictionary containing battery information
+        """
+        # Set loading flag to prevent triggering save/update signals
+        was_loading = self._loading_settings
+        self._loading_settings = True
+
+        try:
+            if "name" in info:
+                self.battery_name_edit.setText(info["name"])
+            if "manufacturer" in info:
+                self.manufacturer_edit.setText(info["manufacturer"])
+            if "oem_equivalent" in info:
+                self.oem_equiv_edit.setText(info["oem_equivalent"])
+            if "serial_number" in info:
+                self.serial_number_edit.setText(info["serial_number"])
+            if "rated_voltage" in info:
+                self.rated_voltage_spin.setValue(info["rated_voltage"])
+            if "technology" in info:
+                index = self.technology_combo.findText(info["technology"])
+                if index >= 0:
+                    self.technology_combo.setCurrentIndex(index)
+            # Handle both formats for backwards compatibility
+            if "nominal_capacity_mah" in info:
+                self.nominal_capacity_spin.setValue(info["nominal_capacity_mah"])
+            elif "nominal_capacity" in info:
+                self.nominal_capacity_spin.setValue(info["nominal_capacity"])
+            if "nominal_energy_wh" in info:
+                self.nominal_energy_spin.setValue(info["nominal_energy_wh"])
+            elif "nominal_energy" in info:
+                self.nominal_energy_spin.setValue(info["nominal_energy"])
+            if "notes" in info:
+                self.notes_edit.setPlainText(info["notes"])
+        finally:
+            self._loading_settings = was_loading

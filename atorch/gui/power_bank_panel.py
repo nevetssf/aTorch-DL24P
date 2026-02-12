@@ -94,7 +94,7 @@ class PowerBankPanel(QWidget):
 
         # Left: Test configuration
         config_group = QGroupBox("Test Conditions")
-        config_group.setMaximumWidth(320)
+        config_group.setFixedWidth(350)
         config_layout = QVBoxLayout(config_group)
 
         # Test presets row (at top)
@@ -1093,17 +1093,34 @@ class PowerBankPanel(QWidget):
         }
 
     def generate_test_filename(self) -> str:
-        """Generate filename for test data."""
+        """Generate filename for test data.
+
+        Format: PowerBank_{Manufacturer}_{PowerBankName}_{OutputV}_{CurrentA}_{CutoffV}_{Timestamp}.json
+        Example: PowerBank_Anker_10000mAh_5V_2.0A_3.0V-cutoff_20260210_143022.json
+        """
+        manufacturer = self.manufacturer_edit.text().strip() or "Unknown"
+        safe_manufacturer = "".join(c if c.isalnum() or c in "-" else "-" for c in manufacturer).strip("-")
+
         name = self.power_bank_name_edit.text().strip() or "Unknown"
+        # Sanitize power bank name
+        safe_name = "".join(c if c.isalnum() or c in "-" else "-" for c in name).strip("-")
+
         voltage_text = self.output_voltage_combo.currentText().split()[0]  # "5V", "9V", etc.
         current = self.current_spin.value()
+        cutoff = self.cutoff_spin.value()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        parts = [name, voltage_text, f"{current}A", timestamp]
-        filename = "_".join(parts)
-        safe_filename = "".join(c for c in filename if c.isalnum() or c in " -_.").strip()
+        parts = [
+            "PowerBank",
+            safe_manufacturer,
+            safe_name,
+            voltage_text,
+            f"{current}A",
+            f"{cutoff}V-cutoff",
+            timestamp,
+        ]
 
-        return f"{safe_filename}.json"
+        return "_".join(parts) + ".json"
 
     # Session persistence
 
@@ -1131,6 +1148,9 @@ class PowerBankPanel(QWidget):
         self.quick_charge_checkbox.toggled.connect(self._on_settings_changed)
         self.notes_edit.textChanged.connect(self._on_settings_changed)
         self.presets_combo.currentIndexChanged.connect(self._on_settings_changed)
+
+        # Filename update for manufacturer field
+        self.manufacturer_edit.textChanged.connect(self._on_filename_field_changed)
 
         self.autosave_checkbox.toggled.connect(self._on_settings_changed)
 

@@ -104,6 +104,7 @@ class CableResistancePanel(QWidget):
         self.source_voltage_combo.setEditable(True)
         self.source_voltage_combo.addItems(["5.0", "9.0", "12.0", "15.0", "20.0"])
         self.source_voltage_combo.setCurrentText("5.0")
+        self.source_voltage_combo.currentTextChanged.connect(lambda: self._update_filename())
         params_layout.addRow("Source Voltage (V)", self.source_voltage_combo)
 
         # Min current
@@ -113,6 +114,7 @@ class CableResistancePanel(QWidget):
         self.min_current_spin.setValue(0.5)
         self.min_current_spin.setSingleStep(0.1)
         self.min_current_spin.setSuffix(" A")
+        self.min_current_spin.valueChanged.connect(lambda: self._update_filename())
         params_layout.addRow("Min Current", self.min_current_spin)
 
         # Max current
@@ -122,6 +124,7 @@ class CableResistancePanel(QWidget):
         self.max_current_spin.setValue(3.0)
         self.max_current_spin.setSingleStep(0.1)
         self.max_current_spin.setSuffix(" A")
+        self.max_current_spin.valueChanged.connect(lambda: self._update_filename())
         params_layout.addRow("Max Current", self.max_current_spin)
 
         # Number of steps with preset dropdown
@@ -129,6 +132,7 @@ class CableResistancePanel(QWidget):
         self.num_steps_spin = QSpinBox()
         self.num_steps_spin.setRange(3, 20)
         self.num_steps_spin.setValue(5)
+        self.num_steps_spin.valueChanged.connect(lambda: self._update_filename())
         num_steps_layout.addWidget(self.num_steps_spin)
 
         self.num_steps_preset_combo = QComboBox()
@@ -180,6 +184,7 @@ class CableResistancePanel(QWidget):
 
         self.cable_name_edit = QLineEdit()
         self.cable_name_edit.setPlaceholderText("e.g., Anker PowerLine USB-C")
+        self.cable_name_edit.textChanged.connect(lambda: self._update_filename())
         cable_specs_layout.addRow("Name", self.cable_name_edit)
 
         self.cable_type_combo = QComboBox()
@@ -647,6 +652,10 @@ class CableResistancePanel(QWidget):
 
     def _start_test(self):
         """Start the cable resistance test."""
+        # Update filename if autosave is enabled
+        if self.autosave_checkbox.isChecked():
+            self._update_filename()
+
         # Get test parameters
         try:
             source_voltage = float(self.source_voltage_combo.currentText())
@@ -897,15 +906,38 @@ class CableResistancePanel(QWidget):
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
 
     def generate_test_filename(self) -> str:
-        """Generate a test filename based on cable info and test conditions."""
+        """Generate a test filename based on cable info and test conditions.
+
+        Format: CableResistance_{CableName}_{SourceV}_{MinI}-{MaxI}_{NumSteps}-steps_{Timestamp}.json
+        Example: CableResistance_Anker-PowerLine_5.0V_0.5-3.0A_5-steps_20260210_143022.json
+
+        Note: Cable info doesn't have a dedicated manufacturer field, so manufacturer
+        is typically part of the cable name (e.g., "Anker PowerLine USB-C").
+        """
         import datetime
         cable_name = self.cable_name_edit.text().strip()
         if not cable_name:
             cable_name = "Cable"
-        # Replace spaces and special chars with underscores
-        safe_name = "".join(c if c.isalnum() else "_" for c in cable_name)
+        # Sanitize cable name
+        safe_name = "".join(c if c.isalnum() or c in "-" else "-" for c in cable_name).strip("-")
+
+        source_voltage = float(self.source_voltage_combo.currentText())
+        min_current = self.min_current_spin.value()
+        max_current = self.max_current_spin.value()
+        num_steps = self.num_steps_spin.value()
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"{safe_name}_Resistance_{timestamp}.json"
+
+        parts = [
+            "CableResistance",
+            safe_name,
+            f"{source_voltage}V",
+            f"{min_current}-{max_current}A",
+            f"{num_steps}-steps",
+            timestamp,
+        ]
+
+        return "_".join(parts) + ".json"
 
     def _update_filename(self):
         """Update the filename field with auto-generated name."""
