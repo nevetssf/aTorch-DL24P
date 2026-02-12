@@ -207,9 +207,9 @@ class TestRunner:
                 self._log_reading(status)
 
                 # Check voltage cutoff
-                if status.voltage <= profile.voltage_cutoff and status.load_on:
+                if status.voltage_v <= profile.voltage_cutoff and status.load_on:
                     self._state = TestState.VOLTAGE_CUTOFF
-                    self._update_progress(message=f"Voltage cutoff reached: {status.voltage:.2f}V")
+                    self._update_progress(message=f"Voltage cutoff reached: {status.voltage_v:.2f}V")
                     break
 
                 # Check load turned off (device-side cutoff)
@@ -222,7 +222,7 @@ class TestRunner:
                 elapsed = int(time.time() - start_time)
                 self._update_progress(
                     elapsed_seconds=elapsed,
-                    message=f"{status.voltage:.2f}V @ {status.current:.3f}A",
+                    message=f"{status.voltage_v:.2f}V @ {status.current_a:.3f}A",
                 )
 
                 # Check max duration
@@ -295,7 +295,7 @@ class TestRunner:
                 remaining = max(0, profile.duration_s - elapsed)
                 self._update_progress(
                     elapsed_seconds=elapsed,
-                    message=f"{remaining}s remaining | {status.voltage:.2f}V",
+                    message=f"{remaining}s remaining | {status.voltage_v:.2f}V",
                 )
 
                 if elapsed >= profile.duration_s:
@@ -346,7 +346,7 @@ class TestRunner:
                 if status:
                     self._log_reading(status)
 
-                    if profile.voltage_cutoff and status.voltage <= profile.voltage_cutoff:
+                    if profile.voltage_cutoff and status.voltage_v <= profile.voltage_cutoff:
                         self._state = TestState.VOLTAGE_CUTOFF
                         return
 
@@ -367,14 +367,17 @@ class TestRunner:
         """Log a reading to the database."""
         reading = Reading(
             timestamp=datetime.now(),
-            voltage=status.voltage,
-            current=status.current,
-            power=status.power,
+            voltage_v=status.voltage_v,
+            current_a=status.current_a,
+            power_w=status.power_w,
             energy_wh=status.energy_wh,
             capacity_mah=status.capacity_mah,
-            temperature_c=status.temperature_c,
-            ext_temperature_c=status.ext_temperature_c,
-            runtime_seconds=status.runtime_seconds,
+            mosfet_temp_c=status.mosfet_temp_c,
+            ext_temp_c=status.ext_temp_c,
+            fan_speed_rpm=status.fan_speed_rpm,
+            load_r_ohm=status.load_r_ohm,
+            battery_r_ohm=status.battery_r_ohm,
+            runtime_s=status.runtime_seconds,
         )
 
         if self._session and self._session.id:

@@ -51,16 +51,16 @@ class VoltageAlert(AlertCondition):
         self._triggered = False
 
     def check(self, status: DeviceStatus) -> Optional[AlertResult]:
-        if not self._triggered and status.voltage <= self.threshold:
+        if not self._triggered and status.voltage_v <= self.threshold:
             self._triggered = True
             return AlertResult(
                 triggered=True,
-                message=f"Voltage dropped to {status.voltage:.2f}V (below {self.threshold}V)",
+                message=f"Voltage dropped to {status.voltage_v:.2f}V (below {self.threshold}V)",
                 severity="warning",
             )
 
         # Reset if voltage rises above threshold + hysteresis
-        if self._triggered and status.voltage > self.threshold + self.hysteresis:
+        if self._triggered and status.voltage_v > self.threshold + self.hysteresis:
             self._triggered = False
 
         return None

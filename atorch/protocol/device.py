@@ -468,7 +468,7 @@ class Device:
             # Try to parse as status
             status = AtorchProtocol.parse_status(packet)
             if status:
-                self._debug("PARSE", f"Status: {status.voltage:.2f}V {status.current:.3f}A {status.power:.2f}W Load={'ON' if status.load_on else 'OFF'}")
+                self._debug("PARSE", f"Status: {status.voltage_v:.2f}V {status.current_a:.3f}A {status.power_w:.2f}W Load={'ON' if status.load_on else 'OFF'}")
                 self._last_status = status
                 if self._status_callback:
                     try:
@@ -1085,7 +1085,7 @@ class USBHIDDevice:
                     status = self._parse_live_data(payload, counters)
 
                     self._last_status = status
-                    self._debug("PARSE", f"Status: {status.voltage:.2f}V {status.current:.3f}A T={status.temperature_c}C Load={'ON' if status.load_on else 'OFF'}{' UREG' if status.ureg else ''}")
+                    self._debug("PARSE", f"Status: {status.voltage_v:.2f}V {status.current_a:.3f}A T={status.mosfet_temp_c}C Load={'ON' if status.load_on else 'OFF'}{' UREG' if status.ureg else ''}")
 
                     if self._status_callback:
                         try:

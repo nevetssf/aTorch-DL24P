@@ -2959,7 +2959,7 @@ class MainWindow(QMainWindow):
         if self._logging_enabled:
             elapsed = self.plot_panel.get_elapsed_time()
             self.automation_panel.update_test_progress(elapsed, status.capacity_mah,
-                                                      status.voltage, status.energy_wh)
+                                                      status.voltage_v, status.energy_wh)
 
         # Pulse communication indicator to show data received
         self.control_panel.pulse_comm_indicator()
