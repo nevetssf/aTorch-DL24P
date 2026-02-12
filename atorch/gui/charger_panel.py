@@ -753,12 +753,28 @@ class ChargerPanel(QWidget):
 
         # Update UI
         self.start_btn.setText("Start")
-        # Only update status if not already showing an error
+        self.start_btn.setEnabled(True)  # Re-enable the button
+        self._test_running = False
+
+        # Show status message briefly, then revert to normal status
         if not self.status_label.text().startswith("Error") and not self.status_label.text().startswith("Connection Lost"):
             self.status_label.setText(status)
+            self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+            # After 2 seconds, revert to normal status based on connection state
+            QTimer.singleShot(2000, self._restore_normal_status)
+
         self.progress_bar.setValue(100)
         self._update_test_time()
-        self._test_running = False
+
+    def _restore_normal_status(self):
+        """Restore status label to normal state based on connection."""
+        if not self._test_running:  # Only restore if test is still not running
+            if self._device and self._device.is_connected:
+                self.status_label.setText("Ready")
+                self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            else:
+                self.status_label.setText("Not Connected")
+                self.status_label.setStyleSheet("color: red;")
 
     def set_connected(self, connected: bool):
         """Update UI based on connection status."""

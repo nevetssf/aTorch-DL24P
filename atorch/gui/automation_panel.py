@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
 )
-from PySide6.QtCore import Qt, Slot, Signal
+from PySide6.QtCore import Qt, Slot, Signal, QTimer
 
 from ..automation.test_runner import TestRunner, TestProgress, TestState
 from ..data.database import Database
@@ -519,7 +519,7 @@ class AutomationPanel(QWidget):
         """Handle start/abort button click."""
         if self.start_btn.text() == "Abort":
             # Abort test - this will be handled by main window turning off logging
-            self._update_ui_stopped()
+            self._update_ui_stopped(show_aborted=True)
             # Emit with zeros to signal stop
             self.start_test_requested.emit(0, 0, 0, 0)
         else:
@@ -608,9 +608,24 @@ class AutomationPanel(QWidget):
         self.summary_capacity_item.setText("--")
         self.summary_energy_item.setText("--")
 
-    def _update_ui_stopped(self) -> None:
-        """Update UI for stopped state."""
+    def _update_ui_stopped(self, show_aborted: bool = False) -> None:
+        """Update UI for stopped state.
+
+        Args:
+            show_aborted: If True, show "Aborted" message briefly before reverting to normal status
+        """
         self.start_btn.setText("Start")
+
+        if show_aborted:
+            # Show "Aborted" briefly, then revert to normal status
+            self.status_label.setText("Aborted")
+            self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+            QTimer.singleShot(2000, lambda: self._restore_normal_status())
+        else:
+            self._restore_normal_status()
+
+    def _restore_normal_status(self) -> None:
+        """Restore status label to normal state based on connection."""
         # Only show "Ready" if device is connected
         if self.test_runner and self.test_runner.device and self.test_runner.device.is_connected:
             self.status_label.setText("Ready")
