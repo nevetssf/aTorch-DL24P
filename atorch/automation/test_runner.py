@@ -397,13 +397,7 @@ class TestRunner:
 
     def _finish_test(self) -> None:
         """Clean up after test completion."""
-        # Turn off load
-        try:
-            self.device.turn_off()
-        except Exception:
-            pass
-
-        # Update session
+        # Stop logging first - update session and trigger callbacks
         if self._session:
             self._session.end_time = datetime.now()
             self.database.update_session(self._session)
@@ -413,6 +407,12 @@ class TestRunner:
                     self._complete_callback(self._session)
                 except Exception:
                     pass
+
+        # Then turn off load
+        try:
+            self.device.turn_off()
+        except Exception:
+            pass
 
         if self._state not in (TestState.COMPLETED, TestState.VOLTAGE_CUTOFF, TestState.TIMEOUT, TestState.ERROR):
             self._state = TestState.COMPLETED
