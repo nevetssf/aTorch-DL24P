@@ -63,6 +63,9 @@ class Database:
                 capacity_mah REAL NOT NULL,
                 temperature_c INTEGER NOT NULL,
                 ext_temperature_c INTEGER,
+                fan_speed_rpm INTEGER DEFAULT 0,
+                load_r_ohm REAL,
+                battery_r_ohm REAL,
                 runtime_seconds INTEGER NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions (id)
             )
@@ -162,8 +165,9 @@ class Database:
             """
             INSERT INTO readings
             (session_id, timestamp, voltage, current, power, energy_wh,
-             capacity_mah, temperature_c, ext_temperature_c, runtime_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             capacity_mah, temperature_c, ext_temperature_c, fan_speed_rpm,
+             load_r_ohm, battery_r_ohm, runtime_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -175,6 +179,9 @@ class Database:
                 reading.capacity_mah,
                 reading.mosfet_temp_c,   # Map new attribute to old column name
                 reading.ext_temp_c,      # Map new attribute to old column name
+                reading.fan_speed_rpm,
+                reading.load_r_ohm,
+                reading.battery_r_ohm,
                 reading.runtime_s,       # Map new attribute to old column name
             ),
         )
@@ -201,8 +208,9 @@ class Database:
             """
             INSERT INTO readings
             (session_id, timestamp, voltage, current, power, energy_wh,
-             capacity_mah, temperature_c, ext_temperature_c, runtime_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             capacity_mah, temperature_c, ext_temperature_c, fan_speed_rpm,
+             load_r_ohm, battery_r_ohm, runtime_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -215,6 +223,9 @@ class Database:
                     r.capacity_mah,
                     r.mosfet_temp_c,   # Map new attribute to old column name
                     r.ext_temp_c,      # Map new attribute to old column name
+                    r.fan_speed_rpm,
+                    r.load_r_ohm,
+                    r.battery_r_ohm,
                     r.runtime_s,       # Map new attribute to old column name
                 )
                 for r in readings
@@ -275,6 +286,9 @@ class Database:
                     capacity_mah=row["capacity_mah"],
                     mosfet_temp_c=row["temperature_c"],  # Map old column to new attribute
                     ext_temp_c=row["ext_temperature_c"] or 0,  # Map old column to new attribute
+                    fan_speed_rpm=row["fan_speed_rpm"] if "fan_speed_rpm" in row.keys() else 0,
+                    load_r_ohm=row["load_r_ohm"] if "load_r_ohm" in row.keys() else None,
+                    battery_r_ohm=row["battery_r_ohm"] if "battery_r_ohm" in row.keys() else None,
                     runtime_s=row["runtime_seconds"], # Map old column to new attribute
                 )
             )
