@@ -706,6 +706,7 @@ class BatteryLoadPanel(QWidget):
 
         # Update UI
         self.start_btn.setText("Start")
+        self.start_btn.setEnabled(True)  # Re-enable the button
         # Only update status if not already showing an error
         if not self.status_label.text().startswith("Error") and not self.status_label.text().startswith("Connection Lost"):
             self.status_label.setText(status)
