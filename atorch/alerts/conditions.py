@@ -84,7 +84,7 @@ class TemperatureAlert(AlertCondition):
         self._triggered = False
 
     def check(self, status: DeviceStatus) -> Optional[AlertResult]:
-        temp = status.ext_temperature_c if self.use_external else status.temperature_c
+        temp = status.ext_temp_c if self.use_external else status.mosfet_temp_c
 
         if not self._triggered and temp >= self.threshold:
             self._triggered = True
