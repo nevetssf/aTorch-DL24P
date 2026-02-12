@@ -630,13 +630,20 @@ class BatteryLoadPanel(QWidget):
         self._test_timer.stop()
 
         # Turn off load
-        if self._device:
+        load_turned_off = False
+        if self._device and self._device.is_connected:
             try:
-                self._device.turn_off()
-            except Exception:
-                pass  # Ignore errors during abort
+                load_turned_off = self._device.turn_off()
+                if not load_turned_off:
+                    print("Warning: device.turn_off() returned False")
+            except Exception as e:
+                print(f"Error turning off load during abort: {e}")
 
-        self._finish_test()
+        # Always finish the test, even if turn_off failed
+        status = "Test Aborted"
+        if not load_turned_off and self._device and self._device.is_connected:
+            status = "Test Aborted (manually turn off load)"
+        self._finish_test(status)
 
     def _run_test_step(self):
         """Execute one step of the test."""
@@ -707,12 +714,27 @@ class BatteryLoadPanel(QWidget):
         # Update UI
         self.start_btn.setText("Start")
         self.start_btn.setEnabled(True)  # Re-enable the button
-        # Only update status if not already showing an error
+        self._test_running = False
+
+        # Show status message briefly, then revert to normal status
         if not self.status_label.text().startswith("Error") and not self.status_label.text().startswith("Connection Lost"):
             self.status_label.setText(status)
+            self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+            # After 2 seconds, revert to normal status based on connection state
+            QTimer.singleShot(2000, self._restore_normal_status)
+
         self.progress_bar.setValue(100)
         self._update_test_time()
-        self._test_running = False
+
+    def _restore_normal_status(self):
+        """Restore status label to normal state based on connection."""
+        if not self._test_running:  # Only restore if test is still not running
+            if self._device and self._device.is_connected:
+                self.status_label.setText("Ready")
+                self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            else:
+                self.status_label.setText("Not Connected")
+                self.status_label.setStyleSheet("color: red;")
 
     def set_connected(self, connected: bool):
         """Update UI based on connection status."""

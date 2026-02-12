@@ -873,10 +873,10 @@ class MainWindow(QMainWindow):
                 "total_readings": len(readings_data),
                 "start_time": first_reading["timestamp"],
                 "end_time": final_reading["timestamp"],
-                "final_voltage": final_reading["voltage"],
+                "final_voltage": final_reading["voltage_v"],
                 "final_capacity_mah": final_reading["capacity_mah"],
                 "final_energy_wh": final_reading["energy_wh"],
-                "total_runtime_seconds": final_reading["runtime_seconds"],
+                "total_runtime_seconds": final_reading["runtime_s"],
             }
         else:
             summary = {"total_readings": 0}
