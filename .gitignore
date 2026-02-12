@@ -48,5 +48,14 @@ Thumbs.db
 !pyproject.toml
 !resources/**/*.json
 
+# Logs
+*.log
+debug.log
+discharge_time_debug.log
+viewer_*.log
+
+# Build artifacts
+*.spec
+
 # Profiles (user data)
 profiles/
