@@ -54,5 +54,7 @@
   "Ricoh DB-110": {"name": "DB-110", "manufacturer": "Ricoh", "oem_equivalent": "DB-110",
                   "rated_voltage": 3.6, "nominal_capacity": 1350, "nominal_energy": 4.9, "technology": "Li-Ion"},
   "Ricoh DB-65": {"name": "DB-65", "manufacturer": "Ricoh", "oem_equivalent": "DB-65",
-                 "rated_voltage": 3.7, "nominal_capacity": 1100, "nominal_energy": 4.0, "technology": "Li-Ion"}
+                 "rated_voltage": 3.7, "nominal_capacity": 1100, "nominal_energy": 4.0, "technology": "Li-Ion"},
+  "Sigma BP-51": {"name": "BP-51", "manufacturer": "Sigma", "oem_equivalent": "Leica BP-DC12",
+                 "rated_voltage": 7.2, "nominal_capacity": 1200, "nominal_energy": 8.7, "technology": "Li-Ion"}
 }

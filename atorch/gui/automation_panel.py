@@ -33,6 +33,7 @@ from PySide6.QtCore import Qt, Slot, Signal
 
 from ..automation.test_runner import TestRunner, TestProgress, TestState
 from ..data.database import Database
+from .battery_info_widget import BatteryInfoWidget
 
 
 class AutomationPanel(QWidget):
@@ -210,105 +211,15 @@ class AutomationPanel(QWidget):
 
         layout.addWidget(config_group)
 
-        # Middle: Battery info
-        info_group = QGroupBox("Battery Info")
-        info_group.setFixedWidth(350)
-        info_main_layout = QVBoxLayout(info_group)
-
-        # Presets row
-        presets_layout = QHBoxLayout()
-        presets_layout.addWidget(QLabel("Presets"))
-        self.presets_combo = QComboBox()
-        self.presets_combo.setSizePolicy(self.presets_combo.sizePolicy().horizontalPolicy(), self.presets_combo.sizePolicy().verticalPolicy())
-        self.presets_combo.setToolTip("Load saved battery specifications")
-        presets_layout.addWidget(self.presets_combo, 1)  # Stretch to fill available space
-        self.presets_combo.currentIndexChanged.connect(self._on_preset_selected)
-        self.save_preset_btn = QPushButton("Save")
-        self.save_preset_btn.setMaximumWidth(50)
-        self.save_preset_btn.setToolTip("Save current battery info as preset")
-        self.save_preset_btn.clicked.connect(self._save_battery_preset)
-        presets_layout.addWidget(self.save_preset_btn)
-        self.delete_preset_btn = QPushButton("Delete")
-        self.delete_preset_btn.setMaximumWidth(50)
-        self.delete_preset_btn.setEnabled(False)  # Disabled until a user preset is selected
-        self.delete_preset_btn.setToolTip("Delete selected battery preset")
-        self.delete_preset_btn.clicked.connect(self._delete_battery_preset)
-        presets_layout.addWidget(self.delete_preset_btn)
-        info_main_layout.addLayout(presets_layout)
-
-        # Sub-panel for battery specs (outlined, no label)
-        specs_group = QGroupBox()
-        info_layout = QFormLayout(specs_group)
-        info_layout.setContentsMargins(6, 6, 6, 6)
-
-        self.battery_name_edit = QLineEdit()
-        self.battery_name_edit.setPlaceholderText("e.g., INR18650-30Q")
-        self.battery_name_edit.setToolTip("Battery model name or designation")
-        self.battery_name_edit.textChanged.connect(self._on_filename_field_changed)
-        info_layout.addRow("Name", self.battery_name_edit)
-
-        self.manufacturer_edit = QLineEdit()
-        self.manufacturer_edit.setPlaceholderText("e.g., Samsung, LG, Panasonic")
-        self.manufacturer_edit.setToolTip("Battery manufacturer")
-        info_layout.addRow("Manufacturer", self.manufacturer_edit)
-
-        self.oem_equiv_edit = QLineEdit()
-        self.oem_equiv_edit.setPlaceholderText("e.g., 30Q, VTC6")
-        self.oem_equiv_edit.setToolTip("OEM equivalent model name")
-        info_layout.addRow("OEM Equivalent", self.oem_equiv_edit)
-
-        voltage_tech_layout = QHBoxLayout()
-        self.rated_voltage_spin = QDoubleSpinBox()
-        self.rated_voltage_spin.setRange(0.0, 100.0)
-        self.rated_voltage_spin.setDecimals(2)
-        self.rated_voltage_spin.setValue(3.7)
-        self.rated_voltage_spin.setSuffix(" V")
-        self.rated_voltage_spin.setToolTip("Rated/nominal voltage (e.g., 3.7V for Li-Ion, 1.2V for NiMH)")
-        voltage_tech_layout.addWidget(self.rated_voltage_spin)
-
-        self.technology_combo = QComboBox()
-        self.technology_combo.addItems(["Li-Ion", "LiPo", "NiMH", "NiCd", "LiFePO4", "Lead Acid"])
-        self.technology_combo.setToolTip("Battery chemistry/technology")
-        voltage_tech_layout.addWidget(self.technology_combo)
-        info_layout.addRow("Rated Voltage", voltage_tech_layout)
-
-        capacity_layout = QHBoxLayout()
-        self.nominal_capacity_spin = QSpinBox()
-        self.nominal_capacity_spin.setRange(0, 100000)
-        self.nominal_capacity_spin.setValue(3000)
-        self.nominal_capacity_spin.setSuffix(" mAh")
-        self.nominal_capacity_spin.setToolTip("Manufacturer's rated capacity in mAh")
-        capacity_layout.addWidget(self.nominal_capacity_spin)
-
-        self.nominal_energy_spin = QDoubleSpinBox()
-        self.nominal_energy_spin.setRange(0.0, 1000.0)
-        self.nominal_energy_spin.setDecimals(2)
-        self.nominal_energy_spin.setValue(11.1)
-        self.nominal_energy_spin.setSuffix(" Wh")
-        self.nominal_energy_spin.setToolTip("Manufacturer's rated energy in Wh")
-        capacity_layout.addWidget(self.nominal_energy_spin)
-        info_layout.addRow("Capacity (Nom)", capacity_layout)
-
-        info_main_layout.addWidget(specs_group)
-
-        # Sub-panel for Serial Number and Notes (outlined, no label)
-        instance_group = QGroupBox()
-        instance_layout = QFormLayout(instance_group)
-        instance_layout.setContentsMargins(6, 6, 6, 6)
-
-        self.serial_number_edit = QLineEdit()
-        self.serial_number_edit.setPlaceholderText("e.g., SN123456")
-        self.serial_number_edit.setToolTip("Serial number or batch code for tracking individual cells")
-        instance_layout.addRow("Serial Number", self.serial_number_edit)
-
-        self.notes_edit = QTextEdit()
-        self.notes_edit.setMaximumHeight(50)
-        self.notes_edit.setPlaceholderText("Test notes...")
-        self.notes_edit.setToolTip("Additional notes about the battery or test conditions")
-        instance_layout.addRow("Notes", self.notes_edit)
-
-        info_main_layout.addWidget(instance_group)
-        layout.addWidget(info_group)
+        # Middle: Battery info (using shared widget)
+        self.battery_info_widget = BatteryInfoWidget("Battery Info", 350)
+        self.battery_info_widget.settings_changed.connect(self._on_battery_info_changed)
+        self.battery_info_widget.settings_changed.connect(self._on_filename_field_changed)
+        # Connect preset controls
+        self.battery_info_widget.presets_combo.currentIndexChanged.connect(self._on_preset_selected)
+        self.battery_info_widget.save_preset_btn.clicked.connect(self._save_battery_preset)
+        self.battery_info_widget.delete_preset_btn.clicked.connect(self._delete_battery_preset)
+        layout.addWidget(self.battery_info_widget)
 
         # Load battery presets into dropdown
         self._load_battery_presets_list()
@@ -525,26 +436,7 @@ class AutomationPanel(QWidget):
 
             # Load battery info
             battery_info = data.get("battery_info", {})
-            if "name" in battery_info:
-                self.battery_name_edit.setText(battery_info["name"])
-            if "manufacturer" in battery_info:
-                self.manufacturer_edit.setText(battery_info["manufacturer"])
-            if "oem_equivalent" in battery_info:
-                self.oem_equiv_edit.setText(battery_info["oem_equivalent"])
-            if "serial_number" in battery_info:
-                self.serial_number_edit.setText(battery_info["serial_number"])
-            if "rated_voltage" in battery_info:
-                self.rated_voltage_spin.setValue(battery_info["rated_voltage"])
-            if "technology" in battery_info:
-                tech_index = self.technology_combo.findText(battery_info["technology"])
-                if tech_index >= 0:
-                    self.technology_combo.setCurrentIndex(tech_index)
-            if "nominal_capacity_mah" in battery_info:
-                self.nominal_capacity_spin.setValue(battery_info["nominal_capacity_mah"])
-            if "nominal_energy_wh" in battery_info:
-                self.nominal_energy_spin.setValue(battery_info["nominal_energy_wh"])
-            if "notes" in battery_info:
-                self.notes_edit.setPlainText(battery_info["notes"])
+            self.battery_info_widget.set_battery_info(battery_info)
 
             # Update filename to show loaded file
             self.filename_edit.setText(Path(file_path).name)
@@ -590,6 +482,12 @@ class AutomationPanel(QWidget):
     def _on_filename_field_changed(self) -> None:
         """Handle changes to fields that affect the filename."""
         self._update_filename()
+
+    @Slot()
+    def _on_battery_info_changed(self) -> None:
+        """Handle battery info changes - emit signal to sync with other panels."""
+        if not self._loading_settings:
+            self.battery_info_changed.emit()
 
     @Slot(int)
     def _on_type_changed(self, index: int) -> None:
@@ -786,7 +684,7 @@ class AutomationPanel(QWidget):
                 return
 
         # Method 2: Use capacity-based progress (nominal capacity / current draw rate)
-        nominal_capacity = self.nominal_capacity_spin.value()
+        nominal_capacity = self.battery_info_widget.nominal_capacity_spin.value()
         if nominal_capacity > 0 and capacity_mah > 0:
             progress = min(100, int(100 * capacity_mah / nominal_capacity))
             self.progress_bar.setValue(progress)
@@ -919,43 +817,43 @@ class AutomationPanel(QWidget):
 
     def _load_battery_presets_list(self) -> None:
         """Load the list of battery presets into the combo box."""
-        self.presets_combo.clear()
-        self.presets_combo.addItem("")  # Empty option
+        self.battery_info_widget.presets_combo.clear()
+        self.battery_info_widget.presets_combo.addItem("")  # Empty option
 
         # Add Camera Presets section
         if self._camera_battery_presets:
-            self.presets_combo.addItem("--- Camera Presets ---")
-            model = self.presets_combo.model()
-            item = model.item(self.presets_combo.count() - 1)
+            self.battery_info_widget.presets_combo.addItem("--- Camera Presets ---")
+            model = self.battery_info_widget.presets_combo.model()
+            item = model.item(self.battery_info_widget.presets_combo.count() - 1)
             item.setEnabled(False)
 
             for preset_name in sorted(self._camera_battery_presets.keys()):
-                self.presets_combo.addItem(preset_name)
+                self.battery_info_widget.presets_combo.addItem(preset_name)
 
         # Add Household Presets section
         if self._household_battery_presets:
-            self.presets_combo.insertSeparator(self.presets_combo.count())
-            self.presets_combo.addItem("--- Household Presets ---")
-            model = self.presets_combo.model()
-            item = model.item(self.presets_combo.count() - 1)
+            self.battery_info_widget.presets_combo.insertSeparator(self.battery_info_widget.presets_combo.count())
+            self.battery_info_widget.presets_combo.addItem("--- Household Presets ---")
+            model = self.battery_info_widget.presets_combo.model()
+            item = model.item(self.battery_info_widget.presets_combo.count() - 1)
             item.setEnabled(False)
 
             for preset_name in sorted(self._household_battery_presets.keys()):
-                self.presets_combo.addItem(preset_name)
+                self.battery_info_widget.presets_combo.addItem(preset_name)
 
         # Get user presets from files
         user_presets = sorted(self._battery_presets_dir.glob("*.json"))
         if user_presets:
             # Add separator and header
-            self.presets_combo.insertSeparator(self.presets_combo.count())
-            self.presets_combo.addItem("--- User Presets ---")
-            model = self.presets_combo.model()
-            item = model.item(self.presets_combo.count() - 1)
+            self.battery_info_widget.presets_combo.insertSeparator(self.battery_info_widget.presets_combo.count())
+            self.battery_info_widget.presets_combo.addItem("--- User Presets ---")
+            model = self.battery_info_widget.presets_combo.model()
+            item = model.item(self.battery_info_widget.presets_combo.count() - 1)
             item.setEnabled(False)
 
             # Add user presets
             for preset_file in user_presets:
-                self.presets_combo.addItem(preset_file.stem)
+                self.battery_info_widget.presets_combo.addItem(preset_file.stem)
 
     def _is_default_battery_preset(self, name: str) -> bool:
         """Check if a battery preset name is a default (read-only) preset."""
@@ -972,17 +870,17 @@ class AutomationPanel(QWidget):
     @Slot(int)
     def _on_preset_selected(self, index: int) -> None:
         """Handle battery preset selection from combo box."""
-        preset_name = self.presets_combo.currentText()
+        preset_name = self.battery_info_widget.presets_combo.currentText()
         if not preset_name or preset_name.startswith("---"):
             # Empty or separator - disable delete
-            self.delete_preset_btn.setEnabled(False)
+            self.battery_info_widget.delete_preset_btn.setEnabled(False)
             return
 
         # Check if this is a default preset
         is_default = self._is_default_battery_preset(preset_name)
 
         # Enable/disable delete button (can't delete defaults)
-        self.delete_preset_btn.setEnabled(not is_default)
+        self.battery_info_widget.delete_preset_btn.setEnabled(not is_default)
 
         if is_default:
             # Load from in-memory defaults
@@ -1003,19 +901,7 @@ class AutomationPanel(QWidget):
                 return
 
         # Apply preset data to UI
-        self.battery_name_edit.setText(data.get("name", ""))
-        self.manufacturer_edit.setText(data.get("manufacturer", ""))
-        self.oem_equiv_edit.setText(data.get("oem_equivalent", ""))
-        self.serial_number_edit.setText(data.get("serial_number", ""))
-        self.rated_voltage_spin.setValue(data.get("rated_voltage", 3.7))
-        self.nominal_capacity_spin.setValue(data.get("nominal_capacity", 3000))
-        self.nominal_energy_spin.setValue(data.get("nominal_energy", 11.1))
-        self.notes_edit.setPlainText(data.get("notes", ""))
-        # Set technology if available
-        technology = data.get("technology", "Li-Ion")
-        tech_index = self.technology_combo.findText(technology)
-        if tech_index >= 0:
-            self.technology_combo.setCurrentIndex(tech_index)
+        self.battery_info_widget.set_battery_info(data)
 
         # Emit signal to trigger sync to battery load panel
         self.battery_info_changed.emit()
@@ -1023,9 +909,12 @@ class AutomationPanel(QWidget):
     @Slot()
     def _save_battery_preset(self) -> None:
         """Save current battery info as a preset."""
+        # Get current battery info
+        battery_info = self.battery_info_widget.get_battery_info()
+
         # Build default name from manufacturer and battery name
-        manufacturer = self.manufacturer_edit.text().strip()
-        battery_name = self.battery_name_edit.text().strip()
+        manufacturer = battery_info.get("manufacturer", "").strip()
+        battery_name = battery_info.get("name", "").strip()
         if manufacturer and battery_name:
             default_name = f"{manufacturer} {battery_name}"
         elif manufacturer:
@@ -1049,16 +938,17 @@ class AutomationPanel(QWidget):
             QMessageBox.warning(self, "Invalid Name", "Please enter a valid preset name.")
             return
 
+        # Prepare data for saving (use original field names for compatibility)
         data = {
-            "name": self.battery_name_edit.text(),
-            "manufacturer": self.manufacturer_edit.text(),
-            "oem_equivalent": self.oem_equiv_edit.text(),
-            "serial_number": self.serial_number_edit.text(),
-            "rated_voltage": self.rated_voltage_spin.value(),
-            "nominal_capacity": self.nominal_capacity_spin.value(),
-            "nominal_energy": self.nominal_energy_spin.value(),
-            "technology": self.technology_combo.currentText(),
-            "notes": self.notes_edit.toPlainText(),
+            "name": battery_info.get("name", ""),
+            "manufacturer": battery_info.get("manufacturer", ""),
+            "oem_equivalent": battery_info.get("oem_equivalent", ""),
+            "manufactured": battery_info.get("manufactured"),
+            "rated_voltage": battery_info.get("rated_voltage", 3.7),
+            "nominal_capacity": battery_info.get("nominal_capacity_mah", 0),
+            "nominal_energy": battery_info.get("nominal_energy_wh", 0),
+            "technology": battery_info.get("technology", "Li-Ion"),
+            "notes": battery_info.get("notes", ""),
         }
 
         preset_file = self._battery_presets_dir / f"{safe_name}.json"
@@ -1067,16 +957,16 @@ class AutomationPanel(QWidget):
                 json.dump(data, f, indent=2)
             self._load_battery_presets_list()
             # Select the newly saved preset
-            index = self.presets_combo.findText(safe_name)
+            index = self.battery_info_widget.presets_combo.findText(safe_name)
             if index >= 0:
-                self.presets_combo.setCurrentIndex(index)
+                self.battery_info_widget.presets_combo.setCurrentIndex(index)
         except Exception as e:
             QMessageBox.warning(self, "Save Error", f"Failed to save preset: {e}")
 
     @Slot()
     def _delete_battery_preset(self) -> None:
         """Delete the currently selected preset."""
-        preset_name = self.presets_combo.currentText()
+        preset_name = self.battery_info_widget.presets_combo.currentText()
         if not preset_name or preset_name.startswith("---"):
             QMessageBox.information(self, "No Selection", "Please select a preset to delete.")
             return
@@ -1283,17 +1173,7 @@ class AutomationPanel(QWidget):
         Returns:
             Dictionary with battery information
         """
-        return {
-            "name": self.battery_name_edit.text(),
-            "manufacturer": self.manufacturer_edit.text(),
-            "oem_equivalent": self.oem_equiv_edit.text(),
-            "serial_number": self.serial_number_edit.text(),
-            "rated_voltage": self.rated_voltage_spin.value(),
-            "technology": self.technology_combo.currentText(),
-            "nominal_capacity_mah": self.nominal_capacity_spin.value(),
-            "nominal_energy_wh": self.nominal_energy_spin.value(),
-            "notes": self.notes_edit.toPlainText(),
-        }
+        return self.battery_info_widget.get_battery_info()
 
     def generate_test_filename(self) -> str:
         """Generate a cross-platform compatible filename for test data.
@@ -1304,8 +1184,9 @@ class AutomationPanel(QWidget):
         Returns:
             Filename string (without path)
         """
-        manufacturer = self.manufacturer_edit.text().strip() or "Unknown"
-        battery_name = self.battery_name_edit.text().strip() or "Unknown"
+        battery_info = self.battery_info_widget.get_battery_info()
+        manufacturer = battery_info.get("manufacturer", "").strip() or "Unknown"
+        battery_name = battery_info.get("name", "").strip() or "Unknown"
         type_names = ["CC", "CP", "CR"]
         type_units = ["A", "W", "ohm"]
         discharge_type = self.type_combo.currentIndex()
@@ -1348,17 +1229,8 @@ class AutomationPanel(QWidget):
         self.minutes_spin.valueChanged.connect(self._on_settings_changed)
         self.test_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
-        # Battery Info fields
-        self.battery_name_edit.textChanged.connect(self._on_settings_changed)
-        self.manufacturer_edit.textChanged.connect(self._on_settings_changed)
-        self.oem_equiv_edit.textChanged.connect(self._on_settings_changed)
-        self.serial_number_edit.textChanged.connect(self._on_settings_changed)
-        self.rated_voltage_spin.valueChanged.connect(self._on_settings_changed)
-        self.nominal_capacity_spin.valueChanged.connect(self._on_settings_changed)
-        self.nominal_energy_spin.valueChanged.connect(self._on_settings_changed)
-        self.technology_combo.currentIndexChanged.connect(self._on_settings_changed)
-        self.notes_edit.textChanged.connect(self._on_settings_changed)
-        self.presets_combo.currentIndexChanged.connect(self._on_settings_changed)
+        # Battery Info fields (handled by widget's settings_changed signal)
+        self.battery_info_widget.settings_changed.connect(self._on_settings_changed)
 
         # Auto Save settings
         self.autosave_checkbox.toggled.connect(self._on_settings_changed)
@@ -1371,6 +1243,10 @@ class AutomationPanel(QWidget):
 
     def _save_last_session(self) -> None:
         """Save current settings to file."""
+        # Get battery info from widget
+        battery_info = self.battery_info_widget.get_battery_info()
+        battery_info["preset"] = self.battery_info_widget.presets_combo.currentText()
+
         settings = {
             "test_config": {
                 "discharge_type": self.type_combo.currentIndex(),
@@ -1380,18 +1256,7 @@ class AutomationPanel(QWidget):
                 "duration": self.duration_spin.value(),
                 "preset": self.test_presets_combo.currentText(),
             },
-            "battery_info": {
-                "name": self.battery_name_edit.text(),
-                "manufacturer": self.manufacturer_edit.text(),
-                "oem_equivalent": self.oem_equiv_edit.text(),
-                "serial_number": self.serial_number_edit.text(),
-                "rated_voltage": self.rated_voltage_spin.value(),
-                "technology": self.technology_combo.currentText(),
-                "nominal_capacity": self.nominal_capacity_spin.value(),
-                "nominal_energy": self.nominal_energy_spin.value(),
-                "notes": self.notes_edit.toPlainText(),
-                "preset": self.presets_combo.currentText(),
-            },
+            "battery_info": battery_info,
             "autosave": self.autosave_checkbox.isChecked(),
         }
 
@@ -1435,30 +1300,11 @@ class AutomationPanel(QWidget):
 
             # Load Battery Info
             battery_info = settings.get("battery_info", {})
-            if "name" in battery_info:
-                self.battery_name_edit.setText(battery_info["name"])
-            if "manufacturer" in battery_info:
-                self.manufacturer_edit.setText(battery_info["manufacturer"])
-            if "oem_equivalent" in battery_info:
-                self.oem_equiv_edit.setText(battery_info["oem_equivalent"])
-            if "serial_number" in battery_info:
-                self.serial_number_edit.setText(battery_info["serial_number"])
-            if "rated_voltage" in battery_info:
-                self.rated_voltage_spin.setValue(battery_info["rated_voltage"])
-            if "technology" in battery_info:
-                tech_index = self.technology_combo.findText(battery_info["technology"])
-                if tech_index >= 0:
-                    self.technology_combo.setCurrentIndex(tech_index)
-            if "nominal_capacity" in battery_info:
-                self.nominal_capacity_spin.setValue(battery_info["nominal_capacity"])
-            if "nominal_energy" in battery_info:
-                self.nominal_energy_spin.setValue(battery_info["nominal_energy"])
-            if "notes" in battery_info:
-                self.notes_edit.setPlainText(battery_info["notes"])
+            self.battery_info_widget.set_battery_info(battery_info)
             if "preset" in battery_info and battery_info["preset"]:
-                index = self.presets_combo.findText(battery_info["preset"])
+                index = self.battery_info_widget.presets_combo.findText(battery_info["preset"])
                 if index >= 0:
-                    self.presets_combo.setCurrentIndex(index)
+                    self.battery_info_widget.presets_combo.setCurrentIndex(index)
 
             # Load Auto Save setting
             if "autosave" in settings:
@@ -1468,20 +1314,6 @@ class AutomationPanel(QWidget):
             self._loading_settings = False
             # Update filename after loading settings
             self._update_filename()
-
-    def get_battery_info(self) -> dict:
-        """Get battery info as a dictionary (compatible with BatteryInfoWidget format)."""
-        return {
-            "name": self.battery_name_edit.text(),
-            "manufacturer": self.manufacturer_edit.text(),
-            "oem_equivalent": self.oem_equiv_edit.text(),
-            "serial_number": self.serial_number_edit.text(),
-            "rated_voltage": self.rated_voltage_spin.value(),
-            "technology": self.technology_combo.currentText(),
-            "nominal_capacity_mah": self.nominal_capacity_spin.value(),
-            "nominal_energy_wh": self.nominal_energy_spin.value(),
-            "notes": self.notes_edit.toPlainText(),
-        }
 
     def set_battery_info(self, info: dict):
         """Set battery info from a dictionary (compatible with BatteryInfoWidget format).
@@ -1494,30 +1326,6 @@ class AutomationPanel(QWidget):
         self._loading_settings = True
 
         try:
-            if "name" in info:
-                self.battery_name_edit.setText(info["name"])
-            if "manufacturer" in info:
-                self.manufacturer_edit.setText(info["manufacturer"])
-            if "oem_equivalent" in info:
-                self.oem_equiv_edit.setText(info["oem_equivalent"])
-            if "serial_number" in info:
-                self.serial_number_edit.setText(info["serial_number"])
-            if "rated_voltage" in info:
-                self.rated_voltage_spin.setValue(info["rated_voltage"])
-            if "technology" in info:
-                index = self.technology_combo.findText(info["technology"])
-                if index >= 0:
-                    self.technology_combo.setCurrentIndex(index)
-            # Handle both formats for backwards compatibility
-            if "nominal_capacity_mah" in info:
-                self.nominal_capacity_spin.setValue(info["nominal_capacity_mah"])
-            elif "nominal_capacity" in info:
-                self.nominal_capacity_spin.setValue(info["nominal_capacity"])
-            if "nominal_energy_wh" in info:
-                self.nominal_energy_spin.setValue(info["nominal_energy_wh"])
-            elif "nominal_energy" in info:
-                self.nominal_energy_spin.setValue(info["nominal_energy"])
-            if "notes" in info:
-                self.notes_edit.setPlainText(info["notes"])
+            self.battery_info_widget.set_battery_info(info)
         finally:
             self._loading_settings = was_loading
