@@ -15,9 +15,12 @@ class Reading:
     power: float
     energy_wh: float
     capacity_mah: float
-    temperature_c: int
-    ext_temperature_c: int
-    runtime_seconds: int
+    mosfet_temp_c: int
+    ext_temp_c: int
+    fan_speed_rpm: int = 0
+    load_r_ohm: Optional[float] = None
+    battery_r_ohm: Optional[float] = None
+    runtime_seconds: int = 0
     id: Optional[int] = None
     session_id: Optional[int] = None
 
@@ -30,8 +33,11 @@ class Reading:
             "power": self.power,
             "energy_wh": self.energy_wh,
             "capacity_mah": self.capacity_mah,
-            "temperature_c": self.temperature_c,
-            "ext_temperature_c": self.ext_temperature_c,
+            "mosfet_temp_c": self.mosfet_temp_c,
+            "ext_temp_c": self.ext_temp_c,
+            "fan_speed_rpm": self.fan_speed_rpm,
+            "load_r_ohm": self.load_r_ohm,
+            "battery_r_ohm": self.battery_r_ohm,
             "runtime_seconds": self.runtime_seconds,
         }
 
@@ -89,10 +95,10 @@ class TestSession:
 
     @property
     def max_temperature(self) -> int:
-        """Get maximum temperature during test."""
+        """Get maximum MOSFET temperature during test."""
         if not self.readings:
             return 0
-        return max(r.temperature_c for r in self.readings)
+        return max(r.mosfet_temp_c for r in self.readings)
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""

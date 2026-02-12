@@ -369,10 +369,10 @@ class Device:
                         power=p,
                         energy_wh=0.0,  # PX100 would need separate queries
                         capacity_mah=0.0,
-                        temperature_c=0,
-                        temperature_f=32,
-                        ext_temperature_c=0,
-                        ext_temperature_f=32,
+                        mosfet_temp_c=0,
+                        mosfet_temp_f=32,
+                        ext_temp_c=0,
+                        ext_temp_f=32,
                         hours=0,
                         minutes=0,
                         seconds=0,
@@ -381,7 +381,7 @@ class Device:
                         overcurrent=False,
                         overvoltage=False,
                         overtemperature=False,
-                        fan_rpm=0,
+                        fan_speed_rpm=0,
                     )
 
                     self._debug("PARSE", f"BT Status: {v:.2f}V {i:.3f}A {p:.2f}W Load={'ON' if load_on else 'OFF'}")
@@ -939,10 +939,10 @@ class USBHIDDevice:
             power=power,
             energy_wh=energy_wh,
             capacity_mah=capacity_mah,
-            temperature_c=temperature,
-            temperature_f=int(temperature * 9 / 5 + 32),
-            ext_temperature_c=ext_temperature,
-            ext_temperature_f=int(ext_temperature * 9 / 5 + 32),
+            mosfet_temp_c=temperature,
+            mosfet_temp_f=int(temperature * 9 / 5 + 32),
+            ext_temp_c=ext_temperature,
+            ext_temp_f=int(ext_temperature * 9 / 5 + 32),
             hours=hours,
             minutes=minutes,
             seconds=seconds,
@@ -951,7 +951,7 @@ class USBHIDDevice:
             overcurrent=False,
             overvoltage=False,
             overtemperature=False,
-            fan_rpm=fan_rpm,
+            fan_speed_rpm=fan_rpm,
             # Device settings
             mode=mode,
             value_set=value_set,
@@ -959,8 +959,8 @@ class USBHIDDevice:
             time_limit_hours=time_limit_hours,
             time_limit_minutes=time_limit_minutes,
             # Resistance values
-            load_resistance_ohm=load_resistance,
-            battery_resistance_ohm=battery_resistance,
+            load_r_ohm=load_resistance,
+            battery_r_ohm=battery_resistance,
         )
 
     def _parse_counters(self, payload: bytes) -> dict:

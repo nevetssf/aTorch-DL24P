@@ -39,10 +39,10 @@ class DeviceStatus:
     power: float  # Watts
     energy_wh: float  # Watt-hours
     capacity_mah: float  # mAh
-    temperature_c: int  # Celsius (internal)
-    temperature_f: int  # Fahrenheit (internal)
-    ext_temperature_c: int  # External probe Celsius
-    ext_temperature_f: int  # External probe Fahrenheit
+    mosfet_temp_c: int  # Celsius (internal MOSFET)
+    mosfet_temp_f: int  # Fahrenheit (internal MOSFET)
+    ext_temp_c: int  # External probe Celsius
+    ext_temp_f: int  # External probe Fahrenheit
     hours: int
     minutes: int
     seconds: int
@@ -51,7 +51,7 @@ class DeviceStatus:
     overcurrent: bool
     overvoltage: bool
     overtemperature: bool
-    fan_rpm: int  # Approximate fan speed
+    fan_speed_rpm: int  # Fan speed in RPM
     # Device settings (read from device)
     mode: Optional[int] = None  # Current mode (0=CC, 1=CP, 2=CV, 3=CR)
     value_set: Optional[float] = None  # Configured value for current mode
@@ -59,15 +59,15 @@ class DeviceStatus:
     time_limit_hours: Optional[int] = None  # Configured time limit hours
     time_limit_minutes: Optional[int] = None  # Configured time limit minutes
     # Resistance values (from USB HID device)
-    load_resistance_ohm: Optional[float] = None  # Load resistance measured by device
-    battery_resistance_ohm: Optional[float] = None  # Battery internal resistance
+    load_r_ohm: Optional[float] = None  # Load resistance measured by device (Ω)
+    battery_r_ohm: Optional[float] = None  # Battery internal resistance (Ω)
 
     @property
     def resistance_ohm(self) -> float:
         """Get load resistance from device or calculate from V/I."""
         # Use device-measured resistance if available, otherwise calculate
-        if self.load_resistance_ohm is not None:
-            return self.load_resistance_ohm
+        if self.load_r_ohm is not None:
+            return self.load_r_ohm
         if self.current > 0.001:  # Avoid division by zero
             return self.voltage / self.current
         return 0.0
@@ -75,9 +75,9 @@ class DeviceStatus:
     @property
     def calculated_battery_resistance_ohm(self) -> float:
         """Calculate battery internal resistance as total R minus load R."""
-        if self.current > 0.001 and self.load_resistance_ohm is not None:
+        if self.current > 0.001 and self.load_r_ohm is not None:
             total_resistance = self.voltage / self.current
-            return total_resistance - self.load_resistance_ohm
+            return total_resistance - self.load_r_ohm
         return 0.0
 
     @property
@@ -90,7 +90,7 @@ class DeviceStatus:
         return (
             f"DL24P [{state}]: {self.voltage:.2f}V @ {self.current:.3f}A = {self.power:.2f}W | "
             f"{self.capacity_mah:.0f}mAh / {self.energy_wh:.2f}Wh | "
-            f"Temp: {self.temperature_c}°C | "
+            f"Temp: {self.mosfet_temp_c}°C | "
             f"{self.hours:02d}:{self.minutes:02d}:{self.seconds:02d}"
         )
 
@@ -253,10 +253,10 @@ class AtorchProtocol:
             power=power,
             energy_wh=energy_wh,
             capacity_mah=capacity_mah,
-            temperature_c=temp_c,
-            temperature_f=temp_f,
-            ext_temperature_c=ext_temp_c,
-            ext_temperature_f=ext_temp_f,
+            mosfet_temp_c=temp_c,
+            mosfet_temp_f=temp_f,
+            ext_temp_c=ext_temp_c,
+            ext_temp_f=ext_temp_f,
             hours=hours,
             minutes=minutes,
             seconds=seconds,
@@ -265,7 +265,7 @@ class AtorchProtocol:
             overcurrent=overcurrent,
             overvoltage=overvoltage,
             overtemperature=overtemperature,
-            fan_rpm=fan_rpm,
+            fan_speed_rpm=fan_rpm,
         )
 
     @classmethod

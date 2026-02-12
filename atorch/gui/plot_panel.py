@@ -543,8 +543,8 @@ class PlotPanel(QWidget):
         self._data["Power"].append(status.power)
         self._data["R Load"].append(status.resistance_ohm)
         self._data["R Battery"].append(status.calculated_battery_resistance_ohm)
-        self._data["Temp MOSFET"].append(status.temperature_c)
-        self._data["Temp External"].append(status.ext_temperature_c)
+        self._data["Temp MOSFET"].append(status.mosfet_temp_c)
+        self._data["Temp External"].append(status.ext_temp_c)
         self._data["Capacity"].append(status.capacity_mah)
         self._data["Energy"].append(status.energy_wh)
 
@@ -572,10 +572,10 @@ class PlotPanel(QWidget):
             self._data["Voltage"].append(reading.voltage)
             self._data["Current"].append(reading.current)
             self._data["Power"].append(reading.power)
-            self._data["R Load"].append(0)  # Not stored in historical data
-            self._data["R Battery"].append(0)  # Not stored in historical data
-            self._data["Temp MOSFET"].append(reading.temperature_c)
-            self._data["Temp External"].append(getattr(reading, 'ext_temperature_c', 0))
+            self._data["R Load"].append(reading.load_r_ohm or 0)
+            self._data["R Battery"].append(reading.battery_r_ohm or 0)
+            self._data["Temp MOSFET"].append(reading.mosfet_temp_c)
+            self._data["Temp External"].append(reading.ext_temp_c)
             self._data["Capacity"].append(reading.capacity_mah)
             self._data["Energy"].append(reading.energy_wh)
 
@@ -594,10 +594,10 @@ class PlotPanel(QWidget):
             self._data["Voltage"].append(reading.voltage)
             self._data["Current"].append(reading.current)
             self._data["Power"].append(reading.power)
-            self._data["R Load"].append(0)  # Not stored in historical data
-            self._data["R Battery"].append(0)  # Not stored in historical data
-            self._data["Temp MOSFET"].append(reading.temperature_c)
-            self._data["Temp External"].append(getattr(reading, 'ext_temperature_c', 0))
+            self._data["R Load"].append(reading.load_r_ohm or 0)
+            self._data["R Battery"].append(reading.battery_r_ohm or 0)
+            self._data["Temp MOSFET"].append(reading.mosfet_temp_c)
+            self._data["Temp External"].append(reading.ext_temp_c)
             self._data["Capacity"].append(reading.capacity_mah)
             self._data["Energy"].append(reading.energy_wh)
 

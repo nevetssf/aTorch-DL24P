@@ -173,8 +173,8 @@ class Database:
                 reading.power,
                 reading.energy_wh,
                 reading.capacity_mah,
-                reading.temperature_c,
-                reading.ext_temperature_c,
+                reading.mosfet_temp_c,  # Map new attribute to old column name
+                reading.ext_temp_c,      # Map new attribute to old column name
                 reading.runtime_seconds,
             ),
         )
@@ -213,8 +213,8 @@ class Database:
                     r.power,
                     r.energy_wh,
                     r.capacity_mah,
-                    r.temperature_c,
-                    r.ext_temperature_c,
+                    r.mosfet_temp_c,  # Map new attribute to old column name
+                    r.ext_temp_c,      # Map new attribute to old column name
                     r.runtime_seconds,
                 )
                 for r in readings
@@ -273,8 +273,8 @@ class Database:
                     power=row["power"],
                     energy_wh=row["energy_wh"],
                     capacity_mah=row["capacity_mah"],
-                    temperature_c=row["temperature_c"],
-                    ext_temperature_c=row["ext_temperature_c"] or 0,
+                    mosfet_temp_c=row["temperature_c"],  # Map old column to new attribute
+                    ext_temp_c=row["ext_temperature_c"] or 0,  # Map old column to new attribute
                     runtime_seconds=row["runtime_seconds"],
                 )
             )

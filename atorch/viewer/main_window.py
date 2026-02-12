@@ -335,8 +335,8 @@ class ViewerMainWindow(QMainWindow):
                             'Power': reading.get('power', 0),
                             'Capacity': reading.get('capacity_mah', 0),
                             'Energy': reading.get('energy_wh', 0),
-                            'R Load': reading.get('resistance_ohm', 0),
-                            'Temp MOSFET': reading.get('temperature_c', 0),
+                            'R Load': reading.get('load_r_ohm', reading.get('resistance_ohm', 0)),
+                            'Temp MOSFET': reading.get('mosfet_temp_c', reading.get('temperature_c', 0)),
                         }
                         all_data.append(row)
 
@@ -472,8 +472,8 @@ class ViewerMainWindow(QMainWindow):
                         reading.get('power', 0),
                         reading.get('capacity_mah', 0),
                         reading.get('energy_wh', 0),
-                        reading.get('resistance_ohm', 0),
-                        reading.get('temperature_c', 0),
+                        reading.get('load_r_ohm', reading.get('resistance_ohm', 0)),
+                        reading.get('mosfet_temp_c', reading.get('temperature_c', 0)),
                     ]
                     writer.writerow(row)
 
