@@ -351,21 +351,8 @@ class MainWindow(QMainWindow):
         self.battery_load_panel.export_csv_requested.connect(self._on_export_csv)
 
         # Synchronize battery info between Battery Capacity and Battery Load panels
-        # When battery info changes in automation panel, update battery load panel
-        for widget in [self.automation_panel.battery_name_edit, self.automation_panel.manufacturer_edit,
-                       self.automation_panel.oem_equiv_edit, self.automation_panel.serial_number_edit,
-                       self.automation_panel.rated_voltage_spin, self.automation_panel.technology_combo,
-                       self.automation_panel.nominal_capacity_spin, self.automation_panel.nominal_energy_spin]:
-            if hasattr(widget, 'textChanged'):
-                widget.textChanged.connect(self._sync_battery_info_to_load)
-            elif hasattr(widget, 'valueChanged'):
-                widget.valueChanged.connect(self._sync_battery_info_to_load)
-            elif hasattr(widget, 'currentIndexChanged'):
-                widget.currentIndexChanged.connect(self._sync_battery_info_to_load)
-        self.automation_panel.notes_edit.textChanged.connect(self._sync_battery_info_to_load)
-        self.automation_panel.battery_info_changed.connect(self._sync_battery_info_to_load)
-
-        # When battery info changes in battery load panel, update automation panel
+        # Both panels now use BatteryInfoWidget, so just sync the widgets
+        self.automation_panel.battery_info_widget.settings_changed.connect(self._sync_battery_info_to_load)
         self.battery_load_panel.battery_info_widget.settings_changed.connect(self._sync_battery_info_to_capacity)
 
         # Connect charger panel signals
@@ -2029,7 +2016,7 @@ class MainWindow(QMainWindow):
             self.battery_load_panel.battery_info_widget.set_battery_info(battery_info)
 
             # Also sync the preset dropdown selection
-            preset_name = self.automation_panel.presets_combo.currentText()
+            preset_name = self.automation_panel.battery_info_widget.presets_combo.currentText()
             if preset_name and not preset_name.startswith("---"):
                 # Find matching preset in battery load panel
                 index = self.battery_load_panel.battery_info_widget.presets_combo.findText(preset_name)

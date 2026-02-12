@@ -155,12 +155,18 @@ class PlotPanel(QWidget):
 
         self.max_points = max_points
 
-        # Data storage
+        # Data storage (single-dataset mode for Test Bench streaming)
         self._time_data: deque = deque(maxlen=max_points)
         self._data = {name: deque(maxlen=max_points) for name, _, _ in self.SERIES_CONFIG}
 
         # Start time for relative time calculation
         self._start_time: Optional[float] = None
+
+        # Multi-dataset storage (for Test Viewer)
+        # Format: {dataset_id: {'times': array, 'data': {param: array}, 'color': QColor, 'label': str}}
+        self._datasets = {}
+        self._dataset_curves = {}  # {dataset_id: {slot: PlotDataItem}}
+        self._legend = None  # pg.LegendItem, created when needed
 
         # Axis-centric UI elements (4 fixed axis slots)
         self._axis_dropdowns = {}       # slot → QComboBox
@@ -615,6 +621,154 @@ class PlotPanel(QWidget):
 
         self._update_plots()
 
+    # Multi-dataset support methods (for Test Viewer)
+
+    def load_grouped_dataset(self, df, device_colors: dict) -> None:
+        """Load a grouped dataset from a DataFrame with Device column.
+
+        Args:
+            df: pandas DataFrame with columns: Device, Time, Voltage, Current, etc.
+            device_colors: Dictionary mapping device names to QColor objects
+        """
+        import pandas as pd
+        from PySide6.QtGui import QColor
+
+        print(f"[PlotPanel] load_grouped_dataset called with {len(df)} rows, {len(df['Device'].unique())} devices")
+
+        # Clear existing datasets first
+        self.clear_all_datasets()
+
+        # Group by Device and create separate datasets
+        for device_name in df['Device'].unique():
+            device_df = df[df['Device'] == device_name]
+
+            # Get color for this device
+            color = device_colors.get(device_name, QColor(255, 0, 0))
+
+            # Extract data arrays
+            times = device_df['Time'].values
+            data_dict = {
+                'Voltage': device_df['Voltage'].values,
+                'Current': device_df['Current'].values,
+                'Power': device_df['Power'].values,
+                'Capacity': device_df['Capacity'].values,
+                'Energy': device_df['Energy'].values,
+                'R Load': device_df['R Load'].values,
+                'Temp MOSFET': device_df['Temp MOSFET'].values,
+            }
+
+            # Create dataset ID from device name
+            dataset_id = f"device_{device_name.replace(' ', '_')}"
+
+            print(f"[PlotPanel] Loading device from table: {device_name} ({len(times)} points)")
+
+            # Use the existing load_dataset method
+            self.load_dataset(
+                dataset_id=dataset_id,
+                times=times.tolist(),
+                data_dict={k: v.tolist() for k, v in data_dict.items()},
+                color=color,
+                label=device_name
+            )
+
+        print(f"[PlotPanel] Loaded {len(df['Device'].unique())} devices from grouped dataset")
+
+    def load_dataset(self, dataset_id: str, times: list, data_dict: dict, color: str, label: str) -> None:
+        """Load a complete dataset for viewing (Test Viewer mode).
+
+        Args:
+            dataset_id: Unique identifier for this dataset
+            times: List of time values (elapsed seconds)
+            data_dict: Dictionary mapping parameter names to value lists
+                      Keys should match SERIES_CONFIG names (e.g., 'Voltage', 'Current')
+            color: Hex color string (e.g., '#FF0000') or QColor
+            label: Display label for legend (e.g., 'Panasonic NCR18650B')
+        """
+        from PySide6.QtGui import QColor
+
+        print(f"[PlotPanel] load_dataset called: ID={dataset_id}, label={label}, {len(times)} points")
+
+        # Convert color to QColor if needed
+        if isinstance(color, str):
+            color = QColor(color)
+        elif not isinstance(color, QColor):
+            color = QColor(255, 0, 0)  # Default to red
+
+        print(f"[PlotPanel] Color: {color.name()}")
+
+        # Store dataset
+        self._datasets[dataset_id] = {
+            'times': np.array(times),
+            'data': {param: np.array(values) for param, values in data_dict.items()},
+            'color': color,
+            'label': label
+        }
+
+        print(f"[PlotPanel] Dataset stored, total datasets: {len(self._datasets)}")
+
+        # Create curves for this dataset (one per axis slot)
+        if dataset_id not in self._dataset_curves:
+            self._dataset_curves[dataset_id] = {}
+
+        # Update plots to show new dataset
+        print(f"[PlotPanel] Calling _update_plots()")
+        self._update_plots()
+        print(f"[PlotPanel] _update_plots() completed")
+
+    def remove_dataset(self, dataset_id: str) -> None:
+        """Remove a dataset from display.
+
+        Args:
+            dataset_id: ID of dataset to remove
+        """
+        if dataset_id in self._datasets:
+            del self._datasets[dataset_id]
+
+        # Remove and clean up curves
+        if dataset_id in self._dataset_curves:
+            for slot, curve in self._dataset_curves[dataset_id].items():
+                vb = self._axis_viewboxes[slot]
+                vb.removeItem(curve)
+            del self._dataset_curves[dataset_id]
+
+        self._update_plots()
+
+    def clear_all_datasets(self) -> None:
+        """Clear all multi-dataset mode data."""
+        print(f"[PlotPanel] clear_all_datasets called, clearing {len(self._datasets)} datasets")
+
+        # Remove all curves from all viewboxes
+        for dataset_id in list(self._dataset_curves.keys()):
+            for slot, curve in self._dataset_curves[dataset_id].items():
+                vb = self._axis_viewboxes[slot]
+                if curve in vb.addedItems:
+                    vb.removeItem(curve)
+
+        self._datasets.clear()
+        self._dataset_curves.clear()
+
+        # Remove and recreate legend to ensure clean state
+        if self._legend is not None:
+            self.plot_item.removeItem(self._legend)
+            self._legend = None
+
+        # Clear single-dataset curves too
+        for slot in self.AXIS_SLOTS:
+            self._axis_curves[slot].setData([], [])
+
+        # Force a plot update
+        self._update_plots()
+
+        print(f"[PlotPanel] clear_all_datasets complete")
+
+    def is_multi_dataset_mode(self) -> bool:
+        """Check if we're in multi-dataset mode (Test Viewer).
+
+        Returns:
+            True if datasets are loaded, False for single-dataset mode (Test Bench)
+        """
+        return len(self._datasets) > 0
+
     def get_elapsed_time(self) -> float:
         """Get elapsed time from first to last data point in seconds."""
         if not self._time_data or len(self._time_data) < 1:
@@ -668,6 +822,12 @@ class PlotPanel(QWidget):
 
     def _update_plots(self) -> None:
         """Update all plot curves with current data."""
+        # Check if we're in multi-dataset mode (Test Viewer)
+        if self.is_multi_dataset_mode():
+            self._update_multi_dataset_plots()
+            return
+
+        # Single-dataset mode (Test Bench) - existing behavior
         if not self._time_data:
             for slot in self._axis_curves:
                 self._axis_curves[slot].setData([], [])
@@ -846,3 +1006,195 @@ class PlotPanel(QWidget):
                 self.main_vb.setXRange(x_display[0], x_display[-1], padding=0.02)
 
         self._update_time_axis_label()
+
+    def _update_multi_dataset_plots(self) -> None:
+        """Update plots in multi-dataset mode (Test Viewer).
+
+        Each dataset gets its own color, and different parameters use different line styles.
+        """
+        from PySide6.QtCore import Qt
+
+        print(f"[PlotPanel] _update_multi_dataset_plots called with {len(self._datasets)} datasets")
+
+        # Line styles for different parameters (when multiple Y-axes are enabled)
+        LINE_STYLES = [Qt.SolidLine, Qt.DashLine, Qt.DotLine, Qt.DashDotLine, Qt.DashDotDotLine]
+
+        # Hide single-dataset curves
+        for slot in self.AXIS_SLOTS:
+            self._axis_curves[slot].setData([], [])
+
+        # Always recreate legend to ensure clean state
+        if self._legend is not None:
+            self.plot_item.removeItem(self._legend)
+            self._legend = None
+
+        if not self._datasets:
+            print(f"[PlotPanel] No datasets to plot")
+            return
+
+        # Create fresh legend - position it better to avoid overlaps
+        print(f"[PlotPanel] Creating fresh legend for {len(self._datasets)} datasets")
+        self._legend = pg.LegendItem(offset=(10, 10))
+        self._legend.setParentItem(self.plot_item.vb)
+        # Make legend semi-transparent to see through it
+        self._legend.setBrush(pg.mkBrush(0, 0, 0, 150))
+
+        # Find global time range across all datasets
+        all_times = []
+        for dataset in self._datasets.values():
+            if len(dataset['times']) > 0:
+                all_times.extend(dataset['times'])
+
+        if not all_times:
+            return
+
+        min_time = min(all_times)
+        max_time = max(all_times)
+
+        # Convert time to display units
+        if max_time < 120:
+            time_scale = 1.0
+            time_unit = "seconds"
+        elif max_time < 7200:
+            time_scale = 1.0 / 60.0
+            time_unit = "minutes"
+        else:
+            time_scale = 1.0 / 3600.0
+            time_unit = "hours"
+
+        # Update time axis label
+        self.plot_widget.setLabel("bottom", f"Time ({time_unit})")
+
+        # Build a mapping of slot -> parameter name for enabled axes
+        enabled_params = {}  # slot -> param_name
+        for slot in self.AXIS_SLOTS:
+            if self._axis_enabled.get(slot, False):
+                param = self._axis_selections.get(slot)
+                if param:
+                    enabled_params[slot] = param
+
+        print(f"[PlotPanel] Enabled axes: {enabled_params}")
+
+        if not enabled_params:
+            print(f"[PlotPanel] No axes enabled - returning")
+            return
+
+        # Assign line style index based on slot order
+        slot_line_styles = {}
+        for i, slot in enumerate(self.AXIS_SLOTS):
+            slot_line_styles[slot] = LINE_STYLES[i % len(LINE_STYLES)]
+
+        # Track Y-axis ranges for each slot
+        slot_y_ranges = {slot: [float('inf'), float('-inf')] for slot in enabled_params}
+
+        # Plot each dataset with varying line widths for distinction
+        dataset_index = 0
+        for dataset_id, dataset in self._datasets.items():
+            times = dataset['times']
+            data_dict = dataset['data']
+            color = dataset['color']
+            label = dataset['label']
+
+            print(f"[PlotPanel] Plotting dataset: {label} ({len(times)} points, color={color.name()})")
+
+            if len(times) == 0:
+                print(f"[PlotPanel] Skipping dataset {label} - no time data")
+                continue
+
+            # Convert times to display units
+            times_display = times * time_scale
+
+            # Ensure we have curves for this dataset
+            if dataset_id not in self._dataset_curves:
+                self._dataset_curves[dataset_id] = {}
+
+            curves_created = 0
+
+            # Plot on each enabled axis
+            for slot, param_name in enabled_params.items():
+                if param_name not in data_dict:
+                    continue
+
+                values = data_dict[param_name]
+                if len(values) == 0 or len(values) != len(times):
+                    continue
+
+                # Get or create curve for this dataset/slot combination
+                if slot not in self._dataset_curves[dataset_id]:
+                    curve = pg.PlotDataItem()
+                    curve.setDownsampling(auto=True, method='peak')
+                    curve.setClipToView(True)
+                    vb = self._axis_viewboxes[slot]
+                    vb.addItem(curve)
+                    self._dataset_curves[dataset_id][slot] = curve
+                else:
+                    curve = self._dataset_curves[dataset_id][slot]
+
+                # Get parameter config for unit scaling
+                _, _, base_unit = next((cfg for cfg in self.SERIES_CONFIG if cfg[0] == param_name), (None, None, None))
+                if base_unit is None:
+                    continue
+
+                # Scale values for display
+                y_max = np.max(values) if len(values) > 0 else 0
+                scale, display_unit = _get_unit_scale(y_max, base_unit)
+                values_display = values * scale
+
+                # Update axis label if unit changed
+                if self._display_units.get(slot) != display_unit:
+                    self._display_units[slot] = display_unit
+                    # Get color for this parameter from SERIES_CONFIG
+                    param_color = next((cfg[1] for cfg in self.SERIES_CONFIG if cfg[0] == param_name), "#999999")
+                    self._axis_axes[slot].setLabel(param_name, units=display_unit, color=param_color)
+
+                # Set curve appearance: dataset color + line style based on slot + varying width
+                line_style = slot_line_styles[slot]
+                # Alternate line widths: 2, 3, 2, 3, ... for visual distinction
+                line_width = 2 + (dataset_index % 2)
+                pen = pg.mkPen(color=color.name(), width=line_width, style=line_style)
+                curve.setPen(pen)
+
+                # Show points if enabled
+                if self._show_points:
+                    curve.setSymbol('o')
+                    curve.setSymbolSize(5)
+                    curve.setSymbolBrush(color)
+                else:
+                    curve.setSymbol(None)
+
+                # Set data
+                curve.setData(times_display, values_display)
+                curves_created += 1
+
+                # Track Y range for this slot
+                if len(values_display) > 0:
+                    y_min_val = np.min(values_display)
+                    y_max_val = np.max(values_display)
+                    slot_y_ranges[slot][0] = min(slot_y_ranges[slot][0], y_min_val)
+                    slot_y_ranges[slot][1] = max(slot_y_ranges[slot][1], y_max_val)
+                    print(f"[PlotPanel] {label} on {slot}: Y range {y_min_val:.2f} to {y_max_val:.2f}")
+
+            print(f"[PlotPanel] Dataset {label}: created {curves_created} curves on enabled axes")
+
+            # Add to legend (one entry per dataset, using first enabled slot's curve)
+            first_slot = list(enabled_params.keys())[0]
+            if first_slot in self._dataset_curves[dataset_id]:
+                curve = self._dataset_curves[dataset_id][first_slot]
+                self._legend.addItem(curve, label)
+                print(f"[PlotPanel] Added legend entry: {label} (using {first_slot} axis)")
+
+            dataset_index += 1
+
+        # Set Y ranges for each slot (auto-scale with nice bounds)
+        for slot, (y_min, y_max) in slot_y_ranges.items():
+            if y_min != float('inf') and y_max != float('-inf'):
+                nice_min, nice_max = _nice_range_bounds(y_min, y_max)
+                vb = self._axis_viewboxes[slot]
+                vb.setYRange(nice_min, nice_max, padding=0)
+
+        # Set X range (show all data)
+        x_min_display = min_time * time_scale
+        x_max_display = max_time * time_scale
+        self.main_vb.setXRange(x_min_display, x_max_display, padding=0.02)
+
+        print(f"[PlotPanel] Multi-dataset plot complete: {len(self._datasets)} datasets, X range: {x_min_display:.1f} to {x_max_display:.1f} {time_unit}")

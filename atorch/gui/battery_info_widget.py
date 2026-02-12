@@ -3,9 +3,9 @@
 from PySide6.QtWidgets import (
     QGroupBox, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
-    QPushButton, QTextEdit
+    QPushButton, QTextEdit, QDateEdit
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, QDate
 
 
 class BatteryInfoWidget(QGroupBox):
@@ -94,14 +94,28 @@ class BatteryInfoWidget(QGroupBox):
 
         info_main_layout.addWidget(specs_group)
 
-        # Sub-panel for Serial Number and Notes (outlined, no label)
+        # Sub-panel for Manufactured date and Notes (outlined, no label)
         instance_group = QGroupBox()
         instance_layout = QFormLayout(instance_group)
         instance_layout.setContentsMargins(6, 6, 6, 6)
 
-        self.serial_number_edit = QLineEdit()
-        self.serial_number_edit.setPlaceholderText("e.g., SN123456")
-        instance_layout.addRow("Serial Number", self.serial_number_edit)
+        self.manufactured_date_edit = QDateEdit()
+        self.manufactured_date_edit.setCalendarPopup(True)
+        self.manufactured_date_edit.setDisplayFormat("yyyy-MM-dd")
+        self.manufactured_date_edit.setDate(QDate(2000, 1, 1))  # Start with minimum date
+        self.manufactured_date_edit.setSpecialValueText(" ")  # Show blank when no date
+        self.manufactured_date_edit.setMinimumDate(QDate(2000, 1, 1))
+        self.manufactured_date_edit.setMaximumDate(QDate.currentDate())
+
+        # Configure calendar for easy year navigation
+        calendar = self.manufactured_date_edit.calendarWidget()
+        if calendar:
+            from PySide6.QtWidgets import QCalendarWidget
+            calendar.setNavigationBarVisible(True)
+            calendar.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.ShortDayNames)
+            calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+
+        instance_layout.addRow("Manufactured", self.manufactured_date_edit)
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setMaximumHeight(50)
@@ -118,7 +132,7 @@ class BatteryInfoWidget(QGroupBox):
         self.battery_name_edit.textChanged.connect(lambda: self._emit_changed())
         self.manufacturer_edit.textChanged.connect(lambda: self._emit_changed())
         self.oem_equiv_edit.textChanged.connect(lambda: self._emit_changed())
-        self.serial_number_edit.textChanged.connect(lambda: self._emit_changed())
+        self.manufactured_date_edit.dateChanged.connect(lambda: self._emit_changed())
         self.rated_voltage_spin.valueChanged.connect(lambda: self._emit_changed())
         self.technology_combo.currentIndexChanged.connect(lambda: self._emit_changed())
         self.nominal_capacity_spin.valueChanged.connect(lambda: self._emit_changed())
@@ -132,11 +146,18 @@ class BatteryInfoWidget(QGroupBox):
 
     def get_battery_info(self) -> dict:
         """Get battery info as a dictionary."""
+        # Get manufactured date, return None if it's the minimum date (unset)
+        manufactured_date = self.manufactured_date_edit.date()
+        if manufactured_date == QDate(2000, 1, 1):
+            manufactured_str = None
+        else:
+            manufactured_str = manufactured_date.toString("yyyy-MM-dd")
+
         return {
             "name": self.battery_name_edit.text(),
             "manufacturer": self.manufacturer_edit.text(),
             "oem_equivalent": self.oem_equiv_edit.text(),
-            "serial_number": self.serial_number_edit.text(),
+            "manufactured": manufactured_str,
             "rated_voltage": self.rated_voltage_spin.value(),
             "technology": self.technology_combo.currentText(),
             "nominal_capacity_mah": self.nominal_capacity_spin.value(),
@@ -161,8 +182,36 @@ class BatteryInfoWidget(QGroupBox):
                 self.manufacturer_edit.setText(info["manufacturer"])
             if "oem_equivalent" in info:
                 self.oem_equiv_edit.setText(info["oem_equivalent"])
-            if "serial_number" in info:
-                self.serial_number_edit.setText(info["serial_number"])
+
+            # Handle manufactured date (new field) and serial_number (old field for backwards compatibility)
+            if "manufactured" in info and info["manufactured"]:
+                try:
+                    date = QDate.fromString(info["manufactured"], "yyyy-MM-dd")
+                    if date.isValid():
+                        self.manufactured_date_edit.setDate(date)
+                    else:
+                        # Set to minimum date (unset)
+                        self.manufactured_date_edit.setDate(QDate(2000, 1, 1))
+                except:
+                    self.manufactured_date_edit.setDate(QDate(2000, 1, 1))
+            elif "serial_number" in info and info["serial_number"]:
+                # Try to parse old serial_number as a date for backwards compatibility
+                try:
+                    # Try common date formats
+                    for fmt in ["yyyy-MM-dd", "MM/dd/yyyy", "dd-MM-yyyy", "yyyyMMdd"]:
+                        date = QDate.fromString(info["serial_number"], fmt)
+                        if date.isValid():
+                            self.manufactured_date_edit.setDate(date)
+                            break
+                    else:
+                        # Couldn't parse as date, set to minimum (unset)
+                        self.manufactured_date_edit.setDate(QDate(2000, 1, 1))
+                except:
+                    self.manufactured_date_edit.setDate(QDate(2000, 1, 1))
+            else:
+                # No date info, set to minimum (unset)
+                self.manufactured_date_edit.setDate(QDate(2000, 1, 1))
+
             if "rated_voltage" in info:
                 self.rated_voltage_spin.setValue(info["rated_voltage"])
             if "technology" in info:
