@@ -450,8 +450,8 @@ class StatusPanel(QWidget):
             self.energy_label.setText(f"{energy_mwh:.3f}")
             self.energy_unit_label.setText("mWh")
 
-        self.temp_label.setText(f"{status.temperature_c:.1f}")
-        self.ext_temp_label.setText(f"{status.ext_temperature_c:.1f}")
+        self.temp_label.setText(f"{status.mosfet_temp_c:.1f}")
+        self.ext_temp_label.setText(f"{status.ext_temp_c:.1f}")
 
         # Load status
         if status.load_on:
