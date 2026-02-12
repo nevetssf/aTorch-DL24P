@@ -2041,12 +2041,12 @@ class MainWindow(QMainWindow):
             preset_name = self.battery_load_panel.battery_info_widget.presets_combo.currentText()
             if preset_name and not preset_name.startswith("---"):
                 # Find matching preset in automation panel
-                index = self.automation_panel.presets_combo.findText(preset_name)
+                index = self.automation_panel.battery_info_widget.presets_combo.findText(preset_name)
                 if index >= 0:
                     # Temporarily block signals to avoid triggering another sync
-                    self.automation_panel.presets_combo.blockSignals(True)
-                    self.automation_panel.presets_combo.setCurrentIndex(index)
-                    self.automation_panel.presets_combo.blockSignals(False)
+                    self.automation_panel.battery_info_widget.presets_combo.blockSignals(True)
+                    self.automation_panel.battery_info_widget.presets_combo.setCurrentIndex(index)
+                    self.automation_panel.battery_info_widget.presets_combo.blockSignals(False)
 
     @Slot(int, float, float, int)
     def _on_automation_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
