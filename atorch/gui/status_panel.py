@@ -482,7 +482,7 @@ class StatusPanel(QWidget):
             self.ureg_label.setText("")
 
         # Fan
-        self.fan_label.setText(f"{status.fan_rpm}")
+        self.fan_label.setText(f"{status.fan_speed_rpm}")
 
     def set_logging_time(self, seconds: float) -> None:
         """Set the logging time display.
