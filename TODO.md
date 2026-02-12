@@ -18,6 +18,13 @@ The following test automation tabs are placeholders and need implementation:
 - Gzip-compressed JSON (.json.gz) for smaller session files (built-in `gzip` module, 70-90% compression)
 - **Clean up parameter naming above the chart** - Review and standardize the labels and units displayed in the control/status area above the plot panel for better clarity and consistency
 - **Consider moving Status indicator (ON/OFF) next to Load on/off switch** - May improve UI flow by grouping related controls/indicators together in the Control Panel instead of keeping status in Live Readings panel
+- **Standardize reading parameter naming and add missing parameters**
+  - Review and clean up parameter names in DeviceStatus dataclass and throughout codebase
+  - Ensure consistent naming conventions (e.g., voltage vs V, current vs I, capacity_mah vs capacity)
+  - Add missing parameters that device provides but aren't currently exposed
+  - Update JSON export schema to use standardized names
+  - Consider backwards compatibility for existing JSON test files
+  - Document parameter naming conventions in CLAUDE.md
 
 ---
 
