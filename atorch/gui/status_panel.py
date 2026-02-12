@@ -403,21 +403,21 @@ class StatusPanel(QWidget):
 
     def update_status(self, status: DeviceStatus) -> None:
         """Update display with device status."""
-        self.voltage_label.setText(f"{status.voltage:.3f}")
+        self.voltage_label.setText(f"{status.voltage_v:.3f}")
 
         # Current: Auto-scale when >= 100 mA
-        current_ma = status.current * 1000
+        current_ma = status.current_a * 1000
         if current_ma >= 100:
-            self.current_label.setText(f"{status.current:.3f}")
+            self.current_label.setText(f"{status.current_a:.3f}")
             self.current_unit_label.setText("A")
         else:
             self.current_label.setText(f"{current_ma:.3f}")
             self.current_unit_label.setText("mA")
 
         # Power: Auto-scale when >= 100 mW
-        power_mw = status.power * 1000
+        power_mw = status.power_w * 1000
         if power_mw >= 100:
-            self.power_label.setText(f"{status.power:.3f}")
+            self.power_label.setText(f"{status.power_w:.3f}")
             self.power_unit_label.setText("W")
         else:
             self.power_label.setText(f"{power_mw:.3f}")

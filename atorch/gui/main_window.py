@@ -852,9 +852,9 @@ class MainWindow(QMainWindow):
         for reading in readings:
             readings_data.append({
                 "timestamp": reading.timestamp.isoformat(),
-                "voltage": reading.voltage,
-                "current": reading.current,
-                "power": reading.power,
+                "voltage_v": reading.voltage_v,
+                "current_a": reading.current_a,
+                "power_w": reading.power_w,
                 "energy_wh": reading.energy_wh,
                 "capacity_mah": reading.capacity_mah,
                 "mosfet_temp_c": reading.mosfet_temp_c,
@@ -862,7 +862,7 @@ class MainWindow(QMainWindow):
                 "fan_speed_rpm": reading.fan_speed_rpm if hasattr(reading, 'fan_speed_rpm') else 0,
                 "load_r_ohm": reading.load_r_ohm if hasattr(reading, 'load_r_ohm') else None,
                 "battery_r_ohm": reading.battery_r_ohm if hasattr(reading, 'battery_r_ohm') else None,
-                "runtime_seconds": reading.runtime_seconds,
+                "runtime_s": reading.runtime_s,
             })
 
         # Calculate summary statistics
@@ -2694,18 +2694,18 @@ class MainWindow(QMainWindow):
 
                 reading = Reading(
                     timestamp=timestamp,
-                    voltage=reading_dict.get("voltage", 0),
-                    current=reading_dict.get("current", 0),
-                    power=reading_dict.get("power", 0),
+                    # Handle both old and new parameter names for backwards compatibility
+                    voltage_v=reading_dict.get("voltage_v", reading_dict.get("voltage", 0)),
+                    current_a=reading_dict.get("current_a", reading_dict.get("current", 0)),
+                    power_w=reading_dict.get("power_w", reading_dict.get("power", 0)),
                     energy_wh=reading_dict.get("energy_wh", 0),
                     capacity_mah=reading_dict.get("capacity_mah", 0),
-                    # Handle both old and new parameter names for backwards compatibility
                     mosfet_temp_c=reading_dict.get("mosfet_temp_c", reading_dict.get("temperature_c", 0)),
                     ext_temp_c=reading_dict.get("ext_temp_c", reading_dict.get("ext_temperature_c", 0)),
                     fan_speed_rpm=reading_dict.get("fan_speed_rpm", reading_dict.get("fan_rpm", 0)),
                     load_r_ohm=reading_dict.get("load_r_ohm", reading_dict.get("load_resistance_ohm")),
                     battery_r_ohm=reading_dict.get("battery_r_ohm", reading_dict.get("battery_resistance_ohm")),
-                    runtime_seconds=runtime_seconds,
+                    runtime_s=reading_dict.get("runtime_s", reading_dict.get("runtime_seconds", runtime_seconds)),
                 )
                 self._accumulated_readings.append(reading)
             except Exception:
@@ -2784,14 +2784,14 @@ class MainWindow(QMainWindow):
                     if start_time and reading.timestamp:
                         runtime = (reading.timestamp - start_time).total_seconds()
                     else:
-                        runtime = reading.runtime_seconds
+                        runtime = reading.runtime_s
 
                     writer.writerow([
                         reading.timestamp.isoformat(),
                         f"{runtime:.1f}",
-                        f"{reading.voltage:.3f}",
-                        f"{reading.current:.4f}",
-                        f"{reading.power:.2f}",
+                        f"{reading.voltage_v:.3f}",
+                        f"{reading.current_a:.4f}",
+                        f"{reading.power_w:.2f}",
                         f"{reading.energy_wh:.4f}",
                         f"{reading.capacity_mah:.1f}",
                         reading.mosfet_temp_c,
@@ -2930,9 +2930,9 @@ class MainWindow(QMainWindow):
 
                 reading = Reading(
                     timestamp=datetime.now(),
-                    voltage=status.voltage,
-                    current=status.current,
-                    power=status.power,
+                    voltage_v=status.voltage_v,
+                    current_a=status.current_a,
+                    power_w=status.power_w,
                     energy_wh=status.energy_wh,
                     capacity_mah=status.capacity_mah,
                     mosfet_temp_c=status.mosfet_temp_c,
@@ -2940,7 +2940,7 @@ class MainWindow(QMainWindow):
                     fan_speed_rpm=status.fan_speed_rpm,
                     load_r_ohm=status.load_r_ohm,
                     battery_r_ohm=status.battery_r_ohm,
-                    runtime_seconds=status.runtime_seconds,
+                    runtime_s=status.runtime_seconds,
                 )
                 # Queue reading for background database writer (non-blocking)
                 try:

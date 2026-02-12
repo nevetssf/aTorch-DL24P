@@ -168,14 +168,14 @@ class Database:
             (
                 session_id,
                 reading.timestamp.isoformat(),
-                reading.voltage,
-                reading.current,
-                reading.power,
+                reading.voltage_v,       # Map new attribute to old column name
+                reading.current_a,       # Map new attribute to old column name
+                reading.power_w,         # Map new attribute to old column name
                 reading.energy_wh,
                 reading.capacity_mah,
-                reading.mosfet_temp_c,  # Map new attribute to old column name
+                reading.mosfet_temp_c,   # Map new attribute to old column name
                 reading.ext_temp_c,      # Map new attribute to old column name
-                reading.runtime_seconds,
+                reading.runtime_s,       # Map new attribute to old column name
             ),
         )
         if commit:
@@ -208,14 +208,14 @@ class Database:
                 (
                     session_id,
                     r.timestamp.isoformat(),
-                    r.voltage,
-                    r.current,
-                    r.power,
+                    r.voltage_v,       # Map new attribute to old column name
+                    r.current_a,       # Map new attribute to old column name
+                    r.power_w,         # Map new attribute to old column name
                     r.energy_wh,
                     r.capacity_mah,
-                    r.mosfet_temp_c,  # Map new attribute to old column name
+                    r.mosfet_temp_c,   # Map new attribute to old column name
                     r.ext_temp_c,      # Map new attribute to old column name
-                    r.runtime_seconds,
+                    r.runtime_s,       # Map new attribute to old column name
                 )
                 for r in readings
             ],
@@ -268,14 +268,14 @@ class Database:
                     id=row["id"],
                     session_id=row["session_id"],
                     timestamp=datetime.fromisoformat(row["timestamp"]),
-                    voltage=row["voltage"],
-                    current=row["current"],
-                    power=row["power"],
+                    voltage_v=row["voltage"],        # Map old column to new attribute
+                    current_a=row["current"],        # Map old column to new attribute
+                    power_w=row["power"],            # Map old column to new attribute
                     energy_wh=row["energy_wh"],
                     capacity_mah=row["capacity_mah"],
                     mosfet_temp_c=row["temperature_c"],  # Map old column to new attribute
                     ext_temp_c=row["ext_temperature_c"] or 0,  # Map old column to new attribute
-                    runtime_seconds=row["runtime_seconds"],
+                    runtime_s=row["runtime_seconds"], # Map old column to new attribute
                 )
             )
 

@@ -10,9 +10,9 @@ import json
 class Reading:
     """A single data point from the device."""
     timestamp: datetime
-    voltage: float
-    current: float
-    power: float
+    voltage_v: float
+    current_a: float
+    power_w: float
     energy_wh: float
     capacity_mah: float
     mosfet_temp_c: int
@@ -20,7 +20,7 @@ class Reading:
     fan_speed_rpm: int = 0
     load_r_ohm: Optional[float] = None
     battery_r_ohm: Optional[float] = None
-    runtime_seconds: int = 0
+    runtime_s: int = 0
     id: Optional[int] = None
     session_id: Optional[int] = None
 
@@ -28,9 +28,9 @@ class Reading:
         """Convert to dictionary."""
         return {
             "timestamp": self.timestamp.isoformat(),
-            "voltage": self.voltage,
-            "current": self.current,
-            "power": self.power,
+            "voltage_v": self.voltage_v,
+            "current_a": self.current_a,
+            "power_w": self.power_w,
             "energy_wh": self.energy_wh,
             "capacity_mah": self.capacity_mah,
             "mosfet_temp_c": self.mosfet_temp_c,
@@ -38,7 +38,7 @@ class Reading:
             "fan_speed_rpm": self.fan_speed_rpm,
             "load_r_ohm": self.load_r_ohm,
             "battery_r_ohm": self.battery_r_ohm,
-            "runtime_seconds": self.runtime_seconds,
+            "runtime_s": self.runtime_s,
         }
 
 
@@ -62,7 +62,7 @@ class TestSession:
         if self.end_time:
             return int((self.end_time - self.start_time).total_seconds())
         elif self.readings:
-            return self.readings[-1].runtime_seconds
+            return self.readings[-1].runtime_s
         return 0
 
     @property
@@ -84,14 +84,14 @@ class TestSession:
         """Calculate average voltage during test."""
         if not self.readings:
             return 0.0
-        return sum(r.voltage for r in self.readings) / len(self.readings)
+        return sum(r.voltage_v for r in self.readings) / len(self.readings)
 
     @property
     def min_voltage(self) -> float:
         """Get minimum voltage during test."""
         if not self.readings:
             return 0.0
-        return min(r.voltage for r in self.readings)
+        return min(r.voltage_v for r in self.readings)
 
     @property
     def max_temperature(self) -> int:

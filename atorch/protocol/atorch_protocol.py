@@ -34,9 +34,9 @@ class Command(IntEnum):
 @dataclass
 class DeviceStatus:
     """Parsed device status from DL24P."""
-    voltage: float  # Volts
-    current: float  # Amps
-    power: float  # Watts
+    voltage_v: float  # Volts
+    current_a: float  # Amps
+    power_w: float  # Watts
     energy_wh: float  # Watt-hours
     capacity_mah: float  # mAh
     mosfet_temp_c: int  # Celsius (internal MOSFET)
@@ -68,15 +68,15 @@ class DeviceStatus:
         # Use device-measured resistance if available, otherwise calculate
         if self.load_r_ohm is not None:
             return self.load_r_ohm
-        if self.current > 0.001:  # Avoid division by zero
-            return self.voltage / self.current
+        if self.current_a > 0.001:  # Avoid division by zero
+            return self.voltage_v / self.current_a
         return 0.0
 
     @property
     def calculated_battery_resistance_ohm(self) -> float:
         """Calculate battery internal resistance as total R minus load R."""
-        if self.current > 0.001 and self.load_r_ohm is not None:
-            total_resistance = self.voltage / self.current
+        if self.current_a > 0.001 and self.load_r_ohm is not None:
+            total_resistance = self.voltage_v / self.current_a
             return total_resistance - self.load_r_ohm
         return 0.0
 
@@ -88,7 +88,7 @@ class DeviceStatus:
     def __str__(self) -> str:
         state = "ON" if self.load_on else "OFF"
         return (
-            f"DL24P [{state}]: {self.voltage:.2f}V @ {self.current:.3f}A = {self.power:.2f}W | "
+            f"DL24P [{state}]: {self.voltage_v:.2f}V @ {self.current_a:.3f}A = {self.power_w:.2f}W | "
             f"{self.capacity_mah:.0f}mAh / {self.energy_wh:.2f}Wh | "
             f"Temp: {self.mosfet_temp_c}°C | "
             f"{self.hours:02d}:{self.minutes:02d}:{self.seconds:02d}"
@@ -248,9 +248,9 @@ class AtorchProtocol:
         fan_rpm = (data[29] << 8) | data[30]
 
         return DeviceStatus(
-            voltage=voltage,
-            current=current,
-            power=power,
+            voltage_v=voltage,
+            current_a=current,
+            power_w=power,
             energy_wh=energy_wh,
             capacity_mah=capacity_mah,
             mosfet_temp_c=temp_c,

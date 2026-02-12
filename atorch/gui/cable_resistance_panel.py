@@ -749,8 +749,8 @@ class CableResistancePanel(QWidget):
         # Record measurement at current step
         if self._device.last_status:
             status = self._device.last_status
-            voltage_measured = status.voltage
-            current = status.current
+            voltage_measured = status.voltage_v
+            current = status.current_a
             voltage_drop = self._source_voltage - voltage_measured
 
             # Calculate resistance: R = V_drop / I (in mΩ)

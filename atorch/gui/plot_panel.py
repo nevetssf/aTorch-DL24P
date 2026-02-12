@@ -538,9 +538,9 @@ class PlotPanel(QWidget):
         t = time_module.time() - self._start_time
 
         self._time_data.append(t)
-        self._data["Voltage"].append(status.voltage)
-        self._data["Current"].append(status.current)
-        self._data["Power"].append(status.power)
+        self._data["Voltage"].append(status.voltage_v)
+        self._data["Current"].append(status.current_a)
+        self._data["Power"].append(status.power_w)
         self._data["R Load"].append(status.resistance_ohm)
         self._data["R Battery"].append(status.calculated_battery_resistance_ohm)
         self._data["Temp MOSFET"].append(status.mosfet_temp_c)
@@ -568,10 +568,10 @@ class PlotPanel(QWidget):
         self.clear_data()
 
         for reading in session.readings:
-            self._time_data.append(reading.runtime_seconds)
-            self._data["Voltage"].append(reading.voltage)
-            self._data["Current"].append(reading.current)
-            self._data["Power"].append(reading.power)
+            self._time_data.append(reading.runtime_s)
+            self._data["Voltage"].append(reading.voltage_v)
+            self._data["Current"].append(reading.current_a)
+            self._data["Power"].append(reading.power_w)
             self._data["R Load"].append(reading.load_r_ohm or 0)
             self._data["R Battery"].append(reading.battery_r_ohm or 0)
             self._data["Temp MOSFET"].append(reading.mosfet_temp_c)
@@ -590,10 +590,10 @@ class PlotPanel(QWidget):
         self.clear_data()
 
         for reading in readings:
-            self._time_data.append(reading.runtime_seconds)
-            self._data["Voltage"].append(reading.voltage)
-            self._data["Current"].append(reading.current)
-            self._data["Power"].append(reading.power)
+            self._time_data.append(reading.runtime_s)
+            self._data["Voltage"].append(reading.voltage_v)
+            self._data["Current"].append(reading.current_a)
+            self._data["Power"].append(reading.power_w)
             self._data["R Load"].append(reading.load_r_ohm or 0)
             self._data["R Battery"].append(reading.battery_r_ohm or 0)
             self._data["Temp MOSFET"].append(reading.mosfet_temp_c)

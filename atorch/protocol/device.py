@@ -364,9 +364,9 @@ class Device:
                     load_on = (on_off == 1) if on_off is not None else False
 
                     status = DeviceStatus(
-                        voltage=v,
-                        current=i,
-                        power=p,
+                        voltage_v=v,
+                        current_a=i,
+                        power_w=p,
                         energy_wh=0.0,  # PX100 would need separate queries
                         capacity_mah=0.0,
                         mosfet_temp_c=0,
@@ -934,9 +934,9 @@ class USBHIDDevice:
         battery_resistance = counters.get('battery_resistance_ohm') if counters else None
 
         return DeviceStatus(
-            voltage=voltage,
-            current=current,
-            power=power,
+            voltage_v=voltage,
+            current_a=current,
+            power_w=power,
             energy_wh=energy_wh,
             capacity_mah=capacity_mah,
             mosfet_temp_c=temperature,

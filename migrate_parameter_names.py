@@ -2,11 +2,17 @@
 """Migrate parameter names in all JSON test files to standardized naming with units.
 
 Changes:
+- voltage → voltage_v
+- current → current_a
+- power → power_w
+- runtime_seconds → runtime_s
 - temperature_c → mosfet_temp_c
 - ext_temperature_c → ext_temp_c
 - fan_rpm → fan_speed_rpm (if present)
 - load_resistance_ohm → load_r_ohm (if present)
 - battery_resistance_ohm → battery_r_ohm (if present)
+- Add mosfet_temp_c as null if missing
+- Add ext_temp_c as null if missing
 """
 
 import json
@@ -23,30 +29,59 @@ def migrate_reading(reading: dict) -> tuple[dict, list[str]]:
     changes = []
     migrated = reading.copy()
 
+    # voltage → voltage_v
+    if "voltage" in migrated and "voltage_v" not in migrated:
+        migrated["voltage_v"] = migrated.pop("voltage")
+        changes.append("voltage → voltage_v")
+
+    # current → current_a
+    if "current" in migrated and "current_a" not in migrated:
+        migrated["current_a"] = migrated.pop("current")
+        changes.append("current → current_a")
+
+    # power → power_w
+    if "power" in migrated and "power_w" not in migrated:
+        migrated["power_w"] = migrated.pop("power")
+        changes.append("power → power_w")
+
+    # runtime_seconds → runtime_s
+    if "runtime_seconds" in migrated and "runtime_s" not in migrated:
+        migrated["runtime_s"] = migrated.pop("runtime_seconds")
+        changes.append("runtime_seconds → runtime_s")
+
     # temperature_c → mosfet_temp_c
-    if "temperature_c" in migrated:
+    if "temperature_c" in migrated and "mosfet_temp_c" not in migrated:
         migrated["mosfet_temp_c"] = migrated.pop("temperature_c")
         changes.append("temperature_c → mosfet_temp_c")
 
     # ext_temperature_c → ext_temp_c
-    if "ext_temperature_c" in migrated:
+    if "ext_temperature_c" in migrated and "ext_temp_c" not in migrated:
         migrated["ext_temp_c"] = migrated.pop("ext_temperature_c")
         changes.append("ext_temperature_c → ext_temp_c")
 
     # fan_rpm → fan_speed_rpm
-    if "fan_rpm" in migrated:
+    if "fan_rpm" in migrated and "fan_speed_rpm" not in migrated:
         migrated["fan_speed_rpm"] = migrated.pop("fan_rpm")
         changes.append("fan_rpm → fan_speed_rpm")
 
     # load_resistance_ohm → load_r_ohm
-    if "load_resistance_ohm" in migrated:
+    if "load_resistance_ohm" in migrated and "load_r_ohm" not in migrated:
         migrated["load_r_ohm"] = migrated.pop("load_resistance_ohm")
         changes.append("load_resistance_ohm → load_r_ohm")
 
     # battery_resistance_ohm → battery_r_ohm
-    if "battery_resistance_ohm" in migrated:
+    if "battery_resistance_ohm" in migrated and "battery_r_ohm" not in migrated:
         migrated["battery_r_ohm"] = migrated.pop("battery_resistance_ohm")
         changes.append("battery_resistance_ohm → battery_r_ohm")
+
+    # Add missing temperature fields as null
+    if "mosfet_temp_c" not in migrated:
+        migrated["mosfet_temp_c"] = None
+        changes.append("added mosfet_temp_c (null)")
+
+    if "ext_temp_c" not in migrated:
+        migrated["ext_temp_c"] = None
+        changes.append("added ext_temp_c (null)")
 
     return migrated, changes
 
