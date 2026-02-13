@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QGroupBox, QFormLayout,
     QLabel, QComboBox, QSpinBox, QDoubleSpinBox, QPushButton, QSpacerItem, QSizePolicy,
-    QMessageBox, QProgressBar, QCheckBox, QLineEdit
+    QMessageBox, QProgressBar, QCheckBox, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PySide6.QtCore import Signal, Slot, QTimer, Qt
 
@@ -189,6 +189,56 @@ class BatteryLoadPanel(QWidget):
         self.time_label.setAlignment(Qt.AlignCenter)
         control_layout.addWidget(self.time_label)
 
+        # Reduce spacing before Test Summary
+        control_layout.addSpacing(-5)
+
+        # Test Summary table
+        summary_group = QGroupBox("Test Summary")
+        summary_layout = QVBoxLayout(summary_group)
+        summary_layout.setContentsMargins(6, 0, 6, 6)
+
+        self.summary_table = QTableWidget(1, 5)
+        self.summary_table.setHorizontalHeaderLabels(["Run Time", "Load Type", "Load Range", "Resistance", "R²"])
+        self.summary_table.verticalHeader().setVisible(False)
+        self.summary_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.summary_table.setSelectionMode(QTableWidget.NoSelection)
+        self.summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.summary_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        # Set all columns to stretch equally
+        header = self.summary_table.horizontalHeader()
+        for col in range(5):
+            header.setSectionResizeMode(col, QHeaderView.Stretch)
+
+        # Make the single row taller
+        self.summary_table.setRowHeight(0, 35)
+
+        # Create value items (store references for updates)
+        self.summary_runtime_item = QTableWidgetItem("--")
+        self.summary_loadtype_item = QTableWidgetItem("--")
+        self.summary_loadrange_item = QTableWidgetItem("--")
+        self.summary_resistance_item = QTableWidgetItem("--")
+        self.summary_rsquared_item = QTableWidgetItem("--")
+
+        # Center align all values
+        for item in [self.summary_runtime_item, self.summary_loadtype_item,
+                     self.summary_loadrange_item, self.summary_resistance_item,
+                     self.summary_rsquared_item]:
+            item.setTextAlignment(Qt.AlignCenter)
+
+        self.summary_table.setItem(0, 0, self.summary_runtime_item)
+        self.summary_table.setItem(0, 1, self.summary_loadtype_item)
+        self.summary_table.setItem(0, 2, self.summary_loadrange_item)
+        self.summary_table.setItem(0, 3, self.summary_resistance_item)
+        self.summary_table.setItem(0, 4, self.summary_rsquared_item)
+
+        # Set fixed height to prevent scrolling
+        table_height = self.summary_table.horizontalHeader().height() + self.summary_table.rowHeight(0) + 2
+        self.summary_table.setFixedHeight(table_height)
+
+        summary_layout.addWidget(self.summary_table)
+        control_layout.addWidget(summary_group)
+
         # Add stretch to push file-related controls to bottom
         control_layout.addStretch()
 
@@ -199,7 +249,6 @@ class BatteryLoadPanel(QWidget):
         autosave_layout.addWidget(self.autosave_checkbox)
         self.save_btn = QPushButton("Save")
         self.save_btn.setMaximumWidth(50)
-        self.save_btn.setEnabled(False)  # Disabled when Auto Save is checked
         autosave_layout.addWidget(self.save_btn)
         self.load_btn = QPushButton("Load")
         self.load_btn.setMaximumWidth(50)
@@ -787,14 +836,14 @@ class BatteryLoadPanel(QWidget):
 
     def _update_filename(self):
         """Update the filename field with auto-generated name."""
-        if self.autosave_checkbox.isChecked():
+        # Don't update filename during loading to preserve loaded filename
+        if not self._loading_settings and self.autosave_checkbox.isChecked():
             self.filename_edit.setText(self.generate_test_filename())
 
     @Slot(bool)
     def _on_autosave_toggled(self, checked: bool):
         """Handle Auto Save checkbox toggle."""
         self.filename_edit.setReadOnly(checked)
-        self.save_btn.setEnabled(not checked)
         if checked:
             # Reset to auto-generated filename
             self._update_filename()
@@ -820,6 +869,8 @@ class BatteryLoadPanel(QWidget):
             "JSON Files (*.json)"
         )
         if file_path:
+            # Set loading flag to prevent filename auto-update
+            self._loading_settings = True
             try:
                 with open(file_path, 'r') as f:
                     data = json.load(f)
@@ -827,13 +878,27 @@ class BatteryLoadPanel(QWidget):
                 # Update filename to show loaded file
                 self.filename_edit.setText(Path(file_path).name)
 
+                # Load test config
+                test_config = data.get("test_config", {})
+                if "load_type" in test_config:
+                    self.load_type_combo.setCurrentText(test_config["load_type"])
+                if "min" in test_config:
+                    self.min_spin.setValue(test_config["min"])
+                if "max" in test_config:
+                    self.max_spin.setValue(test_config["max"])
+
                 # Emit readings for display
                 readings = data.get("readings", [])
                 if readings:
                     self.session_loaded.emit(readings)
 
+                    # Update Test Summary from loaded data
+                    self._update_summary_from_loaded_data(data, file_path)
+
             except Exception as e:
                 QMessageBox.warning(self, "Load Error", f"Failed to load file: {e}")
+            finally:
+                self._loading_settings = False
 
     @Slot()
     def _on_export_clicked(self):
@@ -990,3 +1055,121 @@ class BatteryLoadPanel(QWidget):
             Dictionary with battery information
         """
         return self.battery_info_widget.get_battery_info()
+
+    def update_test_summary(self, runtime_s: int, load_type: str, min_val: float, max_val: float,
+                           resistance_ohm: float = None, r_squared: float = None):
+        """Update the test summary table with results.
+
+        Args:
+            runtime_s: Test runtime in seconds
+            load_type: Type of load test (Current/Power/Resistance)
+            min_val: Minimum load value
+            max_val: Maximum load value
+            resistance_ohm: Calculated battery resistance (optional)
+            r_squared: R-squared value of fit (optional)
+        """
+        # Format runtime
+        hours = int(runtime_s // 3600)
+        minutes = int((runtime_s % 3600) // 60)
+        seconds = int(runtime_s % 60)
+        runtime_str = f"{hours}h {minutes}m {seconds}s"
+        self.summary_runtime_item.setText(runtime_str)
+
+        # Load type
+        self.summary_loadtype_item.setText(load_type)
+
+        # Load range with units
+        unit_map = {"Current": "A", "Power": "W", "Resistance": "Ω"}
+        unit = unit_map.get(load_type, "")
+        # Convert from mA/mW if needed
+        if load_type in ["Current", "Power"]:
+            min_display = min_val / 1000.0
+            max_display = max_val / 1000.0
+        else:
+            min_display = min_val
+            max_display = max_val
+        load_range_str = f"{min_display:.3f}-{max_display:.3f} {unit}"
+        self.summary_loadrange_item.setText(load_range_str)
+
+        # Resistance
+        if resistance_ohm is not None:
+            self.summary_resistance_item.setText(f"{resistance_ohm:.3f} Ω")
+        else:
+            self.summary_resistance_item.setText("--")
+
+        # R-squared
+        if r_squared is not None:
+            self.summary_rsquared_item.setText(f"{r_squared:.4f}")
+        else:
+            self.summary_rsquared_item.setText("--")
+
+    def _update_summary_from_loaded_data(self, data: dict, file_path: str):
+        """Calculate and update Test Summary from loaded JSON data.
+
+        Args:
+            data: Parsed JSON data dictionary
+            file_path: Path to the JSON file (for updating if needed)
+        """
+        try:
+            summary = data.get("summary", {})
+            test_config = data.get("test_config", {})
+            readings = data.get("readings", [])
+
+            resistance_ohm = summary.get("battery_resistance_ohm")
+            r_squared = summary.get("resistance_r_squared")
+
+            # If resistance not in file, calculate it now
+            if resistance_ohm is None and len(readings) >= 2:
+                try:
+                    import numpy as np
+                    # Extract current and voltage data
+                    currents = [r.get("current_a", 0) for r in readings]
+                    voltages = [r.get("voltage_v", 0) for r in readings]
+
+                    # Filter out zero current readings
+                    valid_points = [(c, v) for c, v in zip(currents, voltages) if c > 0]
+
+                    if len(valid_points) >= 2:
+                        currents_filtered = [c for c, v in valid_points]
+                        voltages_filtered = [v for c, v in valid_points]
+
+                        # Linear fit: voltage = intercept + slope * current
+                        coeffs = np.polyfit(currents_filtered, voltages_filtered, 1)
+                        slope = coeffs[0]
+                        resistance_ohm = -slope  # Internal resistance is -slope
+
+                        # Calculate R-squared
+                        voltages_pred = np.polyval(coeffs, currents_filtered)
+                        ss_res = np.sum((np.array(voltages_filtered) - voltages_pred) ** 2)
+                        ss_tot = np.sum((np.array(voltages_filtered) - np.mean(voltages_filtered)) ** 2)
+                        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+                        # Update the JSON file with calculated values
+                        if "summary" not in data:
+                            data["summary"] = {}
+                        data["summary"]["battery_resistance_ohm"] = float(resistance_ohm)
+                        data["summary"]["resistance_r_squared"] = float(r_squared)
+
+                        try:
+                            with open(file_path, 'w') as f:
+                                json.dump(data, f, indent=2)
+                        except Exception as e:
+                            print(f"Warning: Could not update JSON file with resistance: {e}")
+                except Exception as e:
+                    print(f"Warning: Could not calculate battery resistance: {e}")
+
+            # Update Test Summary table
+            runtime_s = summary.get("total_runtime_seconds", 0)
+            if not runtime_s and readings:
+                runtime_s = int(readings[-1].get("runtime_s", 0))
+
+            self.update_test_summary(
+                runtime_s=runtime_s,
+                load_type=test_config.get("load_type", "Current"),
+                min_val=test_config.get("min", 0),
+                max_val=test_config.get("max", 0),
+                resistance_ohm=resistance_ohm,
+                r_squared=r_squared
+            )
+        except Exception as e:
+            print(f"Warning: Could not update Test Summary: {e}")

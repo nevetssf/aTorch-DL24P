@@ -259,7 +259,6 @@ class BatteryChargerPanel(QWidget):
         autosave_layout.addWidget(self.autosave_checkbox)
         self.save_btn = QPushButton("Save")
         self.save_btn.setMaximumWidth(50)
-        self.save_btn.setEnabled(False)  # Disabled when Auto Save is checked
         autosave_layout.addWidget(self.save_btn)
         self.load_btn = QPushButton("Load")
         self.load_btn.setMaximumWidth(50)
@@ -810,14 +809,14 @@ class BatteryChargerPanel(QWidget):
 
     def _update_filename(self):
         """Update the filename field with auto-generated name."""
-        if self.autosave_checkbox.isChecked():
+        # Don't update filename during loading to preserve loaded filename
+        if not self._loading_settings and self.autosave_checkbox.isChecked():
             self.filename_edit.setText(self.generate_test_filename())
 
     @Slot(bool)
     def _on_autosave_toggled(self, checked: bool):
         """Handle Auto Save checkbox toggle."""
         self.filename_edit.setReadOnly(checked)
-        self.save_btn.setEnabled(not checked)
         if checked:
             # Reset to auto-generated filename
             self._update_filename()

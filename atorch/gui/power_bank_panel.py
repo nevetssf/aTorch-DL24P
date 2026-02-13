@@ -561,7 +561,8 @@ class PowerBankPanel(QWidget):
 
     def _update_filename(self) -> None:
         """Update the filename field with auto-generated name."""
-        if self.autosave_checkbox.isChecked():
+        # Don't update filename during loading to preserve loaded filename
+        if not self._loading_settings and self.autosave_checkbox.isChecked():
             self.filename_edit.setText(self.generate_test_filename())
 
     @Slot()

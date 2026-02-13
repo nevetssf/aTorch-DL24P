@@ -139,8 +139,12 @@ class PlotPanelContainer(QWidget):
 
         state = self._test_type_states[test_type]
 
-        # Update controls (this will trigger _on_setting_changed via signals)
+        # Update controls (signals are blocked during set_settings)
         self.controls.set_settings(state)
+
+        # Manually trigger plot updates since signals were blocked
+        self._update_seaborn_panel()
+        self._update_plotly_panel()
 
     def load_grouped_dataset(self, df: pd.DataFrame, device_colors: dict) -> None:
         """Load dataset into both panels."""

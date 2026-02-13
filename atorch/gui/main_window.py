@@ -888,6 +888,45 @@ class MainWindow(QMainWindow):
                 "final_energy_wh": final_reading["energy_wh"],
                 "total_runtime_seconds": final_reading["runtime_s"],
             }
+
+            # Calculate battery resistance for battery load tests
+            if test_panel_type == "battery_load" and len(readings_data) >= 2:
+                try:
+                    # Extract current (A) and voltage (V) data
+                    currents = [r["current_a"] for r in readings_data]
+                    voltages = [r["voltage_v"] for r in readings_data]
+
+                    # Filter out zero current readings (if any)
+                    valid_points = [(c, v) for c, v in zip(currents, voltages) if c > 0]
+
+                    if len(valid_points) >= 2:
+                        currents_filtered = [c for c, v in valid_points]
+                        voltages_filtered = [v for c, v in valid_points]
+
+                        # Calculate linear regression: V = V0 - I*R
+                        # Using numpy polyfit (degree 1 for linear fit)
+                        import numpy as np
+
+                        # Fit: voltage = intercept + slope * current
+                        # slope is negative of internal resistance
+                        coeffs = np.polyfit(currents_filtered, voltages_filtered, 1)
+                        slope = coeffs[0]  # dV/dI
+                        intercept = coeffs[1]  # V at I=0
+
+                        # Internal resistance is -slope (since V decreases as I increases)
+                        battery_resistance = -slope
+
+                        # Calculate R-squared
+                        voltages_pred = np.polyval(coeffs, currents_filtered)
+                        ss_res = np.sum((np.array(voltages_filtered) - voltages_pred) ** 2)
+                        ss_tot = np.sum((np.array(voltages_filtered) - np.mean(voltages_filtered)) ** 2)
+                        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+                        summary["battery_resistance_ohm"] = float(battery_resistance)
+                        summary["resistance_r_squared"] = float(r_squared)
+                except Exception as e:
+                    # If calculation fails, don't add resistance values
+                    print(f"Warning: Could not calculate battery resistance: {e}")
         else:
             summary = {"total_readings": 0}
 
@@ -1752,6 +1791,65 @@ class MainWindow(QMainWindow):
             if readings:
                 self._on_session_loaded(readings)
 
+                # Calculate and update Test Summary
+                summary = data.get("summary", {})
+                resistance_ohm = summary.get("battery_resistance_ohm")
+                r_squared = summary.get("resistance_r_squared")
+
+                # If resistance not in file, calculate it now
+                if resistance_ohm is None and len(readings) >= 2:
+                    try:
+                        import numpy as np
+                        # Extract current and voltage data
+                        currents = [r.get("current_a", 0) for r in readings]
+                        voltages = [r.get("voltage_v", 0) for r in readings]
+
+                        # Filter out zero current readings
+                        valid_points = [(c, v) for c, v in zip(currents, voltages) if c > 0]
+
+                        if len(valid_points) >= 2:
+                            currents_filtered = [c for c, v in valid_points]
+                            voltages_filtered = [v for c, v in valid_points]
+
+                            # Linear fit: voltage = intercept + slope * current
+                            coeffs = np.polyfit(currents_filtered, voltages_filtered, 1)
+                            slope = coeffs[0]
+                            resistance_ohm = -slope  # Internal resistance is -slope
+
+                            # Calculate R-squared
+                            voltages_pred = np.polyval(coeffs, currents_filtered)
+                            ss_res = np.sum((np.array(voltages_filtered) - voltages_pred) ** 2)
+                            ss_tot = np.sum((np.array(voltages_filtered) - np.mean(voltages_filtered)) ** 2)
+                            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+                            # Update the JSON file with calculated values
+                            if "summary" not in data:
+                                data["summary"] = {}
+                            data["summary"]["battery_resistance_ohm"] = float(resistance_ohm)
+                            data["summary"]["resistance_r_squared"] = float(r_squared)
+
+                            try:
+                                with open(file_path, 'w') as f:
+                                    json.dump(data, f, indent=2)
+                            except Exception as e:
+                                print(f"Warning: Could not update JSON file with resistance: {e}")
+                    except Exception as e:
+                        print(f"Warning: Could not calculate battery resistance: {e}")
+
+                # Update Test Summary table
+                runtime_s = summary.get("total_runtime_seconds", 0)
+                if not runtime_s and readings:
+                    runtime_s = int(readings[-1].get("runtime_s", 0))
+
+                self.battery_load_panel.update_test_summary(
+                    runtime_s=runtime_s,
+                    load_type=test_config.get("load_type", "Current"),
+                    min_val=test_config.get("min", 0),
+                    max_val=test_config.get("max", 0),
+                    resistance_ohm=resistance_ohm,
+                    r_squared=r_squared
+                )
+
             self.statusbar.showMessage(f"Loaded Battery Load test: {Path(file_path).name}")
 
         finally:
@@ -2244,6 +2342,51 @@ class MainWindow(QMainWindow):
         # Stop logging and save data if auto-save is enabled
         if self._logging_enabled:
             num_readings = len(self._accumulated_readings)
+
+            # Calculate resistance before saving/displaying
+            resistance_ohm = None
+            r_squared = None
+            if len(self._accumulated_readings) >= 2:
+                try:
+                    import numpy as np
+                    # Extract current and voltage data
+                    currents = [r.current_a for r in self._accumulated_readings]
+                    voltages = [r.voltage_v for r in self._accumulated_readings]
+
+                    # Filter out zero current readings
+                    valid_points = [(c, v) for c, v in zip(currents, voltages) if c > 0]
+
+                    if len(valid_points) >= 2:
+                        currents_filtered = [c for c, v in valid_points]
+                        voltages_filtered = [v for c, v in valid_points]
+
+                        # Linear fit: voltage = intercept + slope * current
+                        coeffs = np.polyfit(currents_filtered, voltages_filtered, 1)
+                        slope = coeffs[0]
+                        resistance_ohm = -slope  # Internal resistance is -slope
+
+                        # Calculate R-squared
+                        voltages_pred = np.polyval(coeffs, currents_filtered)
+                        ss_res = np.sum((np.array(voltages_filtered) - voltages_pred) ** 2)
+                        ss_tot = np.sum((np.array(voltages_filtered) - np.mean(voltages_filtered)) ** 2)
+                        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                except Exception as e:
+                    print(f"Warning: Could not calculate battery resistance: {e}")
+
+            # Get test parameters
+            test_config = self.battery_load_panel.get_test_config()
+            runtime_s = int(self._accumulated_readings[-1].runtime_s) if self._accumulated_readings else 0
+
+            # Update summary table
+            self.battery_load_panel.update_test_summary(
+                runtime_s=runtime_s,
+                load_type=test_config["load_type"],
+                min_val=test_config["min"],
+                max_val=test_config["max"],
+                resistance_ohm=resistance_ohm,
+                r_squared=r_squared
+            )
+
             # Save test data to JSON if auto-save is enabled
             if self.battery_load_panel.autosave_checkbox.isChecked():
                 saved_path = self._save_battery_load_json()

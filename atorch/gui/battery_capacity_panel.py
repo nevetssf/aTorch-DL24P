@@ -483,7 +483,9 @@ class BatteryCapacityPanel(QWidget):
     @Slot()
     def _on_filename_field_changed(self) -> None:
         """Handle changes to fields that affect the filename."""
-        self._update_filename()
+        # Don't update filename during loading to preserve loaded filename
+        if not self._loading_settings:
+            self._update_filename()
 
     @Slot()
     def _on_battery_info_changed(self) -> None:
