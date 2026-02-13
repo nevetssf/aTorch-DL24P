@@ -2,6 +2,8 @@
 
 import csv
 import json
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -42,7 +44,7 @@ from ..alerts.conditions import (
 from .control_panel import ControlPanel
 from .plot_panel import PlotPanel
 from .status_panel import StatusPanel
-from .automation_panel import AutomationPanel
+from .battery_capacity_panel import BatteryCapacityPanel
 from .history_panel import HistoryPanel
 from .settings_dialog import SettingsDialog, DeviceSettingsDialog
 from .debug_window import DebugWindow
@@ -132,6 +134,10 @@ class MainWindow(QMainWindow):
         self.tooltips_action.setChecked(tooltips_enabled)
         if not tooltips_enabled:
             self._set_tooltips_enabled(False)
+
+        # Sync battery info on startup to ensure both panels start with same data
+        # Use whichever panel's session file was modified most recently
+        self._sync_battery_info_on_startup()
 
         # Update timer
         self._update_timer = QTimer(self)
@@ -287,13 +293,13 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(4)
 
-        self.automation_toggle = QToolButton()
-        self.automation_toggle.setArrowType(Qt.DownArrow)
-        self.automation_toggle.setCheckable(True)
-        self.automation_toggle.setChecked(True)
-        self.automation_toggle.setStyleSheet("QToolButton { border: none; }")
-        self.automation_toggle.clicked.connect(self._toggle_automation_panel)
-        header_layout.addWidget(self.automation_toggle)
+        self.battery_capacity_toggle = QToolButton()
+        self.battery_capacity_toggle.setArrowType(Qt.DownArrow)
+        self.battery_capacity_toggle.setCheckable(True)
+        self.battery_capacity_toggle.setChecked(True)
+        self.battery_capacity_toggle.setStyleSheet("QToolButton { border: none; }")
+        self.battery_capacity_toggle.clicked.connect(self._toggle_battery_capacity_panel)
+        header_layout.addWidget(self.battery_capacity_toggle)
 
         automation_label = QLabel("Test Automation")
         automation_label.setStyleSheet("font-weight: bold;")
@@ -309,8 +315,8 @@ class MainWindow(QMainWindow):
 
         self.bottom_tabs = QTabWidget()
 
-        self.automation_panel = AutomationPanel(None, self.database)  # test_runner set on connect
-        self.bottom_tabs.addTab(self.automation_panel, "Battery Capacity")
+        self.battery_capacity_panel = BatteryCapacityPanel(None, self.database)  # test_runner set on connect
+        self.bottom_tabs.addTab(self.battery_capacity_panel, "Battery Capacity")
 
         self.battery_load_panel = BatteryLoadPanel()
         self.bottom_tabs.addTab(self.battery_load_panel, "Battery Load")
@@ -335,13 +341,13 @@ class MainWindow(QMainWindow):
         self.bottom_tabs.currentChanged.connect(self._on_tab_changed)
 
         # Connect automation panel signals
-        self.automation_panel.start_test_requested.connect(self._on_automation_start)
-        self.automation_panel.pause_test_requested.connect(self._on_automation_pause)
-        self.automation_panel.resume_test_requested.connect(self._on_automation_resume)
-        self.automation_panel.apply_settings_requested.connect(self._on_apply_settings)
-        self.automation_panel.manual_save_requested.connect(self._on_manual_save)
-        self.automation_panel.session_loaded.connect(self._on_session_loaded)
-        self.automation_panel.export_csv_requested.connect(self._on_export_csv)
+        self.battery_capacity_panel.start_test_requested.connect(self._on_automation_start)
+        self.battery_capacity_panel.pause_test_requested.connect(self._on_automation_pause)
+        self.battery_capacity_panel.resume_test_requested.connect(self._on_automation_resume)
+        self.battery_capacity_panel.apply_settings_requested.connect(self._on_apply_settings)
+        self.battery_capacity_panel.manual_save_requested.connect(self._on_manual_save)
+        self.battery_capacity_panel.session_loaded.connect(self._on_session_loaded)
+        self.battery_capacity_panel.export_csv_requested.connect(self._on_export_csv)
 
         # Connect battery load panel signals
         self.battery_load_panel.test_started.connect(self._on_battery_load_start)
@@ -352,7 +358,7 @@ class MainWindow(QMainWindow):
 
         # Synchronize battery info between Battery Capacity and Battery Load panels
         # Both panels now use BatteryInfoWidget, so just sync the widgets
-        self.automation_panel.battery_info_widget.settings_changed.connect(self._sync_battery_info_to_load)
+        self.battery_capacity_panel.battery_info_widget.settings_changed.connect(self._sync_battery_info_to_load)
         self.battery_load_panel.battery_info_widget.settings_changed.connect(self._sync_battery_info_to_capacity)
 
         # Connect charger panel signals
@@ -393,7 +399,7 @@ class MainWindow(QMainWindow):
         # Connect signals
         self.status_updated.connect(self._update_ui_status)
         self.connection_changed.connect(self._update_ui_connection)
-        self.test_progress.connect(self.automation_panel.update_progress)
+        self.test_progress.connect(self.battery_capacity_panel.update_progress)
         self.error_occurred.connect(self._show_error_message)
 
         # Connect control panel signals
@@ -460,6 +466,10 @@ class MainWindow(QMainWindow):
         database_action = QAction("&Database Management...", self)
         database_action.triggered.connect(self._show_database_dialog)
         tools_menu.addAction(database_action)
+
+        test_viewer_action = QAction("Test &Viewer", self)
+        test_viewer_action.triggered.connect(self._launch_test_viewer)
+        tools_menu.addAction(test_viewer_action)
 
         # View menu
         view_menu = menubar.addMenu("&View")
@@ -542,7 +552,7 @@ class MainWindow(QMainWindow):
             self.test_runner.set_progress_callback(self._on_test_progress)
             self.test_runner.set_complete_callback(self._on_test_complete)
             self.control_panel.test_runner = self.test_runner
-            self.automation_panel.test_runner = self.test_runner
+            self.battery_capacity_panel.test_runner = self.test_runner
             self.power_bank_panel.test_runner = self.test_runner
 
             # Set device and plot references for test panels
@@ -572,7 +582,7 @@ class MainWindow(QMainWindow):
             self._toggle_logging(False)
 
         # Stop the test (update automation panel UI)
-        self.automation_panel._update_ui_stopped()
+        self.battery_capacity_panel._update_ui_stopped()
 
         # Clear device references from test panels
         self.battery_load_panel.set_device_and_plot(None, None)
@@ -908,14 +918,14 @@ class MainWindow(QMainWindow):
             Path to saved file, or None if save failed
         """
         # Get test configuration and battery info from automation panel
-        test_config = self.automation_panel.get_test_config()
-        battery_info = self.automation_panel.get_battery_info()
+        test_config = self.battery_capacity_panel.get_test_config()
+        battery_info = self.battery_capacity_panel.get_battery_info()
 
         # Use provided filename or get from automation panel
         if filename is None:
-            filename = self.automation_panel.filename_edit.text().strip()
+            filename = self.battery_capacity_panel.filename_edit.text().strip()
             if not filename:
-                filename = self.automation_panel.generate_test_filename()
+                filename = self.battery_capacity_panel.generate_test_filename()
 
         result = self._write_test_json(filename, test_config, battery_info,
                                        list(self._accumulated_readings))
@@ -940,6 +950,18 @@ class MainWindow(QMainWindow):
         """Show database management dialog."""
         dialog = DatabaseDialog(self.database, self)
         dialog.exec()
+
+    def _launch_test_viewer(self) -> None:
+        """Launch the Test Viewer application."""
+        try:
+            # Launch Test Viewer as a separate process
+            subprocess.Popen([sys.executable, "-m", "atorch.viewer"])
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Launch Error",
+                f"Failed to launch Test Viewer:\n{str(e)}"
+            )
 
     @Slot()
     def _show_about(self) -> None:
@@ -1631,48 +1653,30 @@ class MainWindow(QMainWindow):
             return
 
         # Load test configuration into automation panel
-        self.automation_panel._loading_settings = True
+        self.battery_capacity_panel._loading_settings = True
         try:
             test_config = data.get("test_config", {})
             if "discharge_type_index" in test_config:
-                self.automation_panel.type_combo.setCurrentIndex(test_config["discharge_type_index"])
+                self.battery_capacity_panel.type_combo.setCurrentIndex(test_config["discharge_type_index"])
             elif "discharge_type" in test_config:
                 type_map = {"CC": 0, "CP": 1, "CR": 2}
-                self.automation_panel.type_combo.setCurrentIndex(type_map.get(test_config["discharge_type"], 0))
+                self.battery_capacity_panel.type_combo.setCurrentIndex(type_map.get(test_config["discharge_type"], 0))
             if "value" in test_config:
-                self.automation_panel.value_spin.setValue(test_config["value"])
+                self.battery_capacity_panel.value_spin.setValue(test_config["value"])
             if "voltage_cutoff" in test_config:
-                self.automation_panel.cutoff_spin.setValue(test_config["voltage_cutoff"])
+                self.battery_capacity_panel.cutoff_spin.setValue(test_config["voltage_cutoff"])
             if "timed" in test_config:
-                self.automation_panel.timed_checkbox.setChecked(test_config["timed"])
+                self.battery_capacity_panel.timed_checkbox.setChecked(test_config["timed"])
             if "duration_seconds" in test_config:
-                self.automation_panel.duration_spin.setValue(test_config["duration_seconds"])
+                self.battery_capacity_panel.duration_spin.setValue(test_config["duration_seconds"])
 
             # Load battery info
             battery_info = data.get("battery_info", {})
-            if "name" in battery_info:
-                self.automation_panel.battery_name_edit.setText(battery_info["name"])
-            if "manufacturer" in battery_info:
-                self.automation_panel.manufacturer_edit.setText(battery_info["manufacturer"])
-            if "oem_equivalent" in battery_info:
-                self.automation_panel.oem_equiv_edit.setText(battery_info["oem_equivalent"])
-            if "serial_number" in battery_info:
-                self.automation_panel.serial_number_edit.setText(battery_info["serial_number"])
-            if "rated_voltage" in battery_info:
-                self.automation_panel.rated_voltage_spin.setValue(battery_info["rated_voltage"])
-            if "technology" in battery_info:
-                tech_index = self.automation_panel.technology_combo.findText(battery_info["technology"])
-                if tech_index >= 0:
-                    self.automation_panel.technology_combo.setCurrentIndex(tech_index)
-            if "nominal_capacity_mah" in battery_info:
-                self.automation_panel.nominal_capacity_spin.setValue(battery_info["nominal_capacity_mah"])
-            if "nominal_energy_wh" in battery_info:
-                self.automation_panel.nominal_energy_spin.setValue(battery_info["nominal_energy_wh"])
-            if "notes" in battery_info:
-                self.automation_panel.notes_edit.setPlainText(battery_info["notes"])
+            if battery_info:
+                self.battery_capacity_panel.set_battery_info(battery_info)
 
             # Update filename
-            self.automation_panel.filename_edit.setText(Path(file_path).name)
+            self.battery_capacity_panel.filename_edit.setText(Path(file_path).name)
 
             # Set graph axes for battery capacity (Voltage vs Time)
             self.plot_panel.x_axis_combo.setCurrentText("Time")
@@ -1686,12 +1690,12 @@ class MainWindow(QMainWindow):
             if readings:
                 self._on_session_loaded(readings)
                 # Update test summary with loaded data
-                self.automation_panel._update_summary_from_readings(readings)
+                self.battery_capacity_panel._update_summary_from_readings(readings)
 
             self.statusbar.showMessage(f"Loaded Battery Capacity test: {Path(file_path).name}")
 
         finally:
-            self.automation_panel._loading_settings = False
+            self.battery_capacity_panel._loading_settings = False
 
     def _load_battery_load_history(self, file_path: str, data: dict) -> None:
         """Load battery load test data from history.
@@ -2011,15 +2015,33 @@ class MainWindow(QMainWindow):
             self.cable_resistance_panel._loading_settings = False
 
     @Slot()
+    def _sync_battery_info_on_startup(self) -> None:
+        """Sync battery info on startup using most recently modified session file."""
+        atorch_dir = Path.home() / ".atorch"
+        capacity_session = atorch_dir / "battery_capacity_session.json"
+        load_session = atorch_dir / "battery_load_session.json"
+
+        # Determine which session file was modified most recently
+        capacity_mtime = capacity_session.stat().st_mtime if capacity_session.exists() else 0
+        load_mtime = load_session.stat().st_mtime if load_session.exists() else 0
+
+        # Sync from the more recently modified session file
+        if capacity_mtime >= load_mtime:
+            # Battery Capacity is more recent, sync to Battery Load
+            self._sync_battery_info_to_load()
+        else:
+            # Battery Load is more recent, sync to Battery Capacity
+            self._sync_battery_info_to_capacity()
+
     def _sync_battery_info_to_load(self) -> None:
         """Sync battery info from Battery Capacity panel to Battery Load panel."""
         # Avoid sync loops - check if battery load panel is currently loading settings
         if not self.battery_load_panel._loading_settings:
-            battery_info = self.automation_panel.get_battery_info()
+            battery_info = self.battery_capacity_panel.get_battery_info()
             self.battery_load_panel.battery_info_widget.set_battery_info(battery_info)
 
             # Also sync the preset dropdown selection
-            preset_name = self.automation_panel.battery_info_widget.presets_combo.currentText()
+            preset_name = self.battery_capacity_panel.battery_info_widget.presets_combo.currentText()
             if preset_name and not preset_name.startswith("---"):
                 # Find matching preset in battery load panel
                 index = self.battery_load_panel.battery_info_widget.presets_combo.findText(preset_name)
@@ -2033,20 +2055,20 @@ class MainWindow(QMainWindow):
     def _sync_battery_info_to_capacity(self) -> None:
         """Sync battery info from Battery Load panel to Battery Capacity panel."""
         # Avoid sync loops - check if automation panel is currently loading settings
-        if not self.automation_panel._loading_settings:
+        if not self.battery_capacity_panel._loading_settings:
             battery_info = self.battery_load_panel.battery_info_widget.get_battery_info()
-            self.automation_panel.set_battery_info(battery_info)
+            self.battery_capacity_panel.set_battery_info(battery_info)
 
             # Also sync the preset dropdown selection
             preset_name = self.battery_load_panel.battery_info_widget.presets_combo.currentText()
             if preset_name and not preset_name.startswith("---"):
                 # Find matching preset in automation panel
-                index = self.automation_panel.battery_info_widget.presets_combo.findText(preset_name)
+                index = self.battery_capacity_panel.battery_info_widget.presets_combo.findText(preset_name)
                 if index >= 0:
                     # Temporarily block signals to avoid triggering another sync
-                    self.automation_panel.battery_info_widget.presets_combo.blockSignals(True)
-                    self.automation_panel.battery_info_widget.presets_combo.setCurrentIndex(index)
-                    self.automation_panel.battery_info_widget.presets_combo.blockSignals(False)
+                    self.battery_capacity_panel.battery_info_widget.presets_combo.blockSignals(True)
+                    self.battery_capacity_panel.battery_info_widget.presets_combo.setCurrentIndex(index)
+                    self.battery_capacity_panel.battery_info_widget.presets_combo.blockSignals(False)
 
     @Slot(int, float, float, int)
     def _on_automation_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
@@ -2063,7 +2085,7 @@ class MainWindow(QMainWindow):
             if self._logging_enabled:
                 num_readings = len(self._accumulated_readings)
                 # Save test data to JSON if auto-save is enabled
-                if self.automation_panel.autosave_checkbox.isChecked():
+                if self.battery_capacity_panel.autosave_checkbox.isChecked():
                     saved_path = self._save_test_json()
                     if saved_path:
                         self.statusbar.showMessage(
@@ -2686,11 +2708,12 @@ class MainWindow(QMainWindow):
             try:
                 timestamp = datetime.fromisoformat(reading_dict.get("timestamp", ""))
 
-                # Calculate runtime_seconds from timestamp relative to start
+                # Calculate runtime as time elapsed from first measurement
                 if start_time:
-                    runtime_seconds = (timestamp - start_time).total_seconds()
+                    runtime_s = int((timestamp - start_time).total_seconds())
                 else:
-                    runtime_seconds = reading_dict.get("runtime_seconds", 0)
+                    # Fallback to stored runtime if timestamp calculation fails
+                    runtime_s = reading_dict.get("runtime_s", reading_dict.get("runtime_seconds", 0))
 
                 reading = Reading(
                     timestamp=timestamp,
@@ -2705,7 +2728,7 @@ class MainWindow(QMainWindow):
                     fan_speed_rpm=reading_dict.get("fan_speed_rpm", reading_dict.get("fan_rpm", 0)),
                     load_r_ohm=reading_dict.get("load_r_ohm", reading_dict.get("load_resistance_ohm")),
                     battery_r_ohm=reading_dict.get("battery_r_ohm", reading_dict.get("battery_resistance_ohm")),
-                    runtime_s=reading_dict.get("runtime_s", reading_dict.get("runtime_seconds", runtime_seconds)),
+                    runtime_s=runtime_s,
                 )
                 self._accumulated_readings.append(reading)
             except Exception:
@@ -2729,7 +2752,7 @@ class MainWindow(QMainWindow):
         Path(default_dir).mkdir(parents=True, exist_ok=True)
 
         # Generate default filename from current JSON filename
-        json_filename = self.automation_panel.filename_edit.text().strip()
+        json_filename = self.battery_capacity_panel.filename_edit.text().strip()
         if json_filename.endswith('.json'):
             default_filename = json_filename[:-5] + '.csv'
         else:
@@ -2747,8 +2770,9 @@ class MainWindow(QMainWindow):
 
         try:
             # Get battery info from automation panel
-            battery_name = self.automation_panel.battery_name_edit.text()
-            test_type = self.automation_panel.type_combo.currentText()
+            battery_info = self.battery_capacity_panel.get_battery_info()
+            battery_name = battery_info.get("name", "Unknown")
+            test_type = self.battery_capacity_panel.type_combo.currentText()
 
             with open(file_path, "w", newline="") as f:
                 writer = csv.writer(f)
@@ -2958,7 +2982,7 @@ class MainWindow(QMainWindow):
         # Update test progress bar in automation panel
         if self._logging_enabled:
             elapsed = self.plot_panel.get_elapsed_time()
-            self.automation_panel.update_test_progress(elapsed, status.capacity_mah,
+            self.battery_capacity_panel.update_test_progress(elapsed, status.capacity_mah,
                                                       status.voltage_v, status.energy_wh)
 
         # Pulse communication indicator to show data received
@@ -2986,7 +3010,7 @@ class MainWindow(QMainWindow):
 
             # Check which panel has an active test and stop it
             # Stop the automation test if running
-            self.automation_panel._update_ui_stopped()
+            self.battery_capacity_panel._update_ui_stopped()
 
             # Stop battery load test if running
             if self.battery_load_panel._test_running:
@@ -2999,7 +3023,7 @@ class MainWindow(QMainWindow):
                 # Note: Don't emit test_stopped here since logging is already handled above
 
             # Save test data to JSON if auto-save is enabled (check both panels)
-            if self.automation_panel.autosave_checkbox.isChecked():
+            if self.battery_capacity_panel.autosave_checkbox.isChecked():
                 saved_path = self._save_test_json()
                 if saved_path:
                     self.statusbar.showMessage(
@@ -3046,7 +3070,7 @@ class MainWindow(QMainWindow):
         """Update UI for connection state change."""
         self.control_panel.set_connected(connected)
         self.status_panel.set_connected(connected)
-        self.automation_panel.set_connected(connected)
+        self.battery_capacity_panel.set_connected(connected)
         self.battery_load_panel.set_connected(connected)
         self.charger_panel.set_connected(connected)
         self.battery_charger_panel.set_connected(connected)
@@ -3062,7 +3086,7 @@ class MainWindow(QMainWindow):
             self.status_panel.clear()
 
     @Slot()
-    def _toggle_automation_panel(self) -> None:
+    def _toggle_battery_capacity_panel(self) -> None:
         """Toggle visibility of the Test Automation panel content."""
         is_visible = self.bottom_tabs.isVisible()
         panel_height = 380
@@ -3072,7 +3096,7 @@ class MainWindow(QMainWindow):
             self._expanded_window_height = self.height()
             self.bottom_tabs.setVisible(False)
             self.automation_content.setFixedHeight(0)
-            self.automation_toggle.setArrowType(Qt.RightArrow)
+            self.battery_capacity_toggle.setArrowType(Qt.RightArrow)
             # Shrink window
             self.setFixedHeight(self.height() - panel_height)
             # Remove fixed height constraint to allow future resizing
@@ -3082,7 +3106,7 @@ class MainWindow(QMainWindow):
             # Expand: restore tabs and window height
             self.automation_content.setFixedHeight(panel_height)
             self.bottom_tabs.setVisible(True)
-            self.automation_toggle.setArrowType(Qt.DownArrow)
+            self.battery_capacity_toggle.setArrowType(Qt.DownArrow)
             # Restore window height
             target_height = getattr(self, '_expanded_window_height', self.height() + panel_height)
             self.setFixedHeight(target_height)

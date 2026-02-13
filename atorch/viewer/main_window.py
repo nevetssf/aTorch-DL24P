@@ -6,12 +6,13 @@ from pathlib import Path
 from datetime import datetime
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QMenuBar, QMenu, QFileDialog, QMessageBox, QPushButton
+    QMenuBar, QMenu, QFileDialog, QMessageBox, QPushButton,
+    QDialog, QLabel, QSpinBox, QFormLayout, QDialogButtonBox
 )
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QAction
 
-from .seaborn_plot_panel import SeabornPlotPanel
+from .plot_panel_container import PlotPanelContainer
 from .test_list_panel import TestListPanel
 from .debug_console import DebugConsole
 from .data_viewer_dialog import DataViewerDialog
@@ -49,8 +50,17 @@ class ViewerMainWindow(QMainWindow):
         self.data_directory = Path.home() / ".atorch" / "test_data"
         self.data_directory.mkdir(parents=True, exist_ok=True)
 
+        # Settings file
+        self._atorch_dir = Path.home() / ".atorch"
+        self._atorch_dir.mkdir(parents=True, exist_ok=True)
+        self._settings_file = self._atorch_dir / "test_viewer_settings.json"
+
         # Currently displayed datasets
         self._current_datasets = []
+
+        # Plot settings (defaults, will be overridden by saved settings)
+        self._drop_first_n = 0  # Drop first N data points
+        self._drop_last_n = 1   # Drop last N data points (default 1)
 
         # Debug console
         self.debug_console = DebugConsole(self)
@@ -63,6 +73,9 @@ class ViewerMainWindow(QMainWindow):
 
         # Set up file logging (clears on each run)
         self._setup_logging()
+
+        # Load saved settings (after logging is set up)
+        self._load_plot_settings()
 
         # Log startup
         self._log("Test Viewer started", "INFO")
@@ -80,10 +93,12 @@ class ViewerMainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        # Plot panel (top) - use seaborn for beautiful plots
-        self.plot_panel = SeabornPlotPanel()
+        # Plot panel (top) - container with both seaborn and plotly
+        self.plot_panel = PlotPanelContainer()
         # Set initial test type to first tab (Battery Capacity)
         self.plot_panel.set_test_type('battery_capacity')
+        # Apply loaded drop settings
+        self.plot_panel.set_drop_points(self._drop_first_n, self._drop_last_n)
         layout.addWidget(self.plot_panel, stretch=2)
 
         # Export buttons below plot
@@ -169,6 +184,13 @@ class ViewerMainWindow(QMainWindow):
         debug_action = QAction("&Debug Console", self)
         debug_action.triggered.connect(self._show_debug_console)
         view_menu.addAction(debug_action)
+
+        # Settings menu
+        settings_menu = menubar.addMenu("&Settings")
+
+        plot_settings_action = QAction("&Plot Settings...", self)
+        plot_settings_action.triggered.connect(self._show_plot_settings)
+        settings_menu.addAction(plot_settings_action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -298,6 +320,10 @@ class ViewerMainWindow(QMainWindow):
 
             try:
 
+                # Find final (maximum) capacity and energy values for calculating remaining
+                final_capacity = max((r.get('capacity_mah', 0) for r in readings), default=0)
+                final_energy = max((r.get('energy_wh', 0) for r in readings), default=0)
+
                 # Extract data points and create table rows
                 from datetime import datetime
 
@@ -326,6 +352,15 @@ class ViewerMainWindow(QMainWindow):
                         else:
                             elapsed = 0
 
+                        # Get current capacity and energy
+                        capacity = reading.get('capacity_mah', 0)
+                        energy = reading.get('energy_wh', 0)
+
+                        # Calculate remaining capacity and energy (final - current)
+                        # This shows what's left in the battery based on actual discharge
+                        capacity_remaining = final_capacity - capacity
+                        energy_remaining = final_energy - energy
+
                         # Create a row with Device column
                         row = {
                             'Device': legend_label,
@@ -333,8 +368,10 @@ class ViewerMainWindow(QMainWindow):
                             'Voltage': reading.get('voltage_v', reading.get('voltage', 0)),
                             'Current': reading.get('current_a', reading.get('current', 0)),
                             'Power': reading.get('power_w', reading.get('power', 0)),
-                            'Capacity': reading.get('capacity_mah', 0),
-                            'Energy': reading.get('energy_wh', 0),
+                            'Capacity': capacity,
+                            'Capacity Remaining': capacity_remaining,
+                            'Energy': energy,
+                            'Energy Remaining': energy_remaining,
                             'R Load': reading.get('load_r_ohm', reading.get('resistance_ohm', 0)),
                             'Temp MOSFET': reading.get('mosfet_temp_c', reading.get('temperature_c', 0)),
                         }
@@ -371,12 +408,11 @@ class ViewerMainWindow(QMainWindow):
 
         self._log(f"Loaded combined table with {len(df['Device'].unique())} devices", "INFO")
 
-        # Log enabled parameters
-        if self.plot_panel._enabled_params:
-            params = ', '.join(sorted(self.plot_panel._enabled_params))
-            self._log(f"Enabled plot parameters: {params}", "INFO")
-        else:
-            self._log("INFO: No parameters selected, default (Voltage) will be shown", "INFO")
+        # Log plot configuration
+        params = [f"Y1={self.plot_panel._y1_param}"]
+        if self.plot_panel._y2_enabled:
+            params.append(f"Y2={self.plot_panel._y2_param}")
+        self._log(f"Plot parameters: {', '.join(params)} vs X={self.plot_panel._x_axis}", "INFO")
 
         self.statusBar().showMessage(f"{len(selected)} test(s) displayed")
         self._log(f"Finished loading {len(selected)} test(s)", "INFO")
@@ -477,6 +513,34 @@ class ViewerMainWindow(QMainWindow):
                     ]
                     writer.writerow(row)
 
+    def _load_plot_settings(self):
+        """Load plot settings from config file."""
+        try:
+            if self._settings_file.exists():
+                with open(self._settings_file, 'r') as f:
+                    settings = json.load(f)
+                    self._drop_first_n = settings.get('drop_first_n', 0)
+                    self._drop_last_n = settings.get('drop_last_n', 1)
+                    self._log(f"Loaded plot settings: drop first {self._drop_first_n}, last {self._drop_last_n}", "INFO")
+        except Exception as e:
+            self._log(f"Failed to load plot settings: {e}", "ERROR")
+            # Use defaults on error
+            self._drop_first_n = 0
+            self._drop_last_n = 1
+
+    def _save_plot_settings(self):
+        """Save plot settings to config file."""
+        try:
+            settings = {
+                'drop_first_n': self._drop_first_n,
+                'drop_last_n': self._drop_last_n
+            }
+            with open(self._settings_file, 'w') as f:
+                json.dump(settings, f, indent=2)
+            self._log(f"Saved plot settings: drop first {self._drop_first_n}, last {self._drop_last_n}", "INFO")
+        except Exception as e:
+            self._log(f"Failed to save plot settings: {e}", "ERROR")
+
     def _setup_logging(self):
         """Set up file logging (clears each run)."""
         log_file = Path(__file__).parent.parent.parent / "viewer_debug.log"
@@ -522,6 +586,62 @@ class ViewerMainWindow(QMainWindow):
         self.debug_console.show()
         self.debug_console.raise_()
         self.debug_console.activateWindow()
+
+    @Slot()
+    def _show_plot_settings(self):
+        """Show plot settings dialog."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Plot Settings")
+        dialog.setMinimumWidth(400)
+
+        layout = QFormLayout(dialog)
+
+        # Drop first N points
+        first_spin = QSpinBox()
+        first_spin.setRange(0, 1000)
+        first_spin.setValue(self._drop_first_n)
+        first_spin.setToolTip("Number of initial data points to exclude from plot")
+        layout.addRow("Drop first N points:", first_spin)
+
+        # Drop last N points
+        last_spin = QSpinBox()
+        last_spin.setRange(0, 1000)
+        last_spin.setValue(self._drop_last_n)
+        last_spin.setToolTip("Number of final data points to exclude from plot")
+        layout.addRow("Drop last N points:", last_spin)
+
+        # Add explanation
+        info_label = QLabel("These settings control which data points are displayed in plots.\n"
+                           "Useful for removing startup transients (first) or final outliers (last).")
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addRow("", info_label)
+
+        # Dialog buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        # Show dialog and apply settings if accepted
+        if dialog.exec() == QDialog.Accepted:
+            self._drop_first_n = first_spin.value()
+            self._drop_last_n = last_spin.value()
+            self._log(f"Plot settings updated: drop first {self._drop_first_n}, last {self._drop_last_n} points", "INFO")
+
+            # Save settings to config file
+            self._save_plot_settings()
+
+            # Update plot panel with new drop settings (triggers immediate redraw)
+            self.plot_panel.set_drop_points(self._drop_first_n, self._drop_last_n)
+
+            # Refresh plot with new settings if data is loaded
+            current_panel = self.tabs.currentWidget()
+            if isinstance(current_panel, TestListPanel):
+                self._log("Refreshing plot with new settings...", "INFO")
+                selected = current_panel.get_selected_tests()
+                if selected:
+                    self._update_plot_with_selections(selected)
 
     @Slot()
     def _view_plot_data(self):

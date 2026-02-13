@@ -36,7 +36,7 @@ from ..data.database import Database
 from .battery_info_widget import BatteryInfoWidget
 
 
-class AutomationPanel(QWidget):
+class BatteryCapacityPanel(QWidget):
     """Panel for test automation control."""
 
     # Signal emitted when test should start: (discharge_type, value, voltage_cutoff, duration_s or 0)
@@ -475,8 +475,10 @@ class AutomationPanel(QWidget):
 
     def _update_filename(self) -> None:
         """Update the filename field with auto-generated name."""
-        if self.autosave_checkbox.isChecked():
-            self.filename_edit.setText(self.generate_test_filename())
+        # Check if widgets are created (may be called during initialization)
+        if hasattr(self, 'autosave_checkbox') and hasattr(self, 'filename_edit'):
+            if self.autosave_checkbox.isChecked():
+                self.filename_edit.setText(self.generate_test_filename())
 
     @Slot()
     def _on_filename_field_changed(self) -> None:

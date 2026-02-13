@@ -129,6 +129,7 @@ class BatteryInfoWidget(QGroupBox):
 
     def _connect_change_signals(self):
         """Connect all input widgets to emit settings_changed signal."""
+        self.presets_combo.currentIndexChanged.connect(lambda: self._emit_changed())
         self.battery_name_edit.textChanged.connect(lambda: self._emit_changed())
         self.manufacturer_edit.textChanged.connect(lambda: self._emit_changed())
         self.oem_equiv_edit.textChanged.connect(lambda: self._emit_changed())
