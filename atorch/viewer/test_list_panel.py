@@ -128,10 +128,11 @@ class TestListPanel(QWidget):
 
         # Table widget for test files
         self.table = QTableWidget()
-        self.table.setColumnCount(11)
+        self.table.setColumnCount(12)
+        # Initial headers (will be updated based on test type in _populate_table)
         self.table.setHorizontalHeaderLabels([
-            "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name",
-            "Conditions", "Capacity", "Energy", "JSON", "Delete"
+            "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name", "SN",
+            "Conditions", "Result 1", "Result 2", "JSON", "Delete"
         ])
 
         # Set column widths - make all columns user-resizable (Interactive mode)
@@ -142,11 +143,12 @@ class TestListPanel(QWidget):
         header.setSectionResizeMode(3, QHeaderView.Interactive)  # Manufactured (user-resizable)
         header.setSectionResizeMode(4, QHeaderView.Interactive)  # Manufacturer (user-resizable)
         header.setSectionResizeMode(5, QHeaderView.Stretch)  # Name (stretches)
-        header.setSectionResizeMode(6, QHeaderView.Interactive)  # Conditions (user-resizable)
-        header.setSectionResizeMode(7, QHeaderView.Interactive)  # Capacity (user-resizable)
-        header.setSectionResizeMode(8, QHeaderView.Interactive)  # Energy (user-resizable)
-        header.setSectionResizeMode(9, QHeaderView.ResizeToContents)  # JSON (auto)
-        header.setSectionResizeMode(10, QHeaderView.ResizeToContents)  # Delete (auto)
+        header.setSectionResizeMode(6, QHeaderView.Interactive)  # SN (user-resizable)
+        header.setSectionResizeMode(7, QHeaderView.Interactive)  # Conditions (user-resizable)
+        header.setSectionResizeMode(8, QHeaderView.Interactive)  # Result 1: Capacity or Resistance (user-resizable)
+        header.setSectionResizeMode(9, QHeaderView.Interactive)  # Result 2: Energy or R² (user-resizable)
+        header.setSectionResizeMode(10, QHeaderView.ResizeToContents)  # JSON (auto)
+        header.setSectionResizeMode(11, QHeaderView.ResizeToContents)  # Delete (auto)
 
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setAlternatingRowColors(True)
@@ -267,6 +269,20 @@ class TestListPanel(QWidget):
 
     def _populate_table(self):
         """Populate table with test file information."""
+        # Update column headers based on test type
+        if self.test_type == 'battery_load':
+            # Battery Load: show Resistance and R²
+            self.table.setHorizontalHeaderLabels([
+                "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name", "SN",
+                "Conditions", "Resistance", "R²", "JSON", "Delete"
+            ])
+        else:
+            # Battery Capacity and others: show Capacity and Energy
+            self.table.setHorizontalHeaderLabels([
+                "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name", "SN",
+                "Conditions", "Capacity", "Energy", "JSON", "Delete"
+            ])
+
         # Block signals during population to avoid triggering itemChanged
         self.table.blockSignals(True)
         self.table.setRowCount(len(self._test_files))
@@ -338,35 +354,69 @@ class TestListPanel(QWidget):
             name = battery_info.get('name', data.get('device_name', 'Unknown'))
             self.table.setItem(row, 5, QTableWidgetItem(name))
 
-            # Conditions - column 6
+            # Serial Number - column 6
+            serial_number = battery_info.get('serial_number', '')
+            self.table.setItem(row, 6, QTableWidgetItem(serial_number))
+
+            # Conditions - column 7
             test_config = data.get('test_config', {})
             conditions = self._format_conditions(test_config)
-            self.table.setItem(row, 6, QTableWidgetItem(conditions))
+            self.table.setItem(row, 7, QTableWidgetItem(conditions))
 
-            # Results - Get from last reading if no results section
-            results = data.get('results', {})
+            # Result columns - show different values based on test type
+            test_panel_type = data.get('test_panel_type', 'battery_capacity')
+            summary = data.get('summary', {})
             readings = data.get('readings', [])
 
-            if results:
-                # Use results section if available
-                capacity = results.get('capacity_mah', 0)
-                energy = results.get('energy_wh', 0)
-            elif readings:
-                # Otherwise use last reading
-                last_reading = readings[-1]
-                capacity = last_reading.get('capacity_mah', 0)
-                energy = last_reading.get('energy_wh', 0)
+            if test_panel_type == 'battery_load':
+                # For Battery Load: show Resistance and R²
+                resistance_ohm = summary.get('battery_resistance_ohm')
+                r_squared = summary.get('resistance_r_squared')
+
+                # If resistance not in file, calculate it now
+                if resistance_ohm is None and len(readings) >= 2:
+                    resistance_ohm, r_squared = self._calculate_resistance(readings)
+
+                    # Update the JSON file with calculated values
+                    if resistance_ohm is not None:
+                        if 'summary' not in data:
+                            data['summary'] = {}
+                        data['summary']['battery_resistance_ohm'] = float(resistance_ohm)
+                        data['summary']['resistance_r_squared'] = float(r_squared)
+
+                        # Write back to file
+                        try:
+                            with open(test_file['path'], 'w') as f:
+                                json.dump(data, f, indent=2)
+                        except Exception as e:
+                            print(f"Warning: Could not update JSON file with resistance: {e}")
+
+                result1_str = f"{resistance_ohm:.3f} Ω" if resistance_ohm is not None else ""
+                result2_str = f"{r_squared:.4f}" if r_squared is not None else ""
             else:
-                capacity = 0
-                energy = 0
+                # For Battery Capacity and others: show Capacity and Energy
+                results = data.get('results', {})
 
-            capacity_str = f"{capacity:.0f} mAh" if capacity else ""
-            self.table.setItem(row, 7, QTableWidgetItem(capacity_str))
+                if results:
+                    # Use results section if available
+                    capacity = results.get('capacity_mah', 0)
+                    energy = results.get('energy_wh', 0)
+                elif readings:
+                    # Otherwise use last reading
+                    last_reading = readings[-1]
+                    capacity = last_reading.get('capacity_mah', 0)
+                    energy = last_reading.get('energy_wh', 0)
+                else:
+                    capacity = 0
+                    energy = 0
 
-            energy_str = f"{energy:.2f} Wh" if energy else ""
-            self.table.setItem(row, 8, QTableWidgetItem(energy_str))
+                result1_str = f"{capacity:.0f} mAh" if capacity else ""
+                result2_str = f"{energy:.2f} Wh" if energy else ""
 
-            # View JSON button
+            self.table.setItem(row, 8, QTableWidgetItem(result1_str))
+            self.table.setItem(row, 9, QTableWidgetItem(result2_str))
+
+            # View JSON button - column 10
             json_btn = QPushButton("📄")
             json_btn.setMaximumWidth(30)
             json_btn.setToolTip("View raw JSON data")
@@ -376,9 +426,9 @@ class TestListPanel(QWidget):
             json_layout.addWidget(json_btn)
             json_layout.setAlignment(Qt.AlignCenter)
             json_layout.setContentsMargins(0, 0, 0, 0)
-            self.table.setCellWidget(row, 9, json_widget)
+            self.table.setCellWidget(row, 10, json_widget)
 
-            # Delete button
+            # Delete button - column 11
             delete_btn = QPushButton("✕")
             delete_btn.setMaximumWidth(30)
             delete_btn.setToolTip("Delete this test file")
@@ -388,15 +438,55 @@ class TestListPanel(QWidget):
             delete_layout.addWidget(delete_btn)
             delete_layout.setAlignment(Qt.AlignCenter)
             delete_layout.setContentsMargins(0, 0, 0, 0)
-            self.table.setCellWidget(row, 10, delete_widget)
+            self.table.setCellWidget(row, 11, delete_widget)
 
         # Auto-resize columns to fit content
-        for col in [2, 3, 4, 6, 7, 8]:  # Test Date, Manufactured, Manufacturer, Conditions, Capacity, Energy
+        for col in [2, 3, 4, 6, 7, 8, 9]:  # Test Date, Manufactured, Manufacturer, SN, Conditions, Result 1, Result 2
             self.table.resizeColumnToContents(col)
 
         # Re-enable signals and sorting
         self.table.blockSignals(False)
         self.table.setSortingEnabled(True)
+
+    def _calculate_resistance(self, readings: list) -> tuple:
+        """Calculate battery resistance from readings using linear regression.
+
+        Args:
+            readings: List of reading dicts with current_a and voltage_v
+
+        Returns:
+            tuple: (resistance_ohm, r_squared) or (None, None) if calculation fails
+        """
+        try:
+            import numpy as np
+            # Extract current and voltage data
+            currents = [r.get("current_a", 0) for r in readings]
+            voltages = [r.get("voltage_v", 0) for r in readings]
+
+            # Filter out zero current readings
+            valid_points = [(c, v) for c, v in zip(currents, voltages) if c > 0]
+
+            if len(valid_points) < 2:
+                return None, None
+
+            currents_filtered = [c for c, v in valid_points]
+            voltages_filtered = [v for c, v in valid_points]
+
+            # Linear fit: voltage = intercept + slope * current
+            coeffs = np.polyfit(currents_filtered, voltages_filtered, 1)
+            slope = coeffs[0]
+            resistance_ohm = -slope  # Internal resistance is -slope
+
+            # Calculate R-squared
+            voltages_pred = np.polyval(coeffs, currents_filtered)
+            ss_res = np.sum((np.array(voltages_filtered) - voltages_pred) ** 2)
+            ss_tot = np.sum((np.array(voltages_filtered) - np.mean(voltages_filtered)) ** 2)
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+            return resistance_ohm, r_squared
+        except Exception as e:
+            print(f"Warning: Could not calculate battery resistance: {e}")
+            return None, None
 
     def _format_conditions(self, test_config: dict) -> str:
         """Format test conditions as a string."""
