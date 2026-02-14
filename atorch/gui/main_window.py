@@ -97,6 +97,7 @@ class MainWindow(QMainWindow):
         self._hid_device = USBHIDDevice() if USBHIDDevice.is_available() else None
         self.database = Database()
         self.test_runner = None  # Created after device selection
+        self._test_viewer_process = None  # Track Test Viewer process
         self.notifier = Notifier()
 
         # Debug window
@@ -993,8 +994,44 @@ class MainWindow(QMainWindow):
     def _launch_test_viewer(self) -> None:
         """Launch the Test Viewer application."""
         try:
+            # Check if Test Viewer is already running
+            if self._test_viewer_process is not None and self._test_viewer_process.poll() is None:
+                # Process is still running, try to activate its window
+                if sys.platform == 'darwin':
+                    # On macOS, use AppleScript to find and activate the Test Viewer window
+                    try:
+                        activate_script = '''
+                        tell application "System Events"
+                            set processList to every process whose visible is true
+                            repeat with proc in processList
+                                try
+                                    tell proc
+                                        set windowList to every window
+                                        repeat with win in windowList
+                                            if name of win contains "Test Viewer" then
+                                                set frontmost to true
+                                                perform action "AXRaise" of win
+                                                return
+                                            end if
+                                        end repeat
+                                    end tell
+                                end try
+                            end repeat
+                        end tell
+                        '''
+                        subprocess.run(['osascript', '-e', activate_script], check=False, timeout=2)
+                    except Exception:
+                        pass  # If activation fails, just continue
+                # Show message to user that Test Viewer is already open
+                QMessageBox.information(
+                    self,
+                    "Test Viewer",
+                    "Test Viewer is already running."
+                )
+                return
+
             # Launch Test Viewer as a separate process
-            subprocess.Popen([sys.executable, "-m", "atorch.viewer"])
+            self._test_viewer_process = subprocess.Popen([sys.executable, "-m", "atorch.viewer"])
         except Exception as e:
             QMessageBox.critical(
                 self,
