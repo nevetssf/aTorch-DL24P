@@ -23,9 +23,10 @@ from PySide6.QtWidgets import (
     QDialog,
     QTextBrowser,
     QPushButton,
+    QSystemTrayIcon,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QThread
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtGui import QAction, QCloseEvent, QIcon
 
 from ..protocol.device import Device, USBHIDDevice, DeviceError
 from ..protocol.atorch_protocol import DeviceStatus
@@ -128,6 +129,7 @@ class MainWindow(QMainWindow):
         self._setup_callbacks()
         self._create_ui()
         self._create_menus()
+        self._create_system_tray()
         self._create_statusbar()
 
         # Load and apply tooltip preference
@@ -506,6 +508,68 @@ class MainWindow(QMainWindow):
         about_action = QAction("&About", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
+
+    def _create_system_tray(self) -> None:
+        """Create system tray icon (menu bar icon on macOS)."""
+        # Check if system tray is available
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        # Load menu bar icon
+        icon_path = Path(__file__).parent.parent.parent / "resources" / "icons" / "menubar_icon_16.png"
+        if not icon_path.exists():
+            return
+
+        # Create system tray icon
+        self.tray_icon = QSystemTrayIcon(QIcon(str(icon_path)), self)
+        self.tray_icon.setToolTip("DL24/P Test Bench")
+
+        # Create context menu
+        tray_menu = QMenu()
+
+        # Show/Hide window action
+        show_action = QAction("Show Window", self)
+        show_action.triggered.connect(self.show)
+        tray_menu.addAction(show_action)
+
+        hide_action = QAction("Hide Window", self)
+        hide_action.triggered.connect(self.hide)
+        tray_menu.addAction(hide_action)
+
+        tray_menu.addSeparator()
+
+        # Quick connect/disconnect
+        connect_action = QAction("Connect Device", self)
+        connect_action.triggered.connect(self._connect_device)
+        tray_menu.addAction(connect_action)
+
+        disconnect_action = QAction("Disconnect Device", self)
+        disconnect_action.triggered.connect(self._disconnect_device)
+        tray_menu.addAction(disconnect_action)
+
+        tray_menu.addSeparator()
+
+        # Quit action
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self.close)
+        tray_menu.addAction(quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_icon_activated)
+
+        # Show the tray icon
+        self.tray_icon.show()
+
+    def _on_tray_icon_activated(self, reason):
+        """Handle tray icon activation."""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            # Single click - toggle window visibility
+            if self.isVisible():
+                self.hide()
+            else:
+                self.show()
+                self.raise_()
+                self.activateWindow()
 
     def _create_statusbar(self) -> None:
         """Create status bar."""
