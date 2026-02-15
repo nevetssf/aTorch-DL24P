@@ -698,6 +698,20 @@ class USBHIDDevice:
             product = self._device.get_product_string() or "Unknown"
             self._debug("INFO", f"Connected to {manufacturer} {product}")
 
+            # Clear any stale data in the HID buffer
+            self._device.set_nonblocking(True)
+            cleared_count = 0
+            while True:
+                data = self._device.read(64)
+                if not data:
+                    break
+                cleared_count += 1
+                if cleared_count > 10:  # Prevent infinite loop
+                    break
+            if cleared_count > 0:
+                self._debug("INFO", f"Cleared {cleared_count} stale packets from buffer")
+            self._device.set_nonblocking(False)  # Back to blocking mode
+
             # Start polling thread
             self._running = True
             self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)

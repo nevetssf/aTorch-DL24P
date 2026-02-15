@@ -7,7 +7,9 @@
     "rated_output_current_a": 1.2,
     "rated_voltage_v": 8.4,
     "number_of_cells": 2,
-    "notes": "For LP-E6, LP-E6N, LP-E6NH batteries"
+    "input_voltage_v": "100-240V AC",
+    "charge_termination": "Constant Current/Constant Voltage (CC/CV)",
+    "notes": "For LP-E6, LP-E6N, LP-E6NH batteries. Full charge ~2.5 hours."
   },
   "Canon LC-E17 (LP-E17)": {
     "name": "LC-E17",
@@ -77,7 +79,9 @@
     "rated_output_current_a": 1.8,
     "rated_voltage_v": 8.4,
     "number_of_cells": 2,
-    "notes": "For DMW-BLJ31, DMW-BLK22, DMW-BLF19 batteries"
+    "input_voltage_v": "100-240V AC / 5V USB-C",
+    "charge_termination": "Constant Current/Constant Voltage (CC/CV)",
+    "notes": "For DMW-BLJ31, DMW-BLK22, DMW-BLF19 batteries (S5, GH5, GH6). Dual power input (AC or USB-C PD). Full charge ~2 hours."
   },
   "Panasonic BQ-CC55 (Eneloop)": {
     "name": "BQ-CC55",
@@ -97,7 +101,21 @@
     "rated_output_current_a": 1.5,
     "rated_voltage_v": 1.5,
     "number_of_cells": 1,
-    "notes": "Fast charger for Eneloop Pro, USB powered"
+    "input_voltage_v": "5V USB",
+    "charge_termination": "Delta-V detection",
+    "notes": "Fast charger for Eneloop Pro, USB powered. Charges 4x AA in 3 hours."
+  },
+  "Kastar Dual Charger (DMW-BLH7PP)": {
+    "name": "Kastar Dual",
+    "manufacturer": "Kastar",
+    "model": "LCD-2-BLH7",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 0.7,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "input_voltage_v": "5V USB (Micro-USB)",
+    "charge_termination": "Constant Current/Constant Voltage (CC/CV)",
+    "notes": "For DMW-BLH7PP / BLH7 batteries (Lumix GX85, GM1, GM5). 2-bay charger with LCD display. Full charge ~2 hours per battery."
   },
   "Generic NiMH AA/AAA Charger": {
     "name": "NiMH Charger",
@@ -117,7 +135,9 @@
     "rated_output_current_a": 3.0,
     "rated_voltage_v": 4.2,
     "number_of_cells": 1,
-    "notes": "Universal smart charger for 18650, 21700, etc."
+    "input_voltage_v": "5V USB (QC/PD supported)",
+    "charge_termination": "Intelligent CC/CV with automatic cutoff",
+    "notes": "Universal smart charger for 18650, 21700, 26650, etc. 2-bay with LCD display. Max 3A per bay. Supports IMR, Li-Ion, LiFePO4."
   },
   "XTAR VC4S (Universal Li-Ion)": {
     "name": "VC4S",

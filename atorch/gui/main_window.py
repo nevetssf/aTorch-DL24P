@@ -494,6 +494,10 @@ class MainWindow(QMainWindow):
         help_action.triggered.connect(self._show_help)
         help_menu.addAction(help_action)
 
+        troubleshooting_action = QAction("Connection &Troubleshooting", self)
+        troubleshooting_action.triggered.connect(self._show_connection_troubleshooting)
+        help_menu.addAction(troubleshooting_action)
+
         help_menu.addSeparator()
 
         # Tooltips toggle
@@ -1277,6 +1281,144 @@ class MainWindow(QMainWindow):
         layout.addWidget(close_btn)
 
         dialog.exec()
+
+    @Slot()
+    def _show_connection_troubleshooting(self) -> None:
+        """Show USB connection troubleshooting help."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Connection Troubleshooting")
+        dialog.resize(700, 600)
+
+        layout = QVBoxLayout(dialog)
+
+        # Create text browser for scrollable HTML content
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setHtml(self._get_troubleshooting_html())
+        layout.addWidget(browser)
+
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+
+        dialog.exec()
+
+    def _get_troubleshooting_html(self) -> str:
+        """Get USB connection troubleshooting documentation as HTML.
+
+        Returns:
+            HTML string with troubleshooting information
+        """
+        return """
+        <html>
+        <head>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; padding: 15px; }
+                h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+                h2 { color: #34495e; margin-top: 20px; border-bottom: 1px solid #bdc3c7; padding-bottom: 5px; }
+                h3 { color: #7f8c8d; margin-top: 15px; }
+                .problem { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 10px; margin: 10px 0; }
+                .solution { background-color: #d4edda; border-left: 4px solid #28a745; padding: 10px; margin: 10px 0; }
+                .note { background-color: #d1ecf1; border-left: 4px solid #17a2b8; padding: 10px; margin: 10px 0; }
+                ul { margin-left: 20px; }
+                li { margin: 8px 0; }
+                code { background-color: #ecf0f1; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
+            </style>
+        </head>
+        <body>
+            <h1>USB Connection Troubleshooting</h1>
+
+            <h2>Problem: Live Readings Stop Updating</h2>
+            <div class="problem">
+                <strong>Symptom:</strong> The device is connected and can be controlled (load on/off works),
+                but Live Readings (voltage, current, power) stop updating.
+            </div>
+
+            <h3>Root Cause</h3>
+            <p>This is a <strong>known issue with macOS USB HID drivers</strong>, particularly when:</p>
+            <ul>
+                <li>The Mac goes to sleep or the display turns off</li>
+                <li>macOS suspends USB devices for power management</li>
+                <li>The USB HID driver enters a stuck state where commands are sent but responses aren't received</li>
+            </ul>
+
+            <h3>Solutions (Try in Order)</h3>
+
+            <div class="solution">
+                <strong>1. Click the Reset Button</strong>
+                <ul>
+                    <li>Click the <code>Reset</code> button next to the Disconnect button</li>
+                    <li>This disconnects and reconnects after a 2-second delay</li>
+                    <li>Works in some cases, but not always due to macOS driver limitations</li>
+                </ul>
+            </div>
+
+            <div class="solution">
+                <strong>2. Manual Disconnect/Reconnect</strong>
+                <ul>
+                    <li>Click <code>Disconnect</code></li>
+                    <li>Wait 2-3 seconds</li>
+                    <li>Click <code>Connect</code></li>
+                    <li>Same as Reset button, but with manual control over timing</li>
+                </ul>
+            </div>
+
+            <div class="solution">
+                <strong>3. Unplug and Replug USB Cable (Most Reliable)</strong>
+                <ul>
+                    <li>Physically unplug the USB cable from the DL24P or computer</li>
+                    <li>Wait 2-3 seconds</li>
+                    <li>Plug it back in</li>
+                    <li>Click <code>Connect</code> in the app</li>
+                    <li><strong>This is the most reliable solution</strong> for stuck USB HID states</li>
+                </ul>
+            </div>
+
+            <h3>Why Software Reset Doesn't Always Work</h3>
+            <p>Research shows this is a limitation of the hidapi library and macOS USB HID drivers:</p>
+            <ul>
+                <li><strong>macOS Power Management:</strong> When the Mac sleeps, USB devices may not properly wake up
+                    (<a href="https://kb.plugable.com/docking-stations-and-video/devices-are-not-detected-after-waking-from-sleep-or-after-rebooting-on-macos">Plugable KB Article</a>)</li>
+                <li><strong>HID Driver State:</strong> The IOHIDDevice can get stuck in a state where closing and reopening
+                    doesn't clear pending operations (<a href="https://github.com/libusb/hidapi/issues/171">hidapi Issue #171</a>)</li>
+                <li><strong>No Reset Function:</strong> There's no programmatic way to reset IOHIDDevice state - physical
+                    disconnect is required (<a href="https://github.com/signal11/hidapi/issues/114">hidapi Issue #114</a>)</li>
+            </ul>
+
+            <h3>Prevention Tips</h3>
+            <div class="note">
+                <ul>
+                    <li><strong>Prevent Mac Sleep:</strong> System Settings → Battery → Prevent automatic sleeping when display is off</li>
+                    <li><strong>Use a USB Hub:</strong> Some users report better reliability with powered USB hubs</li>
+                    <li><strong>Avoid USB-C Adapters:</strong> Direct USB-A connection may be more stable</li>
+                    <li><strong>Keep App Active:</strong> Minimize display sleep timeout while running tests</li>
+                </ul>
+            </div>
+
+            <h2>Other Connection Issues</h2>
+
+            <h3>Device Not Found</h3>
+            <ul>
+                <li>Check USB cable is fully inserted</li>
+                <li>Try a different USB port</li>
+                <li>Verify device powers on (screen shows readings)</li>
+                <li>Check that no other app is using the device</li>
+            </ul>
+
+            <h3>Connection Error</h3>
+            <ul>
+                <li>Close any other apps that might be using the DL24P</li>
+                <li>Restart the Test Bench app</li>
+                <li>Try unplugging/replugging USB cable</li>
+            </ul>
+
+            <h3>Debug Logging</h3>
+            <p>Enable <strong>Debug Log</strong> checkbox in the Control Panel to see detailed USB communication
+            in <code>debug.log</code>. Look for "No response received" warnings to confirm the stuck state issue.</p>
+        </body>
+        </html>
+        """
 
     def _get_help_html(self) -> str:
         """Get comprehensive help documentation as HTML.

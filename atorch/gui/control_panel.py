@@ -242,6 +242,17 @@ class ControlPanel(QWidget):
         self.disconnect_btn.clicked.connect(self._on_disconnect_clicked)
         btn_layout.addWidget(self.disconnect_btn)
 
+        self.reset_connection_btn = QPushButton("Reset")
+        self.reset_connection_btn.setEnabled(False)  # Disabled when not connected
+        self.reset_connection_btn.setToolTip(
+            "Disconnect and reconnect to reset the device connection.\n\n"
+            "Note: If Live Readings don't start updating after reset,\n"
+            "the USB driver may be stuck due to macOS power management.\n"
+            "Try unplugging and replugging the USB cable."
+        )
+        self.reset_connection_btn.clicked.connect(self._on_reset_connection_clicked)
+        btn_layout.addWidget(self.reset_connection_btn)
+
         # Communication indicator
         self.comm_indicator = QLabel("●")
         self.comm_indicator.setStyleSheet("color: #555555; font-size: 16px;")
@@ -530,6 +541,7 @@ class ControlPanel(QWidget):
         # bt_radio stays disabled - Bluetooth protocol not yet supported
         self.connect_btn.setEnabled(not connected)
         self.disconnect_btn.setEnabled(connected)
+        self.reset_connection_btn.setEnabled(connected)
 
         # Load Control group title
         if connected:
@@ -788,6 +800,13 @@ class ControlPanel(QWidget):
     def _on_disconnect_clicked(self) -> None:
         """Handle disconnect button click."""
         self.disconnect_requested.emit()
+
+    def _on_reset_connection_clicked(self) -> None:
+        """Handle reset connection button click."""
+        # Emit disconnect, then schedule reconnect after a 2 second delay
+        # Longer delay gives USB HID driver more time to fully reset
+        self.disconnect_requested.emit()
+        QTimer.singleShot(2000, lambda: self.connect_requested.emit(self._connection_type))
 
     def _update_power_labels(self, is_on: bool) -> None:
         """Update power label styling based on state."""
