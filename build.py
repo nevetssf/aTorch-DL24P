@@ -48,7 +48,7 @@ def build():
     # Platform-specific options
     if system == "Darwin":
         # macOS
-        icon_path = Path("resources/icons/atorch.icns")
+        icon_path = Path("resources/icons/app_icon.icns")
         if icon_path.exists():
             cmd.append(f"--icon={icon_path}")
         cmd.append("--osx-bundle-identifier=com.atorch.dl24p")
