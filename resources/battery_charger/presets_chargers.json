@@ -168,5 +168,17 @@
     "rated_voltage_v": 8.4,
     "number_of_cells": 2,
     "notes": "For EN-EL15 series batteries (Z series, D850)"
+  },
+  "DSTE DC-C404200600 (NP-40)": {
+    "name": "DC-C404200600",
+    "manufacturer": "DSTE",
+    "model": "DC-C404200600",
+    "chemistry": "Li-Ion (1S)",
+    "rated_output_current_a": 0.6,
+    "rated_voltage_v": 4.2,
+    "number_of_cells": 1,
+    "input_voltage_v": "100-240V AC",
+    "charge_termination": "Constant Current/Constant Voltage (CC/CV)",
+    "notes": "Travel charger for NP-40, KLIC-7005, SLB-0837, CGA-S004E, D-LI8/LI85 batteries. Compatible with Fuji, Samsung, Panasonic, Pentax, Kodak cameras."
   }
 }

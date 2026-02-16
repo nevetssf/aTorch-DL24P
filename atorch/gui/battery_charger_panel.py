@@ -321,22 +321,24 @@ class BatteryChargerPanel(QWidget):
         model_chem_layout.addWidget(self.charger_chemistry_combo)
         charger_form_layout.addRow("Model", model_chem_layout)
 
-        # Rated Current and Voltage on same row
+        # Rated Voltage and Current on same row
         rated_layout = QHBoxLayout()
-        rated_layout.addWidget(QLabel("Output Current"))
-        self.charger_rated_current_spin = QDoubleSpinBox()
-        self.charger_rated_current_spin.setRange(0.0, 100.0)
-        self.charger_rated_current_spin.setDecimals(2)
-        self.charger_rated_current_spin.setValue(0.0)
-        self.charger_rated_current_spin.setSuffix(" A")
-        rated_layout.addWidget(self.charger_rated_current_spin)
         rated_layout.addWidget(QLabel("Voltage"))
         self.charger_rated_voltage_spin = QDoubleSpinBox()
         self.charger_rated_voltage_spin.setRange(0.0, 60.0)
         self.charger_rated_voltage_spin.setDecimals(2)
         self.charger_rated_voltage_spin.setValue(0.0)
         self.charger_rated_voltage_spin.setSuffix(" V")
+        self.charger_rated_voltage_spin.setMaximumWidth(80)
         rated_layout.addWidget(self.charger_rated_voltage_spin)
+        rated_layout.addWidget(QLabel("Current"))
+        self.charger_rated_current_spin = QDoubleSpinBox()
+        self.charger_rated_current_spin.setRange(0.0, 100.0)
+        self.charger_rated_current_spin.setDecimals(2)
+        self.charger_rated_current_spin.setValue(0.0)
+        self.charger_rated_current_spin.setSuffix(" A")
+        self.charger_rated_current_spin.setMaximumWidth(80)
+        rated_layout.addWidget(self.charger_rated_current_spin)
         charger_form_layout.addRow(rated_layout)
 
         charger_info_layout.addWidget(charger_form)
@@ -519,8 +521,8 @@ class BatteryChargerPanel(QWidget):
             self.charger_model_edit.setText(data.get("model", ""))
             if "chemistry" in data:
                 self.charger_chemistry_combo.setCurrentText(data["chemistry"])
-            self.charger_rated_current_spin.setValue(data.get("rated_current", 0.0))
-            self.charger_rated_voltage_spin.setValue(data.get("rated_voltage", 0.0))
+            self.charger_rated_current_spin.setValue(data.get("rated_current", data.get("rated_output_current_a", 0.0)))
+            self.charger_rated_voltage_spin.setValue(data.get("rated_voltage", data.get("rated_voltage_v", 0.0)))
             self.charger_notes_edit.setPlainText(data.get("notes", ""))
         finally:
             self._loading_settings = False

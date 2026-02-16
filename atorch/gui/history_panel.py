@@ -155,20 +155,23 @@ class HistoryPanel(QWidget):
                 timed = test_config.get("timed", False)
                 duration_seconds = test_config.get("duration_seconds", 0)
 
-                conditions_parts = []
-                if discharge_type and value:
-                    conditions_parts.append(f"{discharge_type} {value}{unit}")
-                if voltage_cutoff > 0:
-                    conditions_parts.append(f"Cutoff {voltage_cutoff}V")
-                if timed and duration_seconds > 0:
-                    h = duration_seconds // 3600
-                    m = (duration_seconds % 3600) // 60
-                    if h > 0:
-                        conditions_parts.append(f"Time {h}h{m}m")
-                    else:
-                        conditions_parts.append(f"Time {m}m")
+                if test_panel_type == "battery_charger":
+                    conditions_str = self._format_charger_conditions(test_config)
+                else:
+                    conditions_parts = []
+                    if discharge_type and value:
+                        conditions_parts.append(f"{discharge_type} {value}{unit}")
+                    if voltage_cutoff > 0:
+                        conditions_parts.append(f"Cutoff {voltage_cutoff}V")
+                    if timed and duration_seconds > 0:
+                        h = duration_seconds // 3600
+                        m = (duration_seconds % 3600) // 60
+                        if h > 0:
+                            conditions_parts.append(f"Time {h}h{m}m")
+                        else:
+                            conditions_parts.append(f"Time {m}m")
 
-                conditions_str = ", ".join(conditions_parts) if conditions_parts else "N/A"
+                    conditions_str = ", ".join(conditions_parts) if conditions_parts else "N/A"
 
                 # Duration
                 duration_sec = int(summary_data.get("total_runtime_seconds", 0))
@@ -211,7 +214,12 @@ class HistoryPanel(QWidget):
                 else:
                     full_name = device_name
 
-                if capacity > 0 or energy > 0:
+                if test_panel_type == "battery_charger":
+                    # Show charger model in summary
+                    charger_info = data.get("charger_info", battery_info)
+                    charger_model = charger_info.get("model", "")
+                    summary_str = f"{full_name} {charger_model}".strip() if charger_model else full_name
+                elif capacity > 0 or energy > 0:
                     summary_str = f"{full_name}: {capacity:.0f} mAh / {energy:.2f} Wh"
                 else:
                     summary_str = f"{full_name}: No data recorded"
@@ -269,6 +277,38 @@ class HistoryPanel(QWidget):
 
         # Set cursor to pointing hand for filename column
         self.table.viewport().setCursor(QCursor(Qt.ArrowCursor))
+
+    def _format_charger_conditions(self, test_config: dict) -> str:
+        """Format conditions for battery charger tests showing overall voltage range."""
+        starts = []
+        ends = []
+
+        # Stage 1 is always enabled
+        s1_start = test_config.get('stage1_start')
+        s1_end = test_config.get('stage1_end')
+        if s1_start is not None:
+            starts.append(s1_start)
+        if s1_end is not None:
+            ends.append(s1_end)
+
+        # Stage 2
+        if test_config.get('stage2_enabled'):
+            s2_end = test_config.get('stage2_end')
+            if s2_end is not None:
+                ends.append(s2_end)
+
+        # Stage 3
+        if test_config.get('stage3_enabled'):
+            s3_end = test_config.get('stage3_end')
+            if s3_end is not None:
+                ends.append(s3_end)
+
+        if not starts and not ends:
+            return "N/A"
+
+        min_v = min(starts) if starts else 0
+        max_v = max(ends) if ends else 0
+        return f"{min_v:.2f} \u2013 {max_v:.2f} V"
 
     @Slot(int, int)
     def _on_cell_clicked(self, row: int, column: int) -> None:

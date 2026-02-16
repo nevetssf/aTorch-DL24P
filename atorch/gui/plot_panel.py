@@ -145,6 +145,10 @@ class PlotPanel(QWidget):
         ("Temp External", "#9CCC65", "°C"),     # Light green - yellow-green
         ("Capacity", "#AB47BC", "mAh"),         # Purple - distinct
         ("Energy", "#FF7043", "Wh"),            # Deep orange - warm
+        ("Set Current", "#81D4FA", "A"),        # Lighter blue - setpoint
+        ("Set Voltage", "#FFE082", "V"),        # Lighter amber - setpoint
+        ("Set Power", "#EF9A9A", "W"),          # Lighter red - setpoint
+        ("Set Resistance", "#A5D6A7", "Ω"),    # Lighter green - setpoint
     ]
 
     # Axis slot names
@@ -178,6 +182,7 @@ class PlotPanel(QWidget):
         self._axis_curves = {}          # slot → PlotDataItem
         self._display_units = {}        # slot → current display unit
         self._show_points = False       # Whether to show point markers
+        self._show_lines = True         # Whether to show connecting lines
 
         # Time window settings
         self._time_window_seconds = None  # None = Full, otherwise window size in seconds
@@ -273,6 +278,13 @@ class PlotPanel(QWidget):
         self.show_points_checkbox.setToolTip("Show point markers on plot")
         self.show_points_checkbox.toggled.connect(self._on_show_points_toggled)
         controls.addWidget(self.show_points_checkbox)
+
+        # Lines checkbox
+        self.show_lines_checkbox = QCheckBox("Lines")
+        self.show_lines_checkbox.setChecked(True)
+        self.show_lines_checkbox.setToolTip("Show connecting lines on plot")
+        self.show_lines_checkbox.toggled.connect(self._on_show_lines_toggled)
+        controls.addWidget(self.show_lines_checkbox)
 
         layout.addLayout(controls)
 
@@ -528,6 +540,10 @@ class PlotPanel(QWidget):
         """Handle show points checkbox toggle."""
         self.set_show_points(checked)
 
+    def _on_show_lines_toggled(self, checked: bool) -> None:
+        """Handle show lines checkbox toggle."""
+        self.set_show_lines(checked)
+
     def add_data_point(self, status: DeviceStatus) -> None:
         """Add a new data point from device status."""
         # Initialize start time on first data point
@@ -547,6 +563,26 @@ class PlotPanel(QWidget):
         self._data["Temp External"].append(status.ext_temp_c)
         self._data["Capacity"].append(status.capacity_mah)
         self._data["Energy"].append(status.energy_wh)
+
+        # Setpoint fields - map mode + value_set to individual parameters
+        # Device mode: 0=CC, 1=CV, 2=CR, 3=CP
+        set_current = 0.0
+        set_voltage = 0.0
+        set_power = 0.0
+        set_resistance = 0.0
+        if status.mode is not None and status.value_set is not None:
+            if status.mode == 0:
+                set_current = status.value_set
+            elif status.mode == 1:
+                set_voltage = status.value_set
+            elif status.mode == 2:
+                set_resistance = status.value_set
+            elif status.mode == 3:
+                set_power = status.value_set
+        self._data["Set Current"].append(set_current)
+        self._data["Set Voltage"].append(set_voltage)
+        self._data["Set Power"].append(set_power)
+        self._data["Set Resistance"].append(set_resistance)
 
         # If scroll position is at the end (1.0), keep it there for auto-scroll
         # Otherwise, maintain current position (don't auto-scroll)
@@ -578,6 +614,10 @@ class PlotPanel(QWidget):
             self._data["Temp External"].append(reading.ext_temp_c)
             self._data["Capacity"].append(reading.capacity_mah)
             self._data["Energy"].append(reading.energy_wh)
+            self._data["Set Current"].append(reading.set_current_a or 0)
+            self._data["Set Voltage"].append(reading.set_voltage_v or 0)
+            self._data["Set Power"].append(reading.set_power_w or 0)
+            self._data["Set Resistance"].append(reading.set_resistance_ohm or 0)
 
         self._update_plots()
 
@@ -600,6 +640,10 @@ class PlotPanel(QWidget):
             self._data["Temp External"].append(reading.ext_temp_c)
             self._data["Capacity"].append(reading.capacity_mah)
             self._data["Energy"].append(reading.energy_wh)
+            self._data["Set Current"].append(reading.set_current_a or 0)
+            self._data["Set Voltage"].append(reading.set_voltage_v or 0)
+            self._data["Set Power"].append(reading.set_power_w or 0)
+            self._data["Set Resistance"].append(reading.set_resistance_ohm or 0)
 
         self._update_plots()
 
@@ -801,6 +845,27 @@ class PlotPanel(QWidget):
                 else:
                     curve.setSymbol(None)
 
+    def set_show_lines(self, show: bool) -> None:
+        """Toggle visibility of connecting lines on curves."""
+        self._show_lines = show
+        for slot in self.AXIS_SLOTS:
+            curve = self._axis_curves.get(slot)
+            if curve and self._axis_selections.get(slot):
+                # Get color for selected parameter
+                param_name = self._axis_selections[slot]
+                color = None
+                for name, c, _ in self.SERIES_CONFIG:
+                    if name == param_name:
+                        color = c
+                        break
+
+                if show and color:
+                    # Show lines with the parameter's color
+                    curve.setPen(pg.mkPen(color, width=2))
+                else:
+                    # Hide lines
+                    curve.setPen(None)
+
     def _update_time_axis_label(self) -> None:
         """Update the X-axis label with appropriate time units."""
         # Only update if using Time as x-axis
@@ -906,7 +971,16 @@ class PlotPanel(QWidget):
             # Scale the data
             scaled_data = data * scale
 
-            self._axis_curves[slot].setData(x_display, scaled_data)
+            # Sort by x-axis so lines don't jump around
+            if self._show_lines and self._x_axis_param != "Time":
+                sort_idx = np.argsort(x_display)
+                x_sorted = x_display[sort_idx]
+                scaled_sorted = scaled_data[sort_idx]
+            else:
+                x_sorted = x_display
+                scaled_sorted = scaled_data
+
+            self._axis_curves[slot].setData(x_sorted, scaled_sorted)
 
             # Update axis label if unit changed
             if self._display_units.get(slot) != display_unit:
@@ -1151,8 +1225,13 @@ class PlotPanel(QWidget):
                 line_style = slot_line_styles[slot]
                 # Alternate line widths: 2, 3, 2, 3, ... for visual distinction
                 line_width = 2 + (dataset_index % 2)
-                pen = pg.mkPen(color=color.name(), width=line_width, style=line_style)
-                curve.setPen(pen)
+
+                # Show lines if enabled
+                if self._show_lines:
+                    pen = pg.mkPen(color=color.name(), width=line_width, style=line_style)
+                    curve.setPen(pen)
+                else:
+                    curve.setPen(None)
 
                 # Show points if enabled
                 if self._show_points:
@@ -1162,8 +1241,17 @@ class PlotPanel(QWidget):
                 else:
                     curve.setSymbol(None)
 
+                # Sort by x-axis so lines don't jump around
+                if self._show_lines:
+                    sort_idx = np.argsort(times_display)
+                    times_sorted = times_display[sort_idx]
+                    values_sorted = values_display[sort_idx]
+                else:
+                    times_sorted = times_display
+                    values_sorted = values_display
+
                 # Set data
-                curve.setData(times_display, values_display)
+                curve.setData(times_sorted, values_sorted)
                 curves_created += 1
 
                 # Track Y range for this slot
