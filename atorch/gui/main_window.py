@@ -335,26 +335,36 @@ class MainWindow(QMainWindow):
         self.bottom_tabs = QTabWidget()
 
         self.battery_capacity_panel = BatteryCapacityPanel(None, self.database)  # test_runner set on connect
-        self.bottom_tabs.addTab(self.battery_capacity_panel, "Battery Capacity")
+        cap_idx = self.bottom_tabs.addTab(self.battery_capacity_panel, "Battery Capacity")
+        self.bottom_tabs.setTabToolTip(cap_idx, "Discharge test to measure battery capacity (mAh/Wh)")
 
         self.battery_load_panel = BatteryLoadPanel()
-        self.bottom_tabs.addTab(self.battery_load_panel, "Battery Load")
+        load_idx = self.bottom_tabs.addTab(self.battery_load_panel, "Battery Load")
+        self.bottom_tabs.setTabToolTip(load_idx, "Sweep current/power/resistance to characterize battery load response")
 
         self.battery_charger_panel = BatteryChargerPanel()
-        self.bottom_tabs.addTab(self.battery_charger_panel, "Battery Charger")
+        charger_idx = self.bottom_tabs.addTab(self.battery_charger_panel, "Battery Charger")
+        self.bottom_tabs.setTabToolTip(charger_idx, "Monitor and log battery charging sessions")
 
         self.cable_resistance_panel = CableResistancePanel()
-        self.bottom_tabs.addTab(self.cable_resistance_panel, "Cable Resistance")
+        cable_idx = self.bottom_tabs.addTab(self.cable_resistance_panel, "Cable Resistance")
+        self.bottom_tabs.setTabEnabled(cable_idx, False)
+        self.bottom_tabs.setTabToolTip(cable_idx, "Under development")
 
         self.charger_panel = ChargerPanel()
-        self.bottom_tabs.addTab(self.charger_panel, "Wall Charger")
+        wall_idx = self.bottom_tabs.addTab(self.charger_panel, "Wall Charger")
+        self.bottom_tabs.setTabEnabled(wall_idx, False)
+        self.bottom_tabs.setTabToolTip(wall_idx, "Under development")
 
         self.power_bank_panel = PowerBankPanel(None, self.database)  # test_runner set on connect
-        self.bottom_tabs.addTab(self.power_bank_panel, "Power Bank")
+        powerbank_idx = self.bottom_tabs.addTab(self.power_bank_panel, "Power Bank")
+        self.bottom_tabs.setTabEnabled(powerbank_idx, False)
+        self.bottom_tabs.setTabToolTip(powerbank_idx, "Under development")
 
         self.history_panel = HistoryPanel(self.database)
         self.history_panel.json_file_selected.connect(self._on_history_json_selected)
-        self.bottom_tabs.addTab(self.history_panel, "History")
+        history_idx = self.bottom_tabs.addTab(self.history_panel, "History")
+        self.bottom_tabs.setTabToolTip(history_idx, "Browse and load saved test results")
 
         # Auto-refresh history panel when tab is activated
         self.bottom_tabs.currentChanged.connect(self._on_tab_changed)
@@ -1072,12 +1082,39 @@ class MainWindow(QMainWindow):
 
     def _launch_test_viewer(self) -> None:
         """Launch the Test Viewer application."""
+        if getattr(sys, 'frozen', False):
+            # In frozen builds, sys.executable is the app bundle — launch in-process
+            self._launch_test_viewer_inprocess()
+        else:
+            self._launch_test_viewer_subprocess()
+
+    def _launch_test_viewer_inprocess(self) -> None:
+        """Launch the Test Viewer as an in-process window (for frozen builds)."""
+        try:
+            # If already open, just raise the window
+            if hasattr(self, '_test_viewer_window') and self._test_viewer_window is not None:
+                if self._test_viewer_window.isVisible():
+                    self._test_viewer_window.raise_()
+                    self._test_viewer_window.activateWindow()
+                    return
+
+            from ..viewer.main_window import ViewerMainWindow
+            self._test_viewer_window = ViewerMainWindow()
+            self._test_viewer_window.show()
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Launch Error",
+                f"Failed to launch Test Viewer:\n{str(e)}"
+            )
+
+    def _launch_test_viewer_subprocess(self) -> None:
+        """Launch the Test Viewer as a separate process (for dev/non-frozen)."""
         try:
             # Check if Test Viewer is already running
             if self._test_viewer_process is not None and self._test_viewer_process.poll() is None:
                 # Process is still running, try to activate its window
                 if sys.platform == 'darwin':
-                    # On macOS, use AppleScript to find and activate the Test Viewer window
                     try:
                         activate_script = '''
                         tell application "System Events"
@@ -1100,8 +1137,7 @@ class MainWindow(QMainWindow):
                         '''
                         subprocess.run(['osascript', '-e', activate_script], check=False, timeout=2)
                     except Exception:
-                        pass  # If activation fails, just continue
-                # Show message to user that Test Viewer is already open
+                        pass
                 QMessageBox.information(
                     self,
                     "Test Viewer",
