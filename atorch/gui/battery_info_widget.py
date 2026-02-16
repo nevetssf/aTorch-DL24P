@@ -153,6 +153,22 @@ class BatteryInfoWidget(QGroupBox):
         if not self._loading:
             self.settings_changed.emit()
 
+    def set_inputs_enabled(self, enabled: bool) -> None:
+        """Enable or disable all input widgets."""
+        self.presets_combo.setEnabled(enabled)
+        self.save_preset_btn.setEnabled(enabled)
+        self.delete_preset_btn.setEnabled(enabled)
+        self.battery_name_edit.setEnabled(enabled)
+        self.manufacturer_edit.setEnabled(enabled)
+        self.oem_equiv_edit.setEnabled(enabled)
+        self.rated_voltage_spin.setEnabled(enabled)
+        self.technology_combo.setEnabled(enabled)
+        self.nominal_capacity_spin.setEnabled(enabled)
+        self.nominal_energy_spin.setEnabled(enabled)
+        self.manufactured_date_edit.setEnabled(enabled)
+        self.serial_number_edit.setEnabled(enabled)
+        self.notes_edit.setEnabled(enabled)
+
     def get_battery_info(self) -> dict:
         """Get battery info as a dictionary."""
         # Get manufactured date, return None if it's the minimum date (unset)

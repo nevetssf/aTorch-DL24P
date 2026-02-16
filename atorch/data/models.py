@@ -23,10 +23,17 @@ class Reading:
     runtime_s: int = 0
     id: Optional[int] = None
     session_id: Optional[int] = None
+    # Device setpoint information (parameters sent to tester)
+    load_mode: Optional[str] = None  # "CC", "CV", "CP", or "CR"
+    set_current_a: Optional[float] = None  # Set current in amps (CC mode)
+    set_voltage_v: Optional[float] = None  # Set voltage in volts (CV mode)
+    set_power_w: Optional[float] = None  # Set power in watts (CP mode)
+    set_resistance_ohm: Optional[float] = None  # Set resistance in ohms (CR mode)
+    cutoff_voltage_v: Optional[float] = None  # Voltage cutoff for all modes
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
-        return {
+        data = {
             "timestamp": self.timestamp.isoformat(),
             "voltage_v": self.voltage_v,
             "current_a": self.current_a,
@@ -39,7 +46,15 @@ class Reading:
             "load_r_ohm": self.load_r_ohm,
             "battery_r_ohm": self.battery_r_ohm,
             "runtime_s": self.runtime_s,
+            # Load configuration fields (always included, may be null)
+            "load_mode": self.load_mode,
+            "set_current_a": self.set_current_a,
+            "set_voltage_v": self.set_voltage_v,
+            "set_power_w": self.set_power_w,
+            "set_resistance_ohm": self.set_resistance_ohm,
+            "cutoff_voltage_v": self.cutoff_voltage_v,
         }
+        return data
 
 
 @dataclass

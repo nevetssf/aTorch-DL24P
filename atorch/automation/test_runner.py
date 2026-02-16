@@ -365,6 +365,31 @@ class TestRunner:
 
     def _log_reading(self, status: DeviceStatus) -> None:
         """Log a reading to the database."""
+        # Determine setpoint fields based on current mode
+        # Device mode: 0=CC, 1=CV, 2=CR, 3=CP
+        load_mode = None
+        set_current_a = None
+        set_voltage_v = None
+        set_power_w = None
+        set_resistance_ohm = None
+
+        if status.mode is not None and status.value_set is not None:
+            if status.mode == 0:  # CC mode
+                load_mode = "CC"
+                set_current_a = status.value_set
+            elif status.mode == 1:  # CV mode
+                load_mode = "CV"
+                set_voltage_v = status.value_set
+            elif status.mode == 2:  # CR mode
+                load_mode = "CR"
+                set_resistance_ohm = status.value_set
+            elif status.mode == 3:  # CP mode
+                load_mode = "CP"
+                set_power_w = status.value_set
+
+        # Get cutoff voltage (available for all modes)
+        cutoff_voltage_v = status.voltage_cutoff if status.voltage_cutoff is not None else None
+
         reading = Reading(
             timestamp=datetime.now(),
             voltage_v=status.voltage_v,
@@ -378,6 +403,12 @@ class TestRunner:
             load_r_ohm=status.load_r_ohm,
             battery_r_ohm=status.battery_r_ohm,
             runtime_s=status.runtime_seconds,
+            load_mode=load_mode,
+            set_current_a=set_current_a,
+            set_voltage_v=set_voltage_v,
+            set_power_w=set_power_w,
+            set_resistance_ohm=set_resistance_ohm,
+            cutoff_voltage_v=cutoff_voltage_v,
         )
 
         if self._session and self._session.id:

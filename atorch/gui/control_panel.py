@@ -330,6 +330,12 @@ class ControlPanel(QWidget):
         self.power_label_on.setStyleSheet("font-weight: bold; color: #666;")
         power_layout.addWidget(self.power_label_on)
 
+        # Load status indicator (shows actual load state from device)
+        self.load_status_indicator = QLabel("●")
+        self.load_status_indicator.setStyleSheet("color: #666666; font-size: 18px;")
+        self.load_status_indicator.setToolTip("Actual load state from device")
+        power_layout.addWidget(self.load_status_indicator)
+
         power_layout.addStretch()
         control_layout.addLayout(power_layout)
 
@@ -623,6 +629,12 @@ class ControlPanel(QWidget):
             self.power_switch.setChecked(status.load_on)
             self._update_power_labels(status.load_on)
 
+        # Update load status indicator
+        if status.load_on:
+            self.load_status_indicator.setStyleSheet("color: #00FF00; font-size: 18px;")  # Green
+        else:
+            self.load_status_indicator.setStyleSheet("color: #666666; font-size: 18px;")  # Grey
+
         # Detect load turning on - always sync values when this happens
         load_just_turned_on = status.load_on and not self._last_load_on
 
@@ -803,10 +815,17 @@ class ControlPanel(QWidget):
 
     def _on_reset_connection_clicked(self) -> None:
         """Handle reset connection button click."""
-        # Emit disconnect, then schedule reconnect after a 2 second delay
-        # Longer delay gives USB HID driver more time to fully reset
-        self.disconnect_requested.emit()
-        QTimer.singleShot(2000, lambda: self.connect_requested.emit(self._connection_type))
+        # Send initialization sequence to reset device communication state
+        # This matches what the OEM app does: send sub-cmd 0x04 to cmd_types 01-0a
+        if self.device and self.device.is_connected:
+            success = self.device.reset_communication_state()
+            if success:
+                # Show brief status message
+                from PySide6.QtWidgets import QApplication
+                if hasattr(QApplication.instance(), 'activeWindow'):
+                    window = QApplication.instance().activeWindow()
+                    if window and hasattr(window, 'statusbar'):
+                        window.statusbar.showMessage("Device communication state reset", 2000)
 
     def _update_power_labels(self, is_on: bool) -> None:
         """Update power label styling based on state."""

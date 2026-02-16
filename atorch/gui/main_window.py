@@ -204,6 +204,11 @@ class MainWindow(QMainWindow):
             if i != current_tab:
                 self.bottom_tabs.setTabEnabled(i, False)
 
+        # Disable input fields on the active test panel
+        current_widget = self.bottom_tabs.currentWidget()
+        if hasattr(current_widget, 'set_inputs_enabled'):
+            current_widget.set_inputs_enabled(False)
+
     def _enable_controls_after_test(self) -> None:
         """Re-enable UI controls after a test completes."""
         # Re-enable mode selection buttons (if connected)
@@ -244,6 +249,13 @@ class MainWindow(QMainWindow):
         # Re-enable all test panel tabs
         for i in range(self.bottom_tabs.count()):
             self.bottom_tabs.setTabEnabled(i, True)
+
+        # Re-enable input fields on all test panels
+        for panel in [self.battery_capacity_panel, self.battery_load_panel,
+                      self.battery_charger_panel, self.cable_resistance_panel,
+                      self.charger_panel, self.power_bank_panel]:
+            if hasattr(panel, 'set_inputs_enabled'):
+                panel.set_inputs_enabled(True)
 
     def _setup_callbacks(self) -> None:
         """Setup device callbacks (called when device is created)."""
@@ -372,6 +384,7 @@ class MainWindow(QMainWindow):
         self.charger_panel.export_csv_requested.connect(self._on_export_csv)
 
         # Connect battery charger panel signals
+        self.battery_charger_panel.test_initialized.connect(self._on_battery_charger_initialized)
         self.battery_charger_panel.test_started.connect(self._on_battery_charger_start)
         self.battery_charger_panel.test_stopped.connect(self._on_battery_charger_stop)
         self.battery_charger_panel.manual_save_requested.connect(self._on_battery_charger_save)
@@ -401,6 +414,7 @@ class MainWindow(QMainWindow):
 
         # Connect signals
         self.status_updated.connect(self._update_ui_status)
+        self.status_updated.connect(self.battery_charger_panel.update_device_status)
         self.connection_changed.connect(self._update_ui_connection)
         self.test_progress.connect(self.battery_capacity_panel.update_progress)
         self.error_occurred.connect(self._show_error_message)
@@ -926,23 +940,10 @@ class MainWindow(QMainWindow):
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / filename
 
-        # Build test data structure
+        # Build test data structure using Reading.to_dict()
         readings_data = []
         for reading in readings:
-            readings_data.append({
-                "timestamp": reading.timestamp.isoformat(),
-                "voltage_v": reading.voltage_v,
-                "current_a": reading.current_a,
-                "power_w": reading.power_w,
-                "energy_wh": reading.energy_wh,
-                "capacity_mah": reading.capacity_mah,
-                "mosfet_temp_c": reading.mosfet_temp_c,
-                "ext_temp_c": reading.ext_temp_c,
-                "fan_speed_rpm": reading.fan_speed_rpm if hasattr(reading, 'fan_speed_rpm') else 0,
-                "load_r_ohm": reading.load_r_ohm if hasattr(reading, 'load_r_ohm') else None,
-                "battery_r_ohm": reading.battery_r_ohm if hasattr(reading, 'battery_r_ohm') else None,
-                "runtime_s": reading.runtime_s,
-            })
+            readings_data.append(reading.to_dict())
 
         # Calculate summary statistics
         if readings_data:
@@ -952,11 +953,15 @@ class MainWindow(QMainWindow):
                 "total_readings": len(readings_data),
                 "start_time": first_reading["timestamp"],
                 "end_time": final_reading["timestamp"],
-                "final_voltage": final_reading["voltage_v"],
-                "final_capacity_mah": final_reading["capacity_mah"],
-                "final_energy_wh": final_reading["energy_wh"],
                 "total_runtime_seconds": final_reading["runtime_s"],
             }
+
+            # Add final values for non-battery-charger tests
+            # Battery charger tests have multiple voltage steps, so final values aren't meaningful
+            if test_panel_type != "battery_charger":
+                summary["final_voltage"] = final_reading["voltage_v"]
+                summary["final_capacity_mah"] = final_reading["capacity_mah"]
+                summary["final_energy_wh"] = final_reading["energy_wh"]
 
             # Calculate battery resistance for battery load tests
             if test_panel_type == "battery_load" and len(readings_data) >= 2:
@@ -2274,10 +2279,8 @@ class MainWindow(QMainWindow):
                 self.battery_charger_panel.rated_current_spin.setValue(charger_info["rated_output_current_a"])
             if "rated_voltage_v" in charger_info:
                 self.battery_charger_panel.rated_voltage_spin.setValue(charger_info["rated_voltage_v"])
-            if "number_of_cells" in charger_info:
-                self.battery_charger_panel.num_cells_spin.setValue(charger_info["number_of_cells"])
             if "notes" in charger_info:
-                self.battery_charger_panel.notes_edit.setPlainText(charger_info["notes"])
+                self.battery_charger_panel.charger_notes_edit.setPlainText(charger_info["notes"])
 
             # Update filename
             self.battery_charger_panel.filename_edit.setText(Path(file_path).name)
@@ -2785,32 +2788,63 @@ class MainWindow(QMainWindow):
         return result
 
     @Slot()
-    def _on_battery_charger_start(self) -> None:
-        """Handle test start from battery charger panel."""
+    def _on_battery_charger_initialized(self) -> None:
+        """Handle test initialization from battery charger panel.
+
+        This is called when the user clicks Start, BEFORE the settle phase begins.
+        This is where we clear accumulated data and reset counters.
+        """
         # Auto-connect if DL24 device detected and not connected
         if not self.device or not self.device.is_connected:
             if not self._try_auto_connect():
                 return
 
-        # Clear data and previous session before starting new test
-        self._clear_data()
+        # Clear accumulated data and reset counters BEFORE test begins
+        self.plot_panel.clear_data()
+        self.status_panel.clear_logging_time()
+        self.status_panel.set_points_count(0)
+        self._accumulated_readings.clear()
         self._last_completed_session = None
-
-        # Clear device counters (mAh, Wh, time)
+        # Reset device counters (mAh, Wh, time)
         self.device.reset_counters()
+        # Lock UI controls during test
+        self._disable_controls_during_test()
 
-        # Start logging (which also turns on the load)
+    @Slot()
+    def _on_battery_charger_start(self) -> None:
+        """Handle logging start from battery charger panel.
+
+        This is called when the settle phase completes and logging should begin.
+        Data has already been cleared in _on_battery_charger_initialized.
+        """
+        # Start logging WITHOUT turning on load (panel controls load)
         if not self._logging_enabled:
-            self.status_panel.log_switch.setChecked(True)
-            self._toggle_logging(True)
-
-        self.statusbar.showMessage("Battery Charger test started")
+            self._logging_enabled = True
+            self._logging_start_time = datetime.now()
+            self._current_session = TestSession(
+                name=f"Battery Charger Test {self._logging_start_time.strftime('%Y-%m-%d %H:%M')}",
+                start_time=self._logging_start_time,
+                test_type="stepped",
+            )
+            # Don't turn on load here - panel manages it
+            self.statusbar.showMessage("Logging started")
+        else:
+            # Resume logging (for subsequent steps)
+            self.statusbar.showMessage("Logging resumed")
 
     @Slot()
     def _on_battery_charger_stop(self) -> None:
-        """Handle test stop from battery charger panel."""
-        # Stop logging and save data if auto-save is enabled
-        if self._logging_enabled:
+        """Handle test stop from battery charger panel.
+
+        Note: Battery Charger panel manages the load state directly.
+        This handler only controls logging, not the load.
+        """
+        # Check if this is final stop (end of test) or pause between steps
+        # If panel is still running, this is a pause; otherwise it's final stop
+        is_final_stop = not self.battery_charger_panel._test_running
+
+        if self._logging_enabled and is_final_stop:
+            # Final stop - end logging and save
             num_readings = len(self._accumulated_readings)
             # Save test data to JSON if auto-save is enabled
             if self.battery_charger_panel.autosave_checkbox.isChecked():
@@ -2830,7 +2864,14 @@ class MainWindow(QMainWindow):
                     f"Battery Charger test complete: {num_readings} readings - click Save to export"
                 )
             self.status_panel.log_switch.setChecked(False)
-            self._toggle_logging(False)
+            # Stop logging WITHOUT turning off load (panel controls load)
+            self._logging_enabled = False
+            # Unlock UI controls after test
+            self._enable_controls_after_test()
+        elif self._logging_enabled:
+            # Pause between steps - just stop logging, don't save yet
+            self._logging_enabled = False
+            self.statusbar.showMessage("Logging paused")
 
     @Slot(str)
     def _on_battery_charger_save(self, filename: str) -> None:
@@ -3115,6 +3156,14 @@ class MainWindow(QMainWindow):
                     load_r_ohm=reading_dict.get("load_r_ohm", reading_dict.get("load_resistance_ohm")),
                     battery_r_ohm=reading_dict.get("battery_r_ohm", reading_dict.get("battery_resistance_ohm")),
                     runtime_s=runtime_s,
+                    # Setpoint fields (parameters sent to tester)
+                    # Handle both old (set_mode, set_resistance_r) and new (load_mode, set_resistance_ohm) names
+                    load_mode=reading_dict.get("load_mode", reading_dict.get("set_mode")),
+                    set_current_a=reading_dict.get("set_current_a"),
+                    set_voltage_v=reading_dict.get("set_voltage_v"),
+                    set_power_w=reading_dict.get("set_power_w"),
+                    set_resistance_ohm=reading_dict.get("set_resistance_ohm", reading_dict.get("set_resistance_r")),
+                    cutoff_voltage_v=reading_dict.get("cutoff_voltage_v"),
                 )
                 self._accumulated_readings.append(reading)
             except Exception:
@@ -3338,6 +3387,31 @@ class MainWindow(QMainWindow):
             if should_log:
                 self._last_log_time = current_time
 
+                # Determine setpoint fields based on current mode
+                # Device mode: 0=CC, 1=CV, 2=CR, 3=CP
+                load_mode = None
+                set_current_a = None
+                set_voltage_v = None
+                set_power_w = None
+                set_resistance_ohm = None
+
+                if status.mode is not None and status.value_set is not None:
+                    if status.mode == 0:  # CC mode
+                        load_mode = "CC"
+                        set_current_a = status.value_set
+                    elif status.mode == 1:  # CV mode
+                        load_mode = "CV"
+                        set_voltage_v = status.value_set
+                    elif status.mode == 2:  # CR mode
+                        load_mode = "CR"
+                        set_resistance_ohm = status.value_set
+                    elif status.mode == 3:  # CP mode
+                        load_mode = "CP"
+                        set_power_w = status.value_set
+
+                # Get cutoff voltage (available for all modes)
+                cutoff_voltage_v = status.voltage_cutoff if status.voltage_cutoff is not None else None
+
                 reading = Reading(
                     timestamp=datetime.now(),
                     voltage_v=status.voltage_v,
@@ -3351,6 +3425,12 @@ class MainWindow(QMainWindow):
                     load_r_ohm=status.load_r_ohm,
                     battery_r_ohm=status.battery_r_ohm,
                     runtime_s=status.runtime_seconds,
+                    load_mode=load_mode,
+                    set_current_a=set_current_a,
+                    set_voltage_v=set_voltage_v,
+                    set_power_w=set_power_w,
+                    set_resistance_ohm=set_resistance_ohm,
+                    cutoff_voltage_v=cutoff_voltage_v,
                 )
                 # Queue reading for background database writer (non-blocking)
                 try:

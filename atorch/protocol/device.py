@@ -712,6 +712,20 @@ class USBHIDDevice:
                 self._debug("INFO", f"Cleared {cleared_count} stale packets from buffer")
             self._device.set_nonblocking(False)  # Back to blocking mode
 
+            # Send initialization sequence to reset device communication state
+            # The OEM app sends sub-command 0x04 to all command types 01-0a
+            # These commands don't expect responses - they reset internal state
+            self._debug("INFO", "Sending initialization sequence (sub-cmd 0x04 to cmd_types 01-0a)")
+            import time
+            for cmd_type in range(0x01, 0x0b):  # 0x01 through 0x0a
+                packet = self._build_command(cmd_type, 0x04, b'')
+                try:
+                    self._device.write(packet)
+                    time.sleep(0.01)  # Small delay between commands (OEM app uses ~160ms)
+                except Exception as e:
+                    self._debug("WARN", f"Init sequence cmd_type {cmd_type:02x} failed: {e}")
+            self._debug("INFO", "Initialization sequence complete")
+
             # Start polling thread
             self._running = True
             self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -742,6 +756,32 @@ class USBHIDDevice:
 
         self._device_path = None
         self._last_status = None
+
+    def reset_communication_state(self) -> bool:
+        """Send initialization sequence to reset device communication state.
+
+        This sends sub-command 0x04 to all command types 01-0a, which the OEM
+        app does to reset the device when it gets into a stuck state where it
+        stops responding to queries.
+
+        Returns:
+            True if sequence was sent successfully, False if device not connected
+        """
+        if not self.is_connected or not self._device:
+            return False
+
+        self._debug("INFO", "Resending initialization sequence to reset device state")
+        import time
+        try:
+            for cmd_type in range(0x01, 0x0b):  # 0x01 through 0x0a
+                packet = self._build_command(cmd_type, 0x04, b'')
+                self._device.write(packet)
+                time.sleep(0.01)  # Small delay between commands
+            self._debug("INFO", "Reset initialization sequence complete")
+            return True
+        except Exception as e:
+            self._debug("ERROR", f"Failed to send reset sequence: {e}")
+            return False
 
     def _build_command(self, cmd_type: int, sub_cmd: int, data: bytes = b'') -> bytes:
         """Build a USB HID command packet."""

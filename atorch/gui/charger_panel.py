@@ -607,7 +607,31 @@ class ChargerPanel(QWidget):
 
     def _start_test(self):
         """Start the stepped load test."""
-        # Get test parameters (connection check will happen in main_window)
+        # Check if device is connected, try to auto-connect if not
+        if not self._device or not self._device.is_connected:
+            # Try to find and connect to main window for auto-connect
+            main_window = self.window()
+            if hasattr(main_window, '_try_auto_connect'):
+                if not main_window._try_auto_connect():
+                    # Auto-connect failed
+                    QMessageBox.warning(
+                        self,
+                        "Not Connected",
+                        "Please select a device from the dropdown and click Connect before starting the test."
+                    )
+                    return
+                # Auto-connect succeeded, update device reference
+                self._device = main_window.device
+            else:
+                # Can't auto-connect, show warning
+                QMessageBox.warning(
+                    self,
+                    "Not Connected",
+                    "Please connect to a device before starting the test."
+                )
+                return
+
+        # Get test parameters
         load_type = self.load_type_combo.currentText()
         min_val = self.min_spin.value()
         max_val = self.max_spin.value()
@@ -774,6 +798,33 @@ class ChargerPanel(QWidget):
             else:
                 self.status_label.setText("Not Connected")
                 self.status_label.setStyleSheet("color: red;")
+
+    def set_inputs_enabled(self, enabled: bool) -> None:
+        """Enable or disable all input widgets during test."""
+        self.test_presets_combo.setEnabled(enabled)
+        self.save_test_preset_btn.setEnabled(enabled)
+        self.delete_test_preset_btn.setEnabled(enabled)
+        self.load_type_combo.setEnabled(enabled)
+        self.min_spin.setEnabled(enabled)
+        self.max_spin.setEnabled(enabled)
+        self.num_steps_spin.setEnabled(enabled)
+        self.num_steps_preset_combo.setEnabled(enabled)
+        self.dwell_time_spin.setEnabled(enabled)
+        self.charger_presets_combo.setEnabled(enabled)
+        self.save_charger_preset_btn.setEnabled(enabled)
+        self.delete_charger_preset_btn.setEnabled(enabled)
+        self.charger_name_edit.setEnabled(enabled)
+        self.charger_manufacturer_edit.setEnabled(enabled)
+        self.charger_model_edit.setEnabled(enabled)
+        self.rated_output_spin.setEnabled(enabled)
+        self.rated_voltage_spin.setEnabled(enabled)
+        self.rated_current_spin.setEnabled(enabled)
+        self.usb_ports_edit.setEnabled(enabled)
+        self.usb_pd_checkbox.setEnabled(enabled)
+        self.gan_checkbox.setEnabled(enabled)
+        self.charger_notes_edit.setEnabled(enabled)
+        self.autosave_checkbox.setEnabled(enabled)
+        self.filename_edit.setEnabled(enabled)
 
     def set_connected(self, connected: bool):
         """Update UI based on connection status."""

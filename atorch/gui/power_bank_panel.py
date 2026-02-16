@@ -578,6 +578,30 @@ class PowerBankPanel(QWidget):
             self.start_test_requested.emit(0, 0, 0, 0)
             self.test_stopped.emit()
         else:
+            # Check if device is connected, try to auto-connect if not
+            if not self._device or not self._device.is_connected:
+                # Try to find and connect to main window for auto-connect
+                main_window = self.window()
+                if hasattr(main_window, '_try_auto_connect'):
+                    if not main_window._try_auto_connect():
+                        # Auto-connect failed
+                        QMessageBox.warning(
+                            self,
+                            "Not Connected",
+                            "Please select a device from the dropdown and click Connect before starting the test."
+                        )
+                        return
+                    # Auto-connect succeeded, update device reference
+                    self._device = main_window.device
+                else:
+                    # Can't auto-connect, show warning
+                    QMessageBox.warning(
+                        self,
+                        "Not Connected",
+                        "Please connect to a device before starting the test."
+                    )
+                    return
+
             # Power banks are tested in CC mode
             discharge_type = 0  # CC
             value = self.current_spin.value()
@@ -596,6 +620,30 @@ class PowerBankPanel(QWidget):
     @Slot()
     def _on_apply_clicked(self) -> None:
         """Handle Apply button click."""
+        # Check if device is connected, try to auto-connect if not
+        if not self._device or not self._device.is_connected:
+            # Try to find and connect to main window for auto-connect
+            main_window = self.window()
+            if hasattr(main_window, '_try_auto_connect'):
+                if not main_window._try_auto_connect():
+                    # Auto-connect failed
+                    QMessageBox.warning(
+                        self,
+                        "Not Connected",
+                        "Please select a device from the dropdown and click Connect before applying settings."
+                    )
+                    return
+                # Auto-connect succeeded, update device reference
+                self._device = main_window.device
+            else:
+                # Can't auto-connect, show warning
+                QMessageBox.warning(
+                    self,
+                    "Not Connected",
+                    "Please connect to a device before applying settings."
+                )
+                return
+
         discharge_type = 0  # CC mode for power banks
         value = self.current_spin.value()
         cutoff = self.cutoff_spin.value()
@@ -660,6 +708,33 @@ class PowerBankPanel(QWidget):
         self.progress_bar.setFormat("")
         self.elapsed_label.setText("0h 0m 0s")
         self.remaining_label.setText("")
+
+    def set_inputs_enabled(self, enabled: bool) -> None:
+        """Enable or disable all input widgets during test."""
+        self.test_presets_combo.setEnabled(enabled)
+        self.save_test_preset_btn.setEnabled(enabled)
+        self.delete_test_preset_btn.setEnabled(enabled)
+        self.output_voltage_combo.setEnabled(enabled)
+        self.current_spin.setEnabled(enabled)
+        self.cutoff_spin.setEnabled(enabled)
+        self.timed_checkbox.setEnabled(enabled)
+        self.hours_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
+        self.minutes_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
+        self.presets_combo.setEnabled(enabled)
+        self.save_preset_btn.setEnabled(enabled)
+        self.delete_preset_btn.setEnabled(enabled)
+        self.power_bank_name_edit.setEnabled(enabled)
+        self.manufacturer_edit.setEnabled(enabled)
+        self.model_edit.setEnabled(enabled)
+        self.rated_capacity_spin.setEnabled(enabled)
+        self.rated_energy_spin.setEnabled(enabled)
+        self.usb_ports_spin.setEnabled(enabled)
+        self.usb_pd_checkbox.setEnabled(enabled)
+        self.quick_charge_checkbox.setEnabled(enabled)
+        self.serial_number_edit.setEnabled(enabled)
+        self.notes_edit.setEnabled(enabled)
+        self.autosave_checkbox.setEnabled(enabled)
+        self.filename_edit.setEnabled(enabled)
 
     def set_connected(self, connected: bool) -> None:
         """Update status based on connection state."""

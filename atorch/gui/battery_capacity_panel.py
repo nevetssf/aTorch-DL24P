@@ -650,6 +650,21 @@ class BatteryCapacityPanel(QWidget):
         self.elapsed_label.setText("0h 0m 0s")
         self.remaining_label.setText("")
 
+    def set_inputs_enabled(self, enabled: bool) -> None:
+        """Enable or disable all input widgets during test."""
+        self.test_presets_combo.setEnabled(enabled)
+        self.save_test_preset_btn.setEnabled(enabled)
+        self.delete_test_preset_btn.setEnabled(enabled)
+        self.type_combo.setEnabled(enabled)
+        self.value_spin.setEnabled(enabled)
+        self.cutoff_spin.setEnabled(enabled)
+        self.timed_checkbox.setEnabled(enabled)
+        self.hours_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
+        self.minutes_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
+        self.battery_info_widget.set_inputs_enabled(enabled)
+        self.autosave_checkbox.setEnabled(enabled)
+        self.filename_edit.setEnabled(enabled)
+
     def set_connected(self, connected: bool) -> None:
         """Update status label and button based on connection state."""
         if self.start_btn.text() != "Abort":  # Not running

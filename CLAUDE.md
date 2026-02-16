@@ -18,8 +18,11 @@ aTorch DL24P Control is a PySide6 GUI application for controlling the aTorch DL2
 ## Commands
 
 ```bash
-# Run the application
+# Run the application (Test Bench - device control + testing)
 python -m atorch.main
+
+# Run the Test Viewer (standalone, no device needed)
+python -m atorch.viewer
 
 # Run all tests
 pytest
