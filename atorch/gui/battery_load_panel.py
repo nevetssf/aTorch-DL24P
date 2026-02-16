@@ -99,7 +99,7 @@ class BatteryLoadPanel(QWidget):
 
         # Load Type dropdown
         self.load_type_combo = QComboBox()
-        self.load_type_combo.addItems(["Current", "Power", "Resistance"])
+        self.load_type_combo.addItems(["Current", "Resistance"])
         self.load_type_combo.currentTextChanged.connect(self._on_load_type_changed)
         self.load_type_combo.currentTextChanged.connect(lambda: self._update_filename())
         params_layout.addRow("Load Type", self.load_type_combo)
@@ -279,13 +279,6 @@ class BatteryLoadPanel(QWidget):
             # Reset to current defaults
             self.min_spin.setValue(10.0)
             self.max_spin.setValue(100.0)
-        elif load_type == "Power":
-            suffix = " mW"
-            self.min_spin.setRange(0.0, 100000.0)
-            self.max_spin.setRange(0.0, 100000.0)
-            # Reset to power defaults
-            self.min_spin.setValue(100.0)
-            self.max_spin.setValue(1000.0)
         elif load_type == "Resistance":
             suffix = " Ω"
             self.min_spin.setRange(0.1, 10000.0)
@@ -656,7 +649,7 @@ class BatteryLoadPanel(QWidget):
         self._current_value = min_val
 
         # Set device mode
-        mode_map = {"Current": 0, "Power": 1, "Resistance": 3}  # CC=0, CP=1, CR=3
+        mode_map = {"Current": 0, "Resistance": 3}  # CC=0, CR=3
         mode = mode_map.get(load_type, 0)
 
         try:
@@ -666,8 +659,6 @@ class BatteryLoadPanel(QWidget):
             # Set mode and initial value
             if load_type == "Current":
                 self._device.set_current(min_val / 1000.0)  # Convert mA to A
-            elif load_type == "Power":
-                self._device.set_power(min_val / 1000.0)  # Convert mW to W
             elif load_type == "Resistance":
                 self._device.set_resistance(min_val)  # Ohms
 
@@ -680,7 +671,7 @@ class BatteryLoadPanel(QWidget):
 
         # Switch plot to show Load Type vs Voltage
         if self._plot_panel:
-            x_axis_name = {"Current": "Current", "Power": "Power", "Resistance": "R Load"}
+            x_axis_name = {"Current": "Current", "Resistance": "R Load"}
             self._plot_panel.x_axis_combo.setCurrentText(x_axis_name.get(load_type, "Current"))
             # Enable Voltage on Y-axis
             if "Y" in self._plot_panel._axis_dropdowns:
@@ -744,8 +735,6 @@ class BatteryLoadPanel(QWidget):
         try:
             if load_type == "Current":
                 self._device.set_current(self._current_value / 1000.0)  # Convert mA to A
-            elif load_type == "Power":
-                self._device.set_power(self._current_value / 1000.0)  # Convert mW to W
             elif load_type == "Resistance":
                 self._device.set_resistance(self._current_value)  # Ohms
         except Exception as e:
@@ -858,7 +847,7 @@ class BatteryLoadPanel(QWidget):
         num_steps = self.num_steps_spin.value()
 
         # Get unit for load type
-        unit_map = {"Current": "A", "Power": "W", "Resistance": "ohm"}
+        unit_map = {"Current": "A", "Resistance": "ohm"}
         unit = unit_map.get(load_type, "")
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1119,10 +1108,10 @@ class BatteryLoadPanel(QWidget):
         self.summary_loadtype_item.setText(load_type)
 
         # Load range with units
-        unit_map = {"Current": "A", "Power": "W", "Resistance": "Ω"}
+        unit_map = {"Current": "A", "Resistance": "Ω"}
         unit = unit_map.get(load_type, "")
-        # Convert from mA/mW if needed
-        if load_type in ["Current", "Power"]:
+        # Convert from mA if needed
+        if load_type == "Current":
             min_display = min_val / 1000.0
             max_display = max_val / 1000.0
         else:

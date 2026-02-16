@@ -20,20 +20,6 @@
     "step": 500.0,
     "settle_time": 5
   },
-  "Low Power Sweep": {
-    "load_type": "Power",
-    "min": 100.0,
-    "max": 1000.0,
-    "step": 100.0,
-    "settle_time": 5
-  },
-  "Medium Power Sweep": {
-    "load_type": "Power",
-    "min": 1000.0,
-    "max": 10000.0,
-    "step": 1000.0,
-    "settle_time": 5
-  },
   "Low Resistance Sweep": {
     "load_type": "Resistance",
     "min": 1.0,

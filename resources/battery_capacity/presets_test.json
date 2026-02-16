@@ -1,5 +1,4 @@
 {
   "CC 0.5A 6V": {"discharge_type": 0, "value": 0.5, "voltage_cutoff": 6.0, "timed": false, "duration": 3600},
-  "CP 5W 6V": {"discharge_type": 1, "value": 5.0, "voltage_cutoff": 6.0, "timed": false, "duration": 3600},
-  "CR 15ohm 6V": {"discharge_type": 2, "value": 15.0, "voltage_cutoff": 6.0, "timed": false, "duration": 3600}
+  "CR 15ohm 6V": {"discharge_type": 1, "value": 15.0, "voltage_cutoff": 6.0, "timed": false, "duration": 3600}
 }

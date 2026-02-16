@@ -119,6 +119,8 @@ class MainWindow(QMainWindow):
         from collections import deque
         self._accumulated_readings: deque = deque(maxlen=172800)  # Bounded to 48 hours
         self._prev_load_on = False  # Track previous load state for cutoff detection
+        self._load_off_count = 0  # Consecutive polls with load off during logging
+        self._load_off_abort_threshold = 3  # Abort after N consecutive load-off polls
         self._last_autosave_time: Optional[datetime] = None  # Track last periodic auto-save
         self._autosave_interval = 30  # Auto-save every 30 seconds during test
         self._last_db_commit_time: Optional[datetime] = None  # Track last database commit
@@ -248,9 +250,10 @@ class MainWindow(QMainWindow):
             self.status_panel.sample_time_combo.setEnabled(True)
             self.status_panel.battery_name_edit.setEnabled(True)
 
-        # Re-enable all test panel tabs
+        # Re-enable test panel tabs (except WIP tabs which stay disabled)
         for i in range(self.bottom_tabs.count()):
-            self.bottom_tabs.setTabEnabled(i, True)
+            if i not in self._wip_tab_indices:
+                self.bottom_tabs.setTabEnabled(i, True)
 
         # Re-enable input fields on all test panels
         for panel in [self.battery_capacity_panel, self.battery_load_panel,
@@ -360,6 +363,9 @@ class MainWindow(QMainWindow):
         powerbank_idx = self.bottom_tabs.addTab(self.power_bank_panel, "Power Bank")
         self.bottom_tabs.setTabEnabled(powerbank_idx, False)
         self.bottom_tabs.setTabToolTip(powerbank_idx, "Under development")
+
+        # Track WIP tabs so they stay disabled at all times
+        self._wip_tab_indices = {cable_idx, wall_idx, powerbank_idx}
 
         self.history_panel = HistoryPanel(self.database)
         self.history_panel.json_file_selected.connect(self._on_history_json_selected)
@@ -797,6 +803,9 @@ class MainWindow(QMainWindow):
             self._last_log_time = None  # Reset sample timer for new test
             self._last_autosave_time = None  # Reset autosave timer for new test
             self._last_db_commit_time = None  # Reset db commit timer for new test
+            self._load_off_count = 0  # Reset load-off counter for new test
+            import time as _time
+            self._logging_started_at = _time.time()  # Grace period for load-off detection
             # Turn on the load when logging starts
             if self.device and self.device.is_connected:
                 self.device.turn_on()
@@ -2346,17 +2355,12 @@ class MainWindow(QMainWindow):
         self.device.reset_counters()
 
         # Set mode and value based on discharge type
-        mode_names = ["CC", "CP", "CR"]
+        mode_names = {0: "CC", 2: "CR"}
         if discharge_type == 0:  # Constant Current
             self.control_panel.mode_btn_group.button(0).setChecked(True)  # CC button
             self.control_panel.current_spin.setValue(value)
             self.device.set_current(value)
             mode_str = f"{value}A"
-        elif discharge_type == 1:  # Constant Power
-            self.control_panel.mode_btn_group.button(1).setChecked(True)  # CP button
-            self.control_panel.power_spin.setValue(value)
-            self.device.set_power(value)
-            mode_str = f"{value}W"
         elif discharge_type == 2:  # Constant Resistance
             self.control_panel.mode_btn_group.button(3).setChecked(True)  # CR button
             self.control_panel.resistance_spin.setValue(value)
@@ -3514,65 +3518,72 @@ class MainWindow(QMainWindow):
 
         self.status_panel.update_status(status)
 
-        # Detect if load turned off during logging (e.g., voltage cutoff)
-        # Check this BEFORE adding data to prevent extra data points
-        if self._logging_enabled and self._prev_load_on and not status.load_on:
-            # Load turned off while logging - stop logging immediately
-            num_readings = len(self._accumulated_readings)
-            self._logging_enabled = False  # Stop immediately to prevent more data
-            self._update_test_complete_alert_state(False)  # Notify alert that test stopped
-            self._enable_controls_after_test()  # Unlock UI controls after test complete
-            self.status_panel.log_switch.setChecked(False)
-            # End the current session properly so next Start Test works
-            if self._current_session:
-                self.database.commit()  # Commit any pending readings
-                self._current_session.end_time = datetime.now()
-                self.database.update_session(self._current_session)
-                self._last_completed_session = self._current_session
-                self._current_session = None
-            self._logging_start_time = None
-
-            # Check which panel has an active test and stop it
-            # Stop the automation test if running
-            self.battery_capacity_panel._update_ui_stopped()
-
-            # Stop battery load test if running
-            if self.battery_load_panel._test_running:
-                # Stop the test timer and update UI directly (don't call _abort_test to avoid re-triggering logging stop)
-                self.battery_load_panel._test_timer.stop()
-                self.battery_load_panel.start_btn.setText("Start")
-                self.battery_load_panel.status_label.setText("Test Aborted (Load Off)")
-                self.battery_load_panel.progress_bar.setValue(100)
-                self.battery_load_panel._test_running = False
-                # Note: Don't emit test_stopped here since logging is already handled above
-
-            # Save test data to JSON if auto-save is enabled (check both panels)
-            if self.battery_capacity_panel.autosave_checkbox.isChecked():
-                saved_path = self._save_test_json()
-                if saved_path:
-                    self.statusbar.showMessage(
-                        f"Test complete: {num_readings} readings saved to {saved_path}"
-                    )
-                else:
-                    self.statusbar.showMessage(
-                        f"Test complete: {num_readings} readings - click Save to export"
-                    )
-            elif self.battery_load_panel.autosave_checkbox.isChecked():
-                saved_path = self._save_battery_load_json()
-                if saved_path:
-                    self.statusbar.showMessage(
-                        f"Battery Load test complete: {num_readings} readings saved to {saved_path}"
-                    )
-                    # Refresh history panel to show new file
-                    self.history_panel.refresh()
-                else:
-                    self.statusbar.showMessage(
-                        f"Battery Load test complete: {num_readings} readings - click Save to export"
-                    )
+        # Poll load state during logging — abort test if load is off
+        # This catches both on→off transitions AND load never turning on
+        if self._logging_enabled:
+            import time as _time
+            if status.load_on:
+                self._load_off_count = 0  # Reset counter when load is on
             else:
-                self.statusbar.showMessage(
-                    f"Test complete: {num_readings} readings - click Save to export"
-                )
+                # Allow a 3-second grace period after test start for turn_on to take effect
+                grace_elapsed = (_time.time() - getattr(self, '_logging_started_at', 0)) > 3.0
+                if grace_elapsed:
+                    self._load_off_count += 1
+
+                if self._load_off_count >= self._load_off_abort_threshold:
+                    # Load has been off for multiple consecutive polls — abort test
+                    num_readings = len(self._accumulated_readings)
+                    self._logging_enabled = False  # Stop immediately to prevent more data
+                    self._load_off_count = 0
+                    self._update_test_complete_alert_state(False)
+                    self._enable_controls_after_test()
+                    self.status_panel.log_switch.setChecked(False)
+                    # End the current session properly so next Start Test works
+                    if self._current_session:
+                        self.database.commit()
+                        self._current_session.end_time = datetime.now()
+                        self.database.update_session(self._current_session)
+                        self._last_completed_session = self._current_session
+                        self._current_session = None
+                    self._logging_start_time = None
+
+                    # Stop the automation test if running
+                    self.battery_capacity_panel._update_ui_stopped()
+
+                    # Stop battery load test if running
+                    if self.battery_load_panel._test_running:
+                        self.battery_load_panel._test_timer.stop()
+                        self.battery_load_panel.start_btn.setText("Start")
+                        self.battery_load_panel.status_label.setText("Test Aborted (Load Off)")
+                        self.battery_load_panel.progress_bar.setValue(100)
+                        self.battery_load_panel._test_running = False
+
+                    # Save test data if auto-save is enabled
+                    if self.battery_capacity_panel.autosave_checkbox.isChecked():
+                        saved_path = self._save_test_json()
+                        if saved_path:
+                            self.statusbar.showMessage(
+                                f"Test aborted (load off): {num_readings} readings saved to {saved_path}"
+                            )
+                        else:
+                            self.statusbar.showMessage(
+                                f"Test aborted (load off): {num_readings} readings - click Save to export"
+                            )
+                    elif self.battery_load_panel.autosave_checkbox.isChecked():
+                        saved_path = self._save_battery_load_json()
+                        if saved_path:
+                            self.statusbar.showMessage(
+                                f"Battery Load test aborted (load off): {num_readings} readings saved to {saved_path}"
+                            )
+                            self.history_panel.refresh()
+                        else:
+                            self.statusbar.showMessage(
+                                f"Battery Load test aborted (load off): {num_readings} readings - click Save to export"
+                            )
+                    else:
+                        self.statusbar.showMessage(
+                            f"Test aborted (load off): {num_readings} readings - click Save to export"
+                        )
 
         self._prev_load_on = status.load_on
 

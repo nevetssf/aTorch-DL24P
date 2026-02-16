@@ -40,7 +40,7 @@ class BatteryCapacityPanel(QWidget):
     """Panel for test automation control."""
 
     # Signal emitted when test should start: (discharge_type, value, voltage_cutoff, duration_s or 0)
-    # discharge_type: 0=CC, 1=CP, 2=CR
+    # discharge_type: 0=CC, 2=CR
     start_test_requested = Signal(int, float, float, int)
     # Signal emitted when pause is clicked (stops logging and load, keeps data)
     pause_test_requested = Signal()
@@ -131,8 +131,8 @@ class BatteryCapacityPanel(QWidget):
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel("Discharge Type"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["CC", "CP", "CR"])
-        self.type_combo.setToolTip("CC = Constant Current\nCP = Constant Power\nCR = Constant Resistance")
+        self.type_combo.addItems(["CC", "CR"])
+        self.type_combo.setToolTip("CC = Constant Current\nCR = Constant Resistance")
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
         self.type_combo.currentIndexChanged.connect(self._on_filename_field_changed)
         type_layout.addWidget(self.type_combo)
@@ -147,7 +147,7 @@ class BatteryCapacityPanel(QWidget):
         self.value_spin.setDecimals(3)
         self.value_spin.setSingleStep(0.1)
         self.value_spin.setValue(0.5)
-        self.value_spin.setToolTip("Discharge value (current/power/resistance depending on type)")
+        self.value_spin.setToolTip("Discharge value (current/resistance depending on type)")
         self.value_spin.valueChanged.connect(self._on_filename_field_changed)
         self.value_label = QLabel("Current (A)")
         self.value_label.setMinimumWidth(85)  # Fixed width to prevent layout jumping
@@ -422,7 +422,7 @@ class BatteryCapacityPanel(QWidget):
                 self.type_combo.setCurrentIndex(test_config["discharge_type_index"])
             elif "discharge_type" in test_config:
                 # Handle string type names
-                type_map = {"CC": 0, "CP": 1, "CR": 2}
+                type_map = {"CC": 0, "CR": 1}  # combo indices
                 self.type_combo.setCurrentIndex(type_map.get(test_config["discharge_type"], 0))
             if "value" in test_config:
                 self.value_spin.setValue(test_config["value"])
@@ -503,14 +503,7 @@ class BatteryCapacityPanel(QWidget):
             self.value_spin.setDecimals(3)
             self.value_spin.setSingleStep(0.1)
             self.value_spin.setValue(0.5)
-        elif index == 1:  # CP - Constant Power
-            self.value_label.setText("Power (W):")
-            self.value_spin.setToolTip("Discharge power in Watts")
-            self.value_spin.setRange(0.0, 200.0)
-            self.value_spin.setDecimals(2)
-            self.value_spin.setSingleStep(1.0)
-            self.value_spin.setValue(5.0)
-        elif index == 2:  # CR - Constant Resistance
+        elif index == 1:  # CR - Constant Resistance
             self.value_label.setText("Resistance (Ω):")
             self.value_spin.setToolTip("Load resistance in Ohms")
             self.value_spin.setRange(0.1, 9999.0)
@@ -528,7 +521,9 @@ class BatteryCapacityPanel(QWidget):
             self.start_test_requested.emit(0, 0, 0, 0)
         else:
             # Get test parameters (connection check will happen in main_window)
-            discharge_type = self.type_combo.currentIndex()  # 0=CC, 1=CP, 2=CR
+            # Map combo index to discharge type: 0=CC, 2=CR
+            type_map = [0, 2]  # combo index 0→CC(0), combo index 1→CR(2)
+            discharge_type = type_map[self.type_combo.currentIndex()]
             value = self.value_spin.value()
             cutoff = self.cutoff_spin.value()
             duration = self.duration_spin.value() if self.timed_checkbox.isChecked() else 0
@@ -548,7 +543,9 @@ class BatteryCapacityPanel(QWidget):
     @Slot()
     def _on_apply_clicked(self) -> None:
         """Handle Apply button click - sends settings to device."""
-        discharge_type = self.type_combo.currentIndex()  # 0=CC, 1=CP, 2=CR
+        # Map combo index to discharge type: 0=CC, 2=CR
+        type_map = [0, 2]  # combo index 0→CC(0), combo index 1→CR(2)
+        discharge_type = type_map[self.type_combo.currentIndex()]
         value = self.value_spin.value()
         cutoff = self.cutoff_spin.value()
         duration = self.duration_spin.value() if self.timed_checkbox.isChecked() else 0
@@ -1107,8 +1104,8 @@ class BatteryCapacityPanel(QWidget):
     def _save_test_preset(self) -> None:
         """Save current test configuration as a preset."""
         # Build default name from current settings
-        type_names = ["CC", "CP", "CR"]
-        type_units = ["A", "W", "ohm"]
+        type_names = ["CC", "CR"]
+        type_units = ["A", "ohm"]
         discharge_type = self.type_combo.currentIndex()
         value = self.value_spin.value()
         cutoff = self.cutoff_spin.value()
@@ -1187,8 +1184,8 @@ class BatteryCapacityPanel(QWidget):
         Returns:
             Dictionary with discharge_type, value, voltage_cutoff, timed, duration
         """
-        type_names = ["CC", "CP", "CR"]
-        type_units = ["A", "W", "ohm"]
+        type_names = ["CC", "CR"]
+        type_units = ["A", "ohm"]
         discharge_type = self.type_combo.currentIndex()
 
         return {
@@ -1221,8 +1218,8 @@ class BatteryCapacityPanel(QWidget):
         battery_info = self.battery_info_widget.get_battery_info()
         manufacturer = battery_info.get("manufacturer", "").strip() or "Unknown"
         battery_name = battery_info.get("name", "").strip() or "Unknown"
-        type_names = ["CC", "CP", "CR"]
-        type_units = ["A", "W", "ohm"]
+        type_names = ["CC", "CR"]
+        type_units = ["A", "ohm"]
         discharge_type = self.type_combo.currentIndex()
         value = self.value_spin.value()
         cutoff = self.cutoff_spin.value()
