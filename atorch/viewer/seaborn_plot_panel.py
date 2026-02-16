@@ -29,6 +29,10 @@ class SeabornPlotPanel(QWidget):
         "Energy Remaining",
         "R Load",
         "Temp MOSFET",
+        "Set Current",
+        "Set Voltage",
+        "Set Power",
+        "Set Resistance",
     ]
 
     # Available x-axis options (includes Time plus all plottable parameters)
@@ -43,6 +47,10 @@ class SeabornPlotPanel(QWidget):
         "Energy Remaining",
         "R Load",
         "Temp MOSFET",
+        "Set Current",
+        "Set Voltage",
+        "Set Power",
+        "Set Resistance",
     ]
 
     def __init__(self, parent=None):
@@ -63,6 +71,8 @@ class SeabornPlotPanel(QWidget):
         self._normalize_enabled = False  # Normalize to percentage by default
         self._drop_first_n = 0  # Drop first N points when plotting
         self._drop_last_n = 1   # Drop last N points when plotting
+        self._show_lines = True
+        self._show_points = False
 
         self._create_ui()
 
@@ -80,7 +90,8 @@ class SeabornPlotPanel(QWidget):
         self._update_plot()
 
     def update_plot_settings(self, x_axis: str, x_reversed: bool, y1: str, y2: str,
-                             y2_enabled: bool, normalize: bool, drop_first: int, drop_last: int):
+                             y2_enabled: bool, normalize: bool, drop_first: int, drop_last: int,
+                             show_lines: bool = True, show_points: bool = False, **kwargs):
         """Update plot settings and redraw.
 
         Args:
@@ -92,6 +103,8 @@ class SeabornPlotPanel(QWidget):
             normalize: Whether to normalize Y-axes to 0-100%
             drop_first: Number of first points to drop
             drop_last: Number of last points to drop
+            show_lines: Whether to show lines connecting points
+            show_points: Whether to show individual data points
         """
         self._x_axis = x_axis
         self._x_axis_reversed = x_reversed
@@ -101,6 +114,8 @@ class SeabornPlotPanel(QWidget):
         self._normalize_enabled = normalize
         self._drop_first_n = drop_first
         self._drop_last_n = drop_last
+        self._show_lines = show_lines
+        self._show_points = show_points
         self._update_plot()
 
     def load_grouped_dataset(self, df: pd.DataFrame, device_colors: dict) -> None:
@@ -182,6 +197,9 @@ class SeabornPlotPanel(QWidget):
 
             color = self._device_colors.get(device_name, '#1f77b4')
 
+            # Sort by x-axis so lines don't jump around
+            device_df = device_df.sort_values(self._x_axis)
+
             # Get X data and apply time scaling if needed
             x_data = device_df[self._x_axis] * time_scale
 
@@ -192,10 +210,15 @@ class SeabornPlotPanel(QWidget):
                 if y1_max > 0:
                     y1_data = (y1_data / y1_max) * 100
 
-            # Plot Y1 with solid line
-            ax1.plot(x_data, y1_data,
-                    label=device_name, color=color, linewidth=2, alpha=0.8,
-                    linestyle='-')
+            # Plot Y1 - lines and/or points
+            if self._show_lines:
+                ax1.plot(x_data, y1_data,
+                        label=device_name, color=color, linewidth=2, alpha=0.8,
+                        linestyle='-')
+            if self._show_points:
+                ax1.scatter(x_data, y1_data,
+                           label=device_name if not self._show_lines else None,
+                           color=color, s=20, alpha=0.8, zorder=5)
 
         # Style left axis (Y1)
         ax1.set_xlabel(x_axis_label, fontsize=11, fontweight='bold')
@@ -245,6 +268,9 @@ class SeabornPlotPanel(QWidget):
 
                 color = self._device_colors.get(device_name, '#1f77b4')
 
+                # Sort by x-axis so lines don't jump around
+                device_df = device_df.sort_values(self._x_axis)
+
                 # Get X data and apply time scaling if needed
                 x_data = device_df[self._x_axis] * time_scale
 
@@ -255,10 +281,15 @@ class SeabornPlotPanel(QWidget):
                     if y2_max > 0:
                         y2_data = (y2_data / y2_max) * 100
 
-                # Plot Y2 with dashed line
-                ax2.plot(x_data, y2_data,
-                        color=color, linewidth=2, alpha=0.8,
-                        linestyle='--')
+                # Plot Y2 - lines and/or points
+                if self._show_lines:
+                    ax2.plot(x_data, y2_data,
+                            color=color, linewidth=2, alpha=0.8,
+                            linestyle='--')
+                if self._show_points:
+                    ax2.scatter(x_data, y2_data,
+                               color=color, s=20, alpha=0.8, zorder=5,
+                               marker='D')
 
             # Style right axis (Y2)
             y2_label = self._get_parameter_label(self._y2_param)
@@ -292,5 +323,9 @@ class SeabornPlotPanel(QWidget):
             "Energy Remaining": "Energy Remaining (Wh)",
             "R Load": "Load Resistance (Ω)",
             "Temp MOSFET": "MOSFET Temp (°C)",
+            "Set Current": "Set Current (A)",
+            "Set Voltage": "Set Voltage (V)",
+            "Set Power": "Set Power (W)",
+            "Set Resistance": "Set Resistance (Ω)",
         }
         return labels.get(param, param)

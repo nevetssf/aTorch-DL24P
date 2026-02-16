@@ -374,6 +374,10 @@ class ViewerMainWindow(QMainWindow):
                             'Energy Remaining': energy_remaining,
                             'R Load': reading.get('load_r_ohm', reading.get('resistance_ohm', 0)),
                             'Temp MOSFET': reading.get('mosfet_temp_c', reading.get('temperature_c', 0)),
+                            'Set Current': reading.get('set_current_a', 0) or 0,
+                            'Set Voltage': reading.get('set_voltage_v', 0) or 0,
+                            'Set Power': reading.get('set_power_w', 0) or 0,
+                            'Set Resistance': reading.get('set_resistance_ohm', 0) or 0,
                         }
                         all_data.append(row)
 

@@ -14,6 +14,8 @@ class PlotControlsPanel(QWidget):
     y2_changed = Signal(str)  # y2 parameter
     y2_enabled_changed = Signal(bool)  # y2 enabled state
     normalize_changed = Signal(bool)  # normalize enabled state
+    show_lines_changed = Signal(bool)  # show lines state
+    show_points_changed = Signal(bool)  # show points state
 
     # Available parameters to plot
     PARAMETERS = [
@@ -26,6 +28,10 @@ class PlotControlsPanel(QWidget):
         "Energy Remaining",
         "R Load",
         "Temp MOSFET",
+        "Set Current",
+        "Set Voltage",
+        "Set Power",
+        "Set Resistance",
     ]
 
     # Available x-axis options
@@ -40,6 +46,10 @@ class PlotControlsPanel(QWidget):
         "Energy Remaining",
         "R Load",
         "Temp MOSFET",
+        "Set Current",
+        "Set Voltage",
+        "Set Power",
+        "Set Resistance",
     ]
 
     def __init__(self, parent=None):
@@ -52,6 +62,8 @@ class PlotControlsPanel(QWidget):
         self._y2_param = "Current"
         self._y2_enabled = False
         self._normalize_enabled = False
+        self._show_lines = True
+        self._show_points = False
 
         self._create_ui()
 
@@ -109,6 +121,22 @@ class PlotControlsPanel(QWidget):
         self.normalize_checkbox.stateChanged.connect(self._on_normalize_changed)
         layout.addWidget(self.normalize_checkbox)
 
+        layout.addSpacing(20)
+
+        # Lines visibility checkbox
+        self.lines_checkbox = QCheckBox("Lines")
+        self.lines_checkbox.setChecked(self._show_lines)
+        self.lines_checkbox.setToolTip("Show lines connecting data points")
+        self.lines_checkbox.stateChanged.connect(self._on_show_lines_changed)
+        layout.addWidget(self.lines_checkbox)
+
+        # Points visibility checkbox
+        self.points_checkbox = QCheckBox("Points")
+        self.points_checkbox.setChecked(self._show_points)
+        self.points_checkbox.setToolTip("Show individual data points")
+        self.points_checkbox.stateChanged.connect(self._on_show_points_changed)
+        layout.addWidget(self.points_checkbox)
+
         layout.addStretch()
 
     def _on_x_axis_changed(self, x_axis: str):
@@ -142,6 +170,16 @@ class PlotControlsPanel(QWidget):
         self._normalize_enabled = (state == Qt.CheckState.Checked.value)
         self.normalize_changed.emit(self._normalize_enabled)
 
+    def _on_show_lines_changed(self, state: int):
+        """Handle show lines checkbox."""
+        self._show_lines = (state == Qt.CheckState.Checked.value)
+        self.show_lines_changed.emit(self._show_lines)
+
+    def _on_show_points_changed(self, state: int):
+        """Handle show points checkbox."""
+        self._show_points = (state == Qt.CheckState.Checked.value)
+        self.show_points_changed.emit(self._show_points)
+
     def get_settings(self):
         """Get current settings as a dict."""
         return {
@@ -150,7 +188,9 @@ class PlotControlsPanel(QWidget):
             'y1': self._y1_param,
             'y2': self._y2_param,
             'y2_enabled': self._y2_enabled,
-            'normalize': self._normalize_enabled
+            'normalize': self._normalize_enabled,
+            'show_lines': self._show_lines,
+            'show_points': self._show_points,
         }
 
     def set_settings(self, settings: dict):
@@ -162,6 +202,8 @@ class PlotControlsPanel(QWidget):
         self.y2_combo.blockSignals(True)
         self.y2_checkbox.blockSignals(True)
         self.normalize_checkbox.blockSignals(True)
+        self.lines_checkbox.blockSignals(True)
+        self.points_checkbox.blockSignals(True)
 
         self._x_axis = settings.get('x_axis', 'Time')
         self._x_reversed = settings.get('x_reversed', False)
@@ -169,6 +211,8 @@ class PlotControlsPanel(QWidget):
         self._y2_param = settings.get('y2', 'Current')
         self._y2_enabled = settings.get('y2_enabled', False)
         self._normalize_enabled = settings.get('normalize', False)
+        self._show_lines = settings.get('show_lines', True)
+        self._show_points = settings.get('show_points', False)
 
         self.x_axis_combo.setCurrentText(self._x_axis)
         self.x_reverse_checkbox.setChecked(self._x_reversed)
@@ -177,6 +221,8 @@ class PlotControlsPanel(QWidget):
         self.y2_combo.setEnabled(self._y2_enabled)
         self.y2_checkbox.setChecked(self._y2_enabled)
         self.normalize_checkbox.setChecked(self._normalize_enabled)
+        self.lines_checkbox.setChecked(self._show_lines)
+        self.points_checkbox.setChecked(self._show_points)
 
         # Unblock signals
         self.x_axis_combo.blockSignals(False)
@@ -185,3 +231,5 @@ class PlotControlsPanel(QWidget):
         self.y2_combo.blockSignals(False)
         self.y2_checkbox.blockSignals(False)
         self.normalize_checkbox.blockSignals(False)
+        self.lines_checkbox.blockSignals(False)
+        self.points_checkbox.blockSignals(False)

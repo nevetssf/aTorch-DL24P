@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QPushButton, QHeaderView, QColorDialog, QMessageBox, QFileDialog,
     QCheckBox, QLabel
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QEvent
 from PySide6.QtGui import QColor
 from .json_viewer_dialog import JsonViewerDialog
 
@@ -127,28 +127,35 @@ class TestListPanel(QWidget):
         layout.addLayout(controls_layout)
 
         # Table widget for test files
+        # Column indices:
+        #  0=✓  1=Color  2=Test Date  3=Manufactured  4=Manufacturer  5=Name
+        #  6=Model  7=Chemistry  8=SN  9=Conditions  10=Result1  11=Result2
+        #  12=JSON  13=Delete
         self.table = QTableWidget()
-        self.table.setColumnCount(12)
+        self.table.setColumnCount(14)
         # Initial headers (will be updated based on test type in _populate_table)
         self.table.setHorizontalHeaderLabels([
-            "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name", "SN",
+            "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name",
+            "Model", "Chemistry", "SN",
             "Conditions", "Result 1", "Result 2", "JSON", "Delete"
         ])
 
         # Set column widths - make all columns user-resizable (Interactive mode)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Checkbox (auto)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Color (auto)
-        header.setSectionResizeMode(2, QHeaderView.Interactive)  # Test Date (user-resizable)
-        header.setSectionResizeMode(3, QHeaderView.Interactive)  # Manufactured (user-resizable)
-        header.setSectionResizeMode(4, QHeaderView.Interactive)  # Manufacturer (user-resizable)
-        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Name (stretches)
-        header.setSectionResizeMode(6, QHeaderView.Interactive)  # SN (user-resizable)
-        header.setSectionResizeMode(7, QHeaderView.Interactive)  # Conditions (user-resizable)
-        header.setSectionResizeMode(8, QHeaderView.Interactive)  # Result 1: Capacity or Resistance (user-resizable)
-        header.setSectionResizeMode(9, QHeaderView.Interactive)  # Result 2: Energy or R² (user-resizable)
-        header.setSectionResizeMode(10, QHeaderView.ResizeToContents)  # JSON (auto)
-        header.setSectionResizeMode(11, QHeaderView.ResizeToContents)  # Delete (auto)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)   # Checkbox (auto)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)   # Color (auto)
+        header.setSectionResizeMode(2, QHeaderView.Interactive)        # Test Date
+        header.setSectionResizeMode(3, QHeaderView.Interactive)        # Manufactured
+        header.setSectionResizeMode(4, QHeaderView.Interactive)        # Manufacturer
+        header.setSectionResizeMode(5, QHeaderView.Stretch)            # Name (stretches)
+        header.setSectionResizeMode(6, QHeaderView.Interactive)        # Model
+        header.setSectionResizeMode(7, QHeaderView.Interactive)        # Chemistry
+        header.setSectionResizeMode(8, QHeaderView.Interactive)        # SN
+        header.setSectionResizeMode(9, QHeaderView.Interactive)        # Conditions
+        header.setSectionResizeMode(10, QHeaderView.Interactive)       # Result 1
+        header.setSectionResizeMode(11, QHeaderView.Interactive)       # Result 2
+        header.setSectionResizeMode(12, QHeaderView.ResizeToContents)  # JSON (auto)
+        header.setSectionResizeMode(13, QHeaderView.ResizeToContents)  # Delete (auto)
 
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setAlternatingRowColors(True)
@@ -163,7 +170,33 @@ class TestListPanel(QWidget):
         # Connect item changed signal for checkbox handling
         self.table.itemChanged.connect(self._on_item_changed)
 
+        # Install event filter to handle spacebar toggle on selected rows
+        self.table.installEventFilter(self)
+
         layout.addWidget(self.table)
+
+    def eventFilter(self, obj, event):
+        """Handle spacebar to toggle checkboxes on all selected rows."""
+        if obj is self.table and event.type() == QEvent.KeyPress and event.key() == Qt.Key_Space:
+            selected_rows = set(index.row() for index in self.table.selectedIndexes())
+            if selected_rows:
+                # Determine new state: if any selected row is unchecked, check all; otherwise uncheck all
+                any_unchecked = False
+                for visual_row in selected_rows:
+                    item = self.table.item(visual_row, 0)
+                    if item and item.checkState() == Qt.Unchecked:
+                        any_unchecked = True
+                        break
+
+                new_state = Qt.Checked if any_unchecked else Qt.Unchecked
+
+                for visual_row in selected_rows:
+                    item = self.table.item(visual_row, 0)
+                    if item:
+                        item.setCheckState(new_state)
+
+                return True  # Event handled
+        return super().eventFilter(obj, event)
 
     def _browse_folder(self):
         """Browse to a different data folder."""
@@ -271,15 +304,15 @@ class TestListPanel(QWidget):
         """Populate table with test file information."""
         # Update column headers based on test type
         if self.test_type == 'battery_load':
-            # Battery Load: show Resistance and R²
             self.table.setHorizontalHeaderLabels([
-                "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name", "SN",
+                "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name",
+                "Model", "Chemistry", "SN",
                 "Conditions", "Resistance", "R²", "JSON", "Delete"
             ])
         else:
-            # Battery Capacity and others: show Capacity and Energy
             self.table.setHorizontalHeaderLabels([
-                "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name", "SN",
+                "✓", "Color", "Test Date", "Manufactured", "Manufacturer", "Name",
+                "Model", "Chemistry", "SN",
                 "Conditions", "Capacity", "Energy", "JSON", "Delete"
             ])
 
@@ -290,16 +323,14 @@ class TestListPanel(QWidget):
         for row, test_file in enumerate(self._test_files):
             data = test_file['data']
 
-            # Checkbox - use checkable QTableWidgetItem instead of QCheckBox widget
-            # This works properly with table sorting
+            # Col 0: Checkbox
             checkbox_item = QTableWidgetItem()
             checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             checkbox_item.setCheckState(Qt.Checked if test_file['checked'] else Qt.Unchecked)
-            # Store the test file index in the item's UserRole so we can find it after sorting
             checkbox_item.setData(Qt.ItemDataRole.UserRole, row)
             self.table.setItem(row, 0, checkbox_item)
 
-            # Color button
+            # Col 1: Color button
             color_btn = ColorButton(test_file['color'])
             color_btn.color_changed.connect(lambda color, r=row: self._on_color_changed(r, color))
             color_widget = QWidget()
@@ -309,14 +340,13 @@ class TestListPanel(QWidget):
             color_layout.setContentsMargins(0, 0, 0, 0)
             self.table.setCellWidget(row, 1, color_widget)
 
-            # Date - get from summary.start_time or first reading
+            # Col 2: Test Date
             timestamp = None
             summary = data.get('summary', {})
             if summary:
                 timestamp = summary.get('start_time')
 
             if not timestamp:
-                # Fallback to first reading's timestamp
                 readings = data.get('readings', [])
                 if readings:
                     timestamp = readings[0].get('timestamp')
@@ -332,11 +362,10 @@ class TestListPanel(QWidget):
 
             self.table.setItem(row, 2, QTableWidgetItem(date_str))
 
-            # Manufactured date - column 3
+            # Col 3: Manufactured date
             battery_info = data.get('battery_info', {})
             manufactured = battery_info.get('manufactured', '')
             if manufactured:
-                # Format as YYYY-MM-DD if it's a valid date
                 try:
                     dt = datetime.fromisoformat(manufactured)
                     manufactured_str = dt.strftime("%Y-%m-%d")
@@ -346,45 +375,49 @@ class TestListPanel(QWidget):
                 manufactured_str = ""
             self.table.setItem(row, 3, QTableWidgetItem(manufactured_str))
 
-            # Manufacturer - column 4
+            # Col 4: Manufacturer
             manufacturer = battery_info.get('manufacturer', '')
             self.table.setItem(row, 4, QTableWidgetItem(manufacturer))
 
-            # Name (battery name, cable name, etc.) - column 5
+            # Col 5: Name
             name = battery_info.get('name', data.get('device_name', 'Unknown'))
             self.table.setItem(row, 5, QTableWidgetItem(name))
 
-            # Serial Number - column 6
-            serial_number = battery_info.get('serial_number', '')
-            self.table.setItem(row, 6, QTableWidgetItem(serial_number))
+            # Col 6: Model
+            model = battery_info.get('model', '')
+            self.table.setItem(row, 6, QTableWidgetItem(model))
 
-            # Conditions - column 7
+            # Col 7: Chemistry
+            chemistry = battery_info.get('chemistry', battery_info.get('technology', ''))
+            self.table.setItem(row, 7, QTableWidgetItem(chemistry))
+
+            # Col 8: Serial Number
+            serial_number = battery_info.get('serial_number', '')
+            self.table.setItem(row, 8, QTableWidgetItem(serial_number))
+
+            # Col 9: Conditions
             test_config = data.get('test_config', {})
             conditions = self._format_conditions(test_config)
-            self.table.setItem(row, 7, QTableWidgetItem(conditions))
+            self.table.setItem(row, 9, QTableWidgetItem(conditions))
 
-            # Result columns - show different values based on test type
+            # Cols 10-11: Result columns
             test_panel_type = data.get('test_panel_type', 'battery_capacity')
             summary = data.get('summary', {})
             readings = data.get('readings', [])
 
             if test_panel_type == 'battery_load':
-                # For Battery Load: show Resistance and R²
                 resistance_ohm = summary.get('battery_resistance_ohm')
                 r_squared = summary.get('resistance_r_squared')
 
-                # If resistance not in file, calculate it now
                 if resistance_ohm is None and len(readings) >= 2:
                     resistance_ohm, r_squared = self._calculate_resistance(readings)
 
-                    # Update the JSON file with calculated values
                     if resistance_ohm is not None:
                         if 'summary' not in data:
                             data['summary'] = {}
                         data['summary']['battery_resistance_ohm'] = float(resistance_ohm)
                         data['summary']['resistance_r_squared'] = float(r_squared)
 
-                        # Write back to file
                         try:
                             with open(test_file['path'], 'w') as f:
                                 json.dump(data, f, indent=2)
@@ -394,15 +427,12 @@ class TestListPanel(QWidget):
                 result1_str = f"{resistance_ohm:.3f} Ω" if resistance_ohm is not None else ""
                 result2_str = f"{r_squared:.4f}" if r_squared is not None else ""
             else:
-                # For Battery Capacity and others: show Capacity and Energy
                 results = data.get('results', {})
 
                 if results:
-                    # Use results section if available
                     capacity = results.get('capacity_mah', 0)
                     energy = results.get('energy_wh', 0)
                 elif readings:
-                    # Otherwise use last reading
                     last_reading = readings[-1]
                     capacity = last_reading.get('capacity_mah', 0)
                     energy = last_reading.get('energy_wh', 0)
@@ -413,10 +443,10 @@ class TestListPanel(QWidget):
                 result1_str = f"{capacity:.0f} mAh" if capacity else ""
                 result2_str = f"{energy:.2f} Wh" if energy else ""
 
-            self.table.setItem(row, 8, QTableWidgetItem(result1_str))
-            self.table.setItem(row, 9, QTableWidgetItem(result2_str))
+            self.table.setItem(row, 10, QTableWidgetItem(result1_str))
+            self.table.setItem(row, 11, QTableWidgetItem(result2_str))
 
-            # View JSON button - column 10
+            # Col 12: View JSON button
             json_btn = QPushButton("📄")
             json_btn.setMaximumWidth(30)
             json_btn.setToolTip("View raw JSON data")
@@ -426,23 +456,29 @@ class TestListPanel(QWidget):
             json_layout.addWidget(json_btn)
             json_layout.setAlignment(Qt.AlignCenter)
             json_layout.setContentsMargins(0, 0, 0, 0)
-            self.table.setCellWidget(row, 10, json_widget)
+            self.table.setCellWidget(row, 12, json_widget)
 
-            # Delete button - column 11
+            # Col 13: Delete button
             delete_btn = QPushButton("✕")
             delete_btn.setMaximumWidth(30)
-            delete_btn.setToolTip("Delete this test file")
+            delete_btn.setToolTip("Delete this test file (Shift+click to skip confirmation)")
             delete_btn.clicked.connect(lambda checked, r=row: self._delete_file(r))
             delete_widget = QWidget()
             delete_layout = QHBoxLayout(delete_widget)
             delete_layout.addWidget(delete_btn)
             delete_layout.setAlignment(Qt.AlignCenter)
             delete_layout.setContentsMargins(0, 0, 0, 0)
-            self.table.setCellWidget(row, 11, delete_widget)
+            self.table.setCellWidget(row, 13, delete_widget)
 
         # Auto-resize columns to fit content
-        for col in [2, 3, 4, 6, 7, 8, 9]:  # Test Date, Manufactured, Manufacturer, SN, Conditions, Result 1, Result 2
+        for col in [2, 3, 4, 6, 7, 8, 9, 10, 11]:
             self.table.resizeColumnToContents(col)
+
+        # Hide columns not relevant to certain test types
+        if self.test_type == 'battery_charger':
+            self.table.setColumnHidden(3, True)   # Manufactured
+            self.table.setColumnHidden(10, True)   # Capacity
+            self.table.setColumnHidden(11, True)   # Energy
 
         # Re-enable signals and sorting
         self.table.blockSignals(False)
@@ -490,6 +526,10 @@ class TestListPanel(QWidget):
 
     def _format_conditions(self, test_config: dict) -> str:
         """Format test conditions as a string."""
+        # Battery charger: show overall voltage range across enabled stages
+        if self.test_type == 'battery_charger':
+            return self._format_charger_conditions(test_config)
+
         parts = []
 
         discharge_type = test_config.get('discharge_type')
@@ -507,6 +547,38 @@ class TestListPanel(QWidget):
             parts.append(f"Cutoff: {voltage_cutoff:.2f}V")
 
         return " | ".join(parts) if parts else ""
+
+    def _format_charger_conditions(self, test_config: dict) -> str:
+        """Format conditions for battery charger tests showing overall voltage range."""
+        starts = []
+        ends = []
+
+        # Stage 1 is always enabled
+        s1_start = test_config.get('stage1_start')
+        s1_end = test_config.get('stage1_end')
+        if s1_start is not None:
+            starts.append(s1_start)
+        if s1_end is not None:
+            ends.append(s1_end)
+
+        # Stage 2
+        if test_config.get('stage2_enabled'):
+            s2_end = test_config.get('stage2_end')
+            if s2_end is not None:
+                ends.append(s2_end)
+
+        # Stage 3
+        if test_config.get('stage3_enabled'):
+            s3_end = test_config.get('stage3_end')
+            if s3_end is not None:
+                ends.append(s3_end)
+
+        if not starts and not ends:
+            return ""
+
+        min_v = min(starts) if starts else 0
+        max_v = max(ends) if ends else 0
+        return f"{min_v:.2f} – {max_v:.2f} V"
 
     def _on_item_changed(self, item: QTableWidgetItem):
         """Handle table item change (checkbox state)."""
@@ -561,23 +633,29 @@ class TestListPanel(QWidget):
                 break
 
     def _delete_file(self, row: int):
-        """Delete a test file."""
+        """Delete a test file. Shift+click skips confirmation dialog."""
         if not (0 <= row < len(self._test_files)):
             return
 
         test_file = self._test_files[row]
         file_path = test_file['path']
 
-        # Confirm deletion
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Delete test file?\n\n{file_path.name}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+        # Skip confirmation if Shift is held
+        from PySide6.QtWidgets import QApplication
+        modifiers = QApplication.keyboardModifiers()
+        if modifiers & Qt.ShiftModifier:
+            confirmed = True
+        else:
+            reply = QMessageBox.question(
+                self,
+                "Confirm Delete",
+                f"Delete test file?\n\n{file_path.name}\n\n(Shift+click to delete without confirmation)",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            confirmed = (reply == QMessageBox.Yes)
 
-        if reply == QMessageBox.Yes:
+        if confirmed:
             try:
                 file_path.unlink()
                 self._load_test_files()

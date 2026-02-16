@@ -28,6 +28,8 @@ class PlotlyPlotPanel(QWidget):
         self._drop_first_n = 0
         self._drop_last_n = 1
         self._test_type = None  # Current test type for title
+        self._show_lines = True
+        self._show_points = False
 
         self._create_ui()
 
@@ -56,7 +58,8 @@ class PlotlyPlotPanel(QWidget):
         )
         self.web_view.setHtml(fig.to_html(include_plotlyjs='cdn'))
 
-    def update_plot_settings(self, x_axis, x_reversed, y1, y2, y2_enabled, normalize, drop_first, drop_last, test_type=None):
+    def update_plot_settings(self, x_axis, x_reversed, y1, y2, y2_enabled, normalize, drop_first, drop_last,
+                             test_type=None, show_lines=True, show_points=False, **kwargs):
         """Update plot settings and redraw."""
         self._x_axis = x_axis
         self._x_axis_reversed = x_reversed
@@ -66,6 +69,8 @@ class PlotlyPlotPanel(QWidget):
         self._normalize_enabled = normalize
         self._drop_first_n = drop_first
         self._drop_last_n = drop_last
+        self._show_lines = show_lines
+        self._show_points = show_points
         if test_type:
             self._test_type = test_type
         self._update_plot()
@@ -121,6 +126,14 @@ class PlotlyPlotPanel(QWidget):
             max_time = self._dataframe['Time'].max()
             time_scale, x_axis_label = self._get_time_scale(max_time)
 
+        # Determine trace mode from show_lines/show_points
+        if self._show_lines and self._show_points:
+            trace_mode = 'lines+markers'
+        elif self._show_points:
+            trace_mode = 'markers'
+        else:
+            trace_mode = 'lines'
+
         # Plot Y1 for each device
         for device_name in device_names:
             device_df = self._dataframe[self._dataframe['Device'] == device_name].copy()
@@ -137,6 +150,9 @@ class PlotlyPlotPanel(QWidget):
 
             color = self._device_colors.get(device_name, '#1f77b4')
 
+            # Sort by x-axis so lines don't jump around
+            device_df = device_df.sort_values(self._x_axis)
+
             # Get X data and apply time scaling if needed
             x_data = device_df[self._x_axis] * time_scale
 
@@ -147,7 +163,7 @@ class PlotlyPlotPanel(QWidget):
                 if y1_max > 0:
                     y1_data = (y1_data / y1_max) * 100
 
-            # Plot Y1 with solid line
+            # Plot Y1
             y1_label = self._y1_param + " (%)" if self._normalize_enabled else self._get_parameter_label(self._y1_param)
 
             # Custom hover template showing only Y1 parameter
@@ -170,7 +186,8 @@ class PlotlyPlotPanel(QWidget):
                         y=y1_data,
                         name=device_name,
                         line=dict(color=color, width=2),
-                        mode='lines',
+                        marker=dict(color=color, size=6),
+                        mode=trace_mode,
                         legendgroup=device_name,
                         hovertemplate=hover_template,
                     ),
@@ -183,7 +200,8 @@ class PlotlyPlotPanel(QWidget):
                         y=y1_data,
                         name=device_name,
                         line=dict(color=color, width=2),
-                        mode='lines',
+                        marker=dict(color=color, size=6),
+                        mode=trace_mode,
                         hovertemplate=hover_template,
                     )
                 )
@@ -204,6 +222,9 @@ class PlotlyPlotPanel(QWidget):
                         device_df = device_df.iloc[drop_first:end_idx]
 
                 color = self._device_colors.get(device_name, '#1f77b4')
+
+                # Sort by x-axis so lines don't jump around
+                device_df = device_df.sort_values(self._x_axis)
 
                 # Get X data and apply time scaling if needed
                 x_data = device_df[self._x_axis] * time_scale
@@ -235,7 +256,8 @@ class PlotlyPlotPanel(QWidget):
                         y=y2_data,
                         name=f"{device_name} ({self._y2_param})",
                         line=dict(color=color, width=2, dash='dash'),
-                        mode='lines',
+                        marker=dict(color=color, size=6, symbol='diamond'),
+                        mode=trace_mode,
                         legendgroup=device_name,
                         showlegend=False,  # Don't duplicate in legend
                         hovertemplate=hover_template_y2,
@@ -322,5 +344,9 @@ class PlotlyPlotPanel(QWidget):
             "Energy Remaining": "Energy Remaining (Wh)",
             "R Load": "Load Resistance (Ω)",
             "Temp MOSFET": "MOSFET Temp (°C)",
+            "Set Current": "Set Current (A)",
+            "Set Voltage": "Set Voltage (V)",
+            "Set Power": "Set Power (W)",
+            "Set Resistance": "Set Resistance (Ω)",
         }
         return labels.get(param, param)

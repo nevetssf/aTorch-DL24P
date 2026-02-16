@@ -25,12 +25,12 @@ class PlotPanelContainer(QWidget):
 
         # State storage per test type
         self._test_type_states = {
-            'battery_capacity': {'x_axis': 'Voltage', 'x_reversed': True, 'y1': 'Energy Remaining', 'y2': 'Current', 'y2_enabled': False, 'normalize': False},
-            'battery_load': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Power', 'y2_enabled': False, 'normalize': False},
-            'battery_charger': {'x_axis': 'Time', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Current', 'y2_enabled': True, 'normalize': False},
-            'cable_resistance': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'R Load', 'y2_enabled': False, 'normalize': False},
-            'charger': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Power', 'y2_enabled': False, 'normalize': False},
-            'power_bank': {'x_axis': 'Time', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Current', 'y2_enabled': True, 'normalize': False},
+            'battery_capacity': {'x_axis': 'Voltage', 'x_reversed': True, 'y1': 'Energy Remaining', 'y2': 'Current', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': False},
+            'battery_load': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Power', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': False},
+            'battery_charger': {'x_axis': 'Voltage', 'x_reversed': False, 'y1': 'Current', 'y2': 'Power', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': True},
+            'cable_resistance': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'R Load', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': False},
+            'charger': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Power', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': False},
+            'power_bank': {'x_axis': 'Time', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Current', 'y2_enabled': True, 'normalize': False, 'show_lines': True, 'show_points': False},
         }
 
         self._create_ui()
@@ -51,6 +51,8 @@ class PlotPanelContainer(QWidget):
         self.controls.y2_changed.connect(self._on_setting_changed)
         self.controls.y2_enabled_changed.connect(self._on_setting_changed)
         self.controls.normalize_changed.connect(self._on_setting_changed)
+        self.controls.show_lines_changed.connect(self._on_setting_changed)
+        self.controls.show_points_changed.connect(self._on_setting_changed)
         top_layout.addWidget(self.controls, stretch=1)
 
         top_layout.addSpacing(20)
@@ -134,7 +136,9 @@ class PlotPanelContainer(QWidget):
                 'y1': 'Voltage',
                 'y2': 'Current',
                 'y2_enabled': False,
-                'normalize': False
+                'normalize': False,
+                'show_lines': True,
+                'show_points': False,
             }
 
         state = self._test_type_states[test_type]
