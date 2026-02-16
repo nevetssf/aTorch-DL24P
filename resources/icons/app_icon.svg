@@ -1,17 +1,27 @@
 <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-  <!-- Transparent background - no circle -->
   <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e293b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0f172a;stop-opacity:1" />
+    </linearGradient>
     <linearGradient id="batteryGradient" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
       <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1" />
     </linearGradient>
   </defs>
 
-  <!-- Battery outline (dark gray/black) -->
-  <rect x="140" y="180" width="232" height="152" rx="16" fill="#1f2937" stroke="#111827" stroke-width="12"/>
+  <!-- Rounded rectangle background (macOS-style) -->
+  <rect x="16" y="16" width="480" height="480" rx="100" ry="100" fill="url(#bgGradient)"/>
+
+  <!-- Subtle inner shadow/border -->
+  <rect x="16" y="16" width="480" height="480" rx="100" ry="100"
+        fill="none" stroke="#334155" stroke-width="2"/>
+
+  <!-- Battery outline (lighter against dark bg) -->
+  <rect x="140" y="180" width="232" height="152" rx="16" fill="#1f2937" stroke="#475569" stroke-width="10"/>
 
   <!-- Battery terminal -->
-  <rect x="372" y="232" width="32" height="48" rx="8" fill="#374151"/>
+  <rect x="372" y="232" width="32" height="48" rx="8" fill="#475569"/>
 
   <!-- Battery charge level (3 bars with gradient) -->
   <rect x="160" y="200" width="50" height="112" rx="8" fill="url(#batteryGradient)"/>
