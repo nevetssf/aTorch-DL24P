@@ -3,9 +3,132 @@
 from PySide6.QtWidgets import (
     QGroupBox, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
-    QPushButton, QTextEdit, QDateEdit
+    QPushButton, QTextEdit, QToolButton, QWidget, QCalendarWidget,
+    QMenu,
 )
-from PySide6.QtCore import Signal, QDate
+from PySide6.QtWidgets import QWidgetAction
+from PySide6.QtCore import Signal, QDate, Qt, QRegularExpression
+from PySide6.QtGui import QRegularExpressionValidator
+
+
+class DateLineEdit(QWidget):
+    """Date input widget that allows typing YYYY-MM-DD or picking from a calendar popup."""
+
+    dateChanged = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self._line_edit = QLineEdit()
+        self._line_edit.setPlaceholderText("YYYY-MM-DD")
+        # Allow digits and dashes, loosely validated on edit
+        validator = QRegularExpressionValidator(
+            QRegularExpression(r"\d{0,4}-?\d{0,2}-?\d{0,2}")
+        )
+        self._line_edit.setValidator(validator)
+        self._line_edit.editingFinished.connect(self._on_text_edited)
+        layout.addWidget(self._line_edit)
+
+        self._cal_btn = QToolButton()
+        self._cal_btn.setText("\u25bc")  # ▼
+        self._cal_btn.setFixedWidth(20)
+        self._cal_btn.clicked.connect(self._show_calendar)
+        layout.addWidget(self._cal_btn)
+
+        self._minimum_date = QDate(2000, 1, 1)
+        self._maximum_date = QDate.currentDate()
+        self._current_date = QDate()  # Invalid = unset
+
+    def date(self) -> QDate:
+        """Return the current date, or an invalid QDate if unset."""
+        return self._current_date
+
+    def setDate(self, date: QDate) -> None:
+        """Set the date programmatically."""
+        if date.isValid() and date != self._minimum_date:
+            self._current_date = date
+            self._line_edit.setText(date.toString("yyyy-MM-dd"))
+        else:
+            self._current_date = QDate(self._minimum_date)
+            self._line_edit.clear()
+        self.dateChanged.emit()
+
+    def setMinimumDate(self, date: QDate) -> None:
+        self._minimum_date = date
+
+    def setMaximumDate(self, date: QDate) -> None:
+        self._maximum_date = date
+
+    def setSpecialValueText(self, text: str) -> None:
+        """Compatibility stub — placeholder serves this purpose."""
+        pass
+
+    def setDisplayFormat(self, fmt: str) -> None:
+        """Compatibility stub — always uses YYYY-MM-DD."""
+        pass
+
+    def setCalendarPopup(self, enabled: bool) -> None:
+        """Compatibility stub — calendar popup is always available."""
+        pass
+
+    def calendarWidget(self):
+        """Compatibility stub — calendar is created on demand in the popup."""
+        return None
+
+    def setEnabled(self, enabled: bool) -> None:
+        super().setEnabled(enabled)
+        self._line_edit.setEnabled(enabled)
+        self._cal_btn.setEnabled(enabled)
+
+    def _on_text_edited(self) -> None:
+        """Validate and apply typed date."""
+        text = self._line_edit.text().strip()
+        if not text:
+            self._current_date = QDate(self._minimum_date)
+            self.dateChanged.emit()
+            return
+
+        date = QDate.fromString(text, "yyyy-MM-dd")
+        if date.isValid() and date >= self._minimum_date and date <= self._maximum_date:
+            self._current_date = date
+            self.dateChanged.emit()
+        else:
+            # Try without dashes (20240315)
+            date = QDate.fromString(text, "yyyyMMdd")
+            if date.isValid() and date >= self._minimum_date and date <= self._maximum_date:
+                self._current_date = date
+                self._line_edit.setText(date.toString("yyyy-MM-dd"))
+                self.dateChanged.emit()
+
+    def _show_calendar(self) -> None:
+        """Show calendar popup below the widget."""
+        menu = QMenu(self)
+        calendar = QCalendarWidget()
+        calendar.setNavigationBarVisible(True)
+        calendar.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.ShortDayNames)
+        calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        calendar.setMinimumDate(self._minimum_date)
+        calendar.setMaximumDate(self._maximum_date)
+        if self._current_date.isValid() and self._current_date != self._minimum_date:
+            calendar.setSelectedDate(self._current_date)
+        else:
+            calendar.setSelectedDate(QDate.currentDate())
+
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(calendar)
+        menu.addAction(action)
+
+        def on_date_selected(date):
+            self._current_date = date
+            self._line_edit.setText(date.toString("yyyy-MM-dd"))
+            self.dateChanged.emit()
+            menu.close()
+
+        calendar.clicked.connect(on_date_selected)
+        menu.exec(self._cal_btn.mapToGlobal(self._cal_btn.rect().bottomLeft()))
 
 
 class BatteryInfoWidget(QGroupBox):
@@ -99,21 +222,10 @@ class BatteryInfoWidget(QGroupBox):
         instance_layout = QFormLayout(instance_group)
         instance_layout.setContentsMargins(6, 6, 6, 6)
 
-        self.manufactured_date_edit = QDateEdit()
-        self.manufactured_date_edit.setCalendarPopup(True)
-        self.manufactured_date_edit.setDisplayFormat("yyyy-MM-dd")
-        self.manufactured_date_edit.setDate(QDate(2000, 1, 1))  # Start with minimum date
-        self.manufactured_date_edit.setSpecialValueText(" ")  # Show blank when no date
+        self.manufactured_date_edit = DateLineEdit()
         self.manufactured_date_edit.setMinimumDate(QDate(2000, 1, 1))
         self.manufactured_date_edit.setMaximumDate(QDate.currentDate())
-
-        # Configure calendar for easy year navigation
-        calendar = self.manufactured_date_edit.calendarWidget()
-        if calendar:
-            from PySide6.QtWidgets import QCalendarWidget
-            calendar.setNavigationBarVisible(True)
-            calendar.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.ShortDayNames)
-            calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        self.manufactured_date_edit.setDate(QDate(2000, 1, 1))  # Start with minimum date (unset)
 
         # Manufactured date and Serial Number on same row
         manuf_sn_layout = QHBoxLayout()
