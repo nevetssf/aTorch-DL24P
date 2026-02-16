@@ -27,14 +27,14 @@ def make_session_with_readings() -> TestSession:
     for i in range(5):
         reading = Reading(
             timestamp=start_time + timedelta(seconds=i * 60),
-            voltage=4.2 - (i * 0.1),
-            current=0.5,
-            power=2.1 - (i * 0.05),
+            voltage_v=4.2 - (i * 0.1),
+            current_a=0.5,
+            power_w=2.1 - (i * 0.05),
             energy_wh=0.035 * i,
             capacity_mah=8.33 * i,
-            temperature_c=30 + i,
-            ext_temperature_c=25,
-            runtime_seconds=i * 60,
+            mosfet_temp_c=30 + i,
+            ext_temp_c=25,
+            runtime_s=i * 60,
         )
         session.readings.append(reading)
 
@@ -135,7 +135,7 @@ class TestExportCSV:
         """Test that runtime is calculated from timestamps, not stored value."""
         session = make_session_with_readings()
         # Modify a reading's stored runtime to be different from timestamp delta
-        session.readings[2].runtime_seconds = 999
+        session.readings[2].runtime_s = 999
 
         output_path = tmp_path / "test_export.csv"
         export_csv(session, output_path)
@@ -252,14 +252,14 @@ class TestExportJSON:
 
         reading = data["readings"][0]
         assert "timestamp" in reading
-        assert "runtime_seconds" in reading
-        assert "voltage" in reading
-        assert "current" in reading
-        assert "power" in reading
+        assert "runtime_s" in reading
+        assert "voltage_v" in reading
+        assert "current_a" in reading
+        assert "power_w" in reading
         assert "energy_wh" in reading
         assert "capacity_mah" in reading
-        assert "temperature_c" in reading
-        assert "ext_temperature_c" in reading
+        assert "mosfet_temp_c" in reading
+        assert "ext_temp_c" in reading
 
     def test_export_reading_values(self, tmp_path):
         """Test that reading values are correct."""
@@ -272,18 +272,18 @@ class TestExportJSON:
             data = json.load(f)
 
         first_reading = data["readings"][0]
-        assert first_reading["voltage"] == 4.2
-        assert first_reading["current"] == 0.5
-        assert first_reading["runtime_seconds"] == 0.0
+        assert first_reading["voltage_v"] == 4.2
+        assert first_reading["current_a"] == 0.5
+        assert first_reading["runtime_s"] == 0.0
 
         last_reading = data["readings"][4]
-        assert last_reading["voltage"] == pytest.approx(3.8)
-        assert last_reading["runtime_seconds"] == 240.0
+        assert last_reading["voltage_v"] == pytest.approx(3.8)
+        assert last_reading["runtime_s"] == 240.0
 
     def test_export_runtime_calculated_from_timestamps(self, tmp_path):
         """Test that runtime is calculated from timestamps."""
         session = make_session_with_readings()
-        session.readings[2].runtime_seconds = 999
+        session.readings[2].runtime_s = 999
 
         output_path = tmp_path / "test_export.json"
         export_json(session, output_path)
@@ -292,7 +292,7 @@ class TestExportJSON:
             data = json.load(f)
 
         # Should be 120s from timestamp, not 999
-        assert data["readings"][2]["runtime_seconds"] == 120.0
+        assert data["readings"][2]["runtime_s"] == 120.0
 
     def test_export_empty_session(self, tmp_path):
         """Test exporting session with no readings."""

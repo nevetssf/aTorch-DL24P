@@ -16,15 +16,15 @@ from atorch.protocol.atorch_protocol import DeviceStatus
 def make_status(**kwargs) -> DeviceStatus:
     """Create a DeviceStatus with sensible defaults, overriding with kwargs."""
     defaults = {
-        "voltage": 12.0,
-        "current": 0.5,
-        "power": 6.0,
+        "voltage_v": 12.0,
+        "current_a": 0.5,
+        "power_w": 6.0,
         "energy_wh": 1.0,
         "capacity_mah": 100,
-        "temperature_c": 30,
-        "temperature_f": 86,
-        "ext_temperature_c": 25,
-        "ext_temperature_f": 77,
+        "mosfet_temp_c": 30,
+        "mosfet_temp_f": 86,
+        "ext_temp_c": 25,
+        "ext_temp_f": 77,
         "hours": 0,
         "minutes": 10,
         "seconds": 0,
@@ -33,7 +33,7 @@ def make_status(**kwargs) -> DeviceStatus:
         "overcurrent": False,
         "overvoltage": False,
         "overtemperature": False,
-        "fan_rpm": 2000,
+        "fan_speed_rpm": 2000,
     }
     defaults.update(kwargs)
     return DeviceStatus(**defaults)
@@ -61,7 +61,7 @@ class TestVoltageAlert:
     def test_triggers_below_threshold(self):
         """Test alert triggers when voltage drops below threshold."""
         alert = VoltageAlert(threshold=3.0)
-        status = make_status(voltage=2.9)
+        status = make_status(voltage_v=2.9)
 
         result = alert.check(status)
 
@@ -73,7 +73,7 @@ class TestVoltageAlert:
     def test_does_not_trigger_above_threshold(self):
         """Test alert does not trigger when voltage is above threshold."""
         alert = VoltageAlert(threshold=3.0)
-        status = make_status(voltage=3.5)
+        status = make_status(voltage_v=3.5)
 
         result = alert.check(status)
 
@@ -82,7 +82,7 @@ class TestVoltageAlert:
     def test_triggers_at_threshold(self):
         """Test alert triggers when voltage equals threshold."""
         alert = VoltageAlert(threshold=3.0)
-        status = make_status(voltage=3.0)
+        status = make_status(voltage_v=3.0)
 
         result = alert.check(status)
 
@@ -92,7 +92,7 @@ class TestVoltageAlert:
     def test_only_triggers_once(self):
         """Test alert only triggers once until reset."""
         alert = VoltageAlert(threshold=3.0)
-        status = make_status(voltage=2.9)
+        status = make_status(voltage_v=2.9)
 
         result1 = alert.check(status)
         result2 = alert.check(status)
@@ -105,26 +105,26 @@ class TestVoltageAlert:
         alert = VoltageAlert(threshold=3.0, hysteresis=0.1)
 
         # Trigger the alert
-        alert.check(make_status(voltage=2.9))
+        alert.check(make_status(voltage_v=2.9))
 
         # Still below threshold + hysteresis, should not reset
-        alert.check(make_status(voltage=3.05))
+        alert.check(make_status(voltage_v=3.05))
 
         # Above threshold + hysteresis, should reset
-        alert.check(make_status(voltage=3.15))
+        alert.check(make_status(voltage_v=3.15))
 
         # Should trigger again
-        result = alert.check(make_status(voltage=2.9))
+        result = alert.check(make_status(voltage_v=2.9))
         assert result is not None
 
     def test_manual_reset(self):
         """Test manual reset allows re-triggering."""
         alert = VoltageAlert(threshold=3.0)
 
-        alert.check(make_status(voltage=2.9))
+        alert.check(make_status(voltage_v=2.9))
         alert.reset()
 
-        result = alert.check(make_status(voltage=2.9))
+        result = alert.check(make_status(voltage_v=2.9))
         assert result is not None
 
 
@@ -134,7 +134,7 @@ class TestTemperatureAlert:
     def test_triggers_above_threshold(self):
         """Test alert triggers when temperature exceeds threshold."""
         alert = TemperatureAlert(threshold=50)
-        status = make_status(temperature_c=55)
+        status = make_status(mosfet_temp_c=55)
 
         result = alert.check(status)
 
@@ -146,7 +146,7 @@ class TestTemperatureAlert:
     def test_does_not_trigger_below_threshold(self):
         """Test alert does not trigger below threshold."""
         alert = TemperatureAlert(threshold=50)
-        status = make_status(temperature_c=45)
+        status = make_status(mosfet_temp_c=45)
 
         result = alert.check(status)
 
@@ -155,7 +155,7 @@ class TestTemperatureAlert:
     def test_triggers_at_threshold(self):
         """Test alert triggers at exactly threshold."""
         alert = TemperatureAlert(threshold=50)
-        status = make_status(temperature_c=50)
+        status = make_status(mosfet_temp_c=50)
 
         result = alert.check(status)
 
@@ -164,7 +164,7 @@ class TestTemperatureAlert:
     def test_uses_external_probe(self):
         """Test alert can use external temperature probe."""
         alert = TemperatureAlert(threshold=40, use_external=True)
-        status = make_status(temperature_c=35, ext_temperature_c=45)
+        status = make_status(mosfet_temp_c=35, ext_temp_c=45)
 
         result = alert.check(status)
 
@@ -175,7 +175,7 @@ class TestTemperatureAlert:
     def test_internal_probe_default(self):
         """Test alert uses internal probe by default."""
         alert = TemperatureAlert(threshold=40)
-        status = make_status(temperature_c=45, ext_temperature_c=35)
+        status = make_status(mosfet_temp_c=45, ext_temp_c=35)
 
         result = alert.check(status)
 
@@ -187,16 +187,16 @@ class TestTemperatureAlert:
         alert = TemperatureAlert(threshold=50)
 
         # Trigger
-        alert.check(make_status(temperature_c=55))
+        alert.check(make_status(mosfet_temp_c=55))
 
         # Still within 5°C, should not reset
-        alert.check(make_status(temperature_c=46))
+        alert.check(make_status(mosfet_temp_c=46))
 
         # Now below threshold - 5, should reset
-        alert.check(make_status(temperature_c=44))
+        alert.check(make_status(mosfet_temp_c=44))
 
         # Should trigger again
-        result = alert.check(make_status(temperature_c=52))
+        result = alert.check(make_status(mosfet_temp_c=52))
         assert result is not None
 
 
@@ -206,6 +206,7 @@ class TestTestCompleteAlert:
     def test_triggers_when_load_turns_off(self):
         """Test alert triggers when load turns off after being on."""
         alert = TestCompleteAlert()
+        alert.set_logging_active(True)
 
         # Load is on
         alert.check(make_status(load_on=True, capacity_mah=500, energy_wh=2.5))
@@ -230,6 +231,7 @@ class TestTestCompleteAlert:
     def test_only_triggers_once(self):
         """Test alert only triggers once per test completion."""
         alert = TestCompleteAlert()
+        alert.set_logging_active(True)
 
         alert.check(make_status(load_on=True))
         result1 = alert.check(make_status(load_on=False))
@@ -241,6 +243,7 @@ class TestTestCompleteAlert:
     def test_reset_allows_retrigger(self):
         """Test reset allows alert to trigger again."""
         alert = TestCompleteAlert()
+        alert.set_logging_active(True)
 
         alert.check(make_status(load_on=True))
         alert.check(make_status(load_on=False))
@@ -254,6 +257,7 @@ class TestTestCompleteAlert:
     def test_new_test_resets_automatically(self):
         """Test starting a new test resets the alert."""
         alert = TestCompleteAlert()
+        alert.set_logging_active(True)
 
         # First test
         alert.check(make_status(load_on=True))

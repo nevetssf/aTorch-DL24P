@@ -9,6 +9,23 @@ from atorch.data.database import Database
 from atorch.data.models import TestSession, Reading
 
 
+def make_reading(**kwargs) -> Reading:
+    """Create a Reading with sensible defaults, overriding with kwargs."""
+    defaults = {
+        "timestamp": datetime.now(),
+        "voltage_v": 12.5,
+        "current_a": 0.5,
+        "power_w": 6.25,
+        "energy_wh": 1.0,
+        "capacity_mah": 100,
+        "mosfet_temp_c": 30,
+        "ext_temp_c": 25,
+        "runtime_s": 60,
+    }
+    defaults.update(kwargs)
+    return Reading(**defaults)
+
+
 @pytest.fixture
 def temp_db():
     """Create a temporary database for testing."""
@@ -81,17 +98,7 @@ class TestDatabase:
         )
         temp_db.create_session(session)
 
-        reading = Reading(
-            timestamp=datetime.now(),
-            voltage=12.5,
-            current=0.5,
-            power=6.25,
-            energy_wh=1.0,
-            capacity_mah=100,
-            temperature_c=30,
-            ext_temperature_c=25,
-            runtime_seconds=60,
-        )
+        reading = make_reading()
 
         reading_id = temp_db.add_reading(session.id, reading)
 
@@ -108,24 +115,19 @@ class TestDatabase:
 
         # Add multiple readings
         for i in range(5):
-            reading = Reading(
-                timestamp=datetime.now(),
-                voltage=12.5 - i * 0.1,
-                current=0.5,
-                power=6.25,
+            reading = make_reading(
+                voltage_v=12.5 - i * 0.1,
                 energy_wh=i * 0.1,
                 capacity_mah=i * 10,
-                temperature_c=30,
-                ext_temperature_c=25,
-                runtime_seconds=i * 60,
+                runtime_s=i * 60,
             )
             temp_db.add_reading(session.id, reading)
 
         readings = temp_db.get_readings(session.id)
 
         assert len(readings) == 5
-        assert readings[0].voltage == 12.5
-        assert readings[4].voltage == pytest.approx(12.1)
+        assert readings[0].voltage_v == 12.5
+        assert readings[4].voltage_v == pytest.approx(12.1)
 
     def test_add_readings_batch(self, temp_db):
         """Test batch adding readings."""
@@ -137,19 +139,11 @@ class TestDatabase:
 
         readings = []
         for i in range(100):
-            readings.append(
-                Reading(
-                    timestamp=datetime.now(),
-                    voltage=12.5,
-                    current=0.5,
-                    power=6.25,
-                    energy_wh=i * 0.01,
-                    capacity_mah=i,
-                    temperature_c=30,
-                    ext_temperature_c=25,
-                    runtime_seconds=i,
-                )
-            )
+            readings.append(make_reading(
+                energy_wh=i * 0.01,
+                capacity_mah=i,
+                runtime_s=i,
+            ))
 
         temp_db.add_readings_batch(session.id, readings)
 
@@ -185,16 +179,12 @@ class TestDatabase:
 
         # Add some readings
         for i in range(3):
-            reading = Reading(
-                timestamp=datetime.now(),
-                voltage=12.0,
-                current=0.5,
-                power=6.0,
+            reading = make_reading(
+                voltage_v=12.0,
+                power_w=6.0,
                 energy_wh=0.1,
                 capacity_mah=10,
-                temperature_c=30,
-                ext_temperature_c=25,
-                runtime_seconds=i,
+                runtime_s=i,
             )
             temp_db.add_reading(session.id, reading)
 
@@ -256,19 +246,14 @@ class TestModels:
 
         # Add readings
         for i in range(10):
-            session.readings.append(
-                Reading(
-                    timestamp=datetime.now(),
-                    voltage=12.0 - i * 0.2,
-                    current=0.5,
-                    power=6.0,
-                    energy_wh=i * 0.1,
-                    capacity_mah=i * 50,
-                    temperature_c=30 + i,
-                    ext_temperature_c=25,
-                    runtime_seconds=i * 60,
-                )
-            )
+            session.readings.append(make_reading(
+                voltage_v=12.0 - i * 0.2,
+                power_w=6.0,
+                energy_wh=i * 0.1,
+                capacity_mah=i * 50,
+                mosfet_temp_c=30 + i,
+                runtime_s=i * 60,
+            ))
 
         assert session.final_capacity_mah == 450
         assert session.final_energy_wh == 0.9
@@ -280,21 +265,21 @@ class TestModels:
         """Test reading serialization."""
         reading = Reading(
             timestamp=datetime(2024, 1, 1, 12, 0, 0),
-            voltage=12.5,
-            current=0.5,
-            power=6.25,
+            voltage_v=12.5,
+            current_a=0.5,
+            power_w=6.25,
             energy_wh=1.0,
             capacity_mah=100,
-            temperature_c=30,
-            ext_temperature_c=25,
-            runtime_seconds=3600,
+            mosfet_temp_c=30,
+            ext_temp_c=25,
+            runtime_s=3600,
         )
 
         d = reading.to_dict()
 
-        assert d["voltage"] == 12.5
-        assert d["current"] == 0.5
-        assert d["runtime_seconds"] == 3600
+        assert d["voltage_v"] == 12.5
+        assert d["current_a"] == 0.5
+        assert d["runtime_s"] == 3600
         assert "2024-01-01" in d["timestamp"]
 
     def test_session_to_dict(self):

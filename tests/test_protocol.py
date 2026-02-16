@@ -139,14 +139,14 @@ class TestAtorchProtocol:
         status = AtorchProtocol.parse_status(bytes(data))
 
         assert status is not None
-        assert status.voltage == pytest.approx(12.5, rel=0.01)
-        assert status.current == pytest.approx(0.5, rel=0.01)
-        assert status.temperature_c == 35
+        assert status.voltage_v == pytest.approx(12.5, rel=0.01)
+        assert status.current_a == pytest.approx(0.5, rel=0.01)
+        assert status.mosfet_temp_c == 35
         assert status.hours == 1
         assert status.minutes == 23
         assert status.seconds == 45
         assert status.load_on is True
-        assert status.fan_rpm == 3000
+        assert status.fan_speed_rpm == 3000
 
     def test_find_packet_no_header(self):
         """Test finding packet with no header."""
@@ -183,15 +183,15 @@ class TestDeviceStatus:
     def test_runtime_seconds(self):
         """Test runtime_seconds property."""
         status = DeviceStatus(
-            voltage=12.0,
-            current=0.5,
-            power=6.0,
+            voltage_v=12.0,
+            current_a=0.5,
+            power_w=6.0,
             energy_wh=1.0,
             capacity_mah=100,
-            temperature_c=30,
-            temperature_f=86,
-            ext_temperature_c=25,
-            ext_temperature_f=77,
+            mosfet_temp_c=30,
+            mosfet_temp_f=86,
+            ext_temp_c=25,
+            ext_temp_f=77,
             hours=2,
             minutes=30,
             seconds=45,
@@ -200,7 +200,7 @@ class TestDeviceStatus:
             overcurrent=False,
             overvoltage=False,
             overtemperature=False,
-            fan_rpm=2000,
+            fan_speed_rpm=2000,
         )
 
         # 2h 30m 45s = 2*3600 + 30*60 + 45 = 9045
@@ -209,15 +209,15 @@ class TestDeviceStatus:
     def test_str_representation(self):
         """Test string representation."""
         status = DeviceStatus(
-            voltage=12.5,
-            current=0.5,
-            power=6.25,
+            voltage_v=12.5,
+            current_a=0.5,
+            power_w=6.25,
             energy_wh=1.0,
             capacity_mah=100,
-            temperature_c=30,
-            temperature_f=86,
-            ext_temperature_c=25,
-            ext_temperature_f=77,
+            mosfet_temp_c=30,
+            mosfet_temp_f=86,
+            ext_temp_c=25,
+            ext_temp_f=77,
             hours=0,
             minutes=10,
             seconds=30,
@@ -226,7 +226,7 @@ class TestDeviceStatus:
             overcurrent=False,
             overvoltage=False,
             overtemperature=False,
-            fan_rpm=2000,
+            fan_speed_rpm=2000,
         )
 
         s = str(status)
