@@ -601,8 +601,10 @@ class USBHIDDevice:
         self._status_callback: Optional[Callable[[DeviceStatus], None]] = None
         self._error_callback: Optional[Callable[[str], None]] = None
         self._debug_callback: Optional[Callable[[str, str, bytes], None]] = None
+        self._prepare_callback: Optional[Callable[[], None]] = None
         self._lock = threading.Lock()
         self._device_path: Optional[str] = None
+        self._consecutive_no_response = 0
 
     @classmethod
     def is_available(cls) -> bool:
@@ -635,6 +637,10 @@ class USBHIDDevice:
     def set_debug_callback(self, callback: Callable[[str, str, bytes], None]) -> None:
         """Set callback for debug logging."""
         self._debug_callback = callback
+
+    def set_prepare_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for when device needs USB preparation (no response detected)."""
+        self._prepare_callback = callback
 
     def _debug(self, event_type: str, message: str, data: bytes = b"") -> None:
         """Send debug event."""
@@ -714,17 +720,18 @@ class USBHIDDevice:
 
             # Send initialization sequence to reset device communication state
             # The OEM app sends sub-command 0x04 to all command types 01-0a
-            # These commands don't expect responses - they reset internal state
+            # with 4 zero data bytes, ~160ms apart. These are fire-and-forget.
             self._debug("INFO", "Sending initialization sequence (sub-cmd 0x04 to cmd_types 01-0a)")
-            import time
             for cmd_type in range(0x01, 0x0b):  # 0x01 through 0x0a
-                packet = self._build_command(cmd_type, 0x04, b'')
+                packet = self._build_command(cmd_type, 0x04, b'\x00\x00\x00\x00')
+                self._debug("SEND", f"Init cmd_type={cmd_type:02x}", packet[:16])
                 try:
-                    self._device.write(packet)
-                    time.sleep(0.01)  # Small delay between commands (OEM app uses ~160ms)
+                    self._device.write(b'\x00' + packet)
+                    time.sleep(0.16)  # OEM app uses ~160ms between init commands
                 except Exception as e:
                     self._debug("WARN", f"Init sequence cmd_type {cmd_type:02x} failed: {e}")
-            self._debug("INFO", "Initialization sequence complete")
+            self._debug("INFO", "Initialization sequence complete, waiting 600ms before polling")
+            time.sleep(0.6)  # OEM app waits ~580ms after init before first query
 
             # Start polling thread
             self._running = True
@@ -771,12 +778,11 @@ class USBHIDDevice:
             return False
 
         self._debug("INFO", "Resending initialization sequence to reset device state")
-        import time
         try:
             for cmd_type in range(0x01, 0x0b):  # 0x01 through 0x0a
-                packet = self._build_command(cmd_type, 0x04, b'')
-                self._device.write(packet)
-                time.sleep(0.01)  # Small delay between commands
+                packet = self._build_command(cmd_type, 0x04, b'\x00\x00\x00\x00')
+                self._device.write(b'\x00' + packet)
+                time.sleep(0.16)  # OEM app uses ~160ms between init commands
             self._debug("INFO", "Reset initialization sequence complete")
             return True
         except Exception as e:
@@ -784,7 +790,11 @@ class USBHIDDevice:
             return False
 
     def _build_command(self, cmd_type: int, sub_cmd: int, data: bytes = b'') -> bytes:
-        """Build a USB HID command packet."""
+        """Build a USB HID command packet.
+
+        Format: 55 05 [cmd_type] [sub_cmd] [data...] ee ff [zero-padded to 64 bytes]
+        No checksum — the OEM app does not use one.
+        """
         packet = bytearray(64)
         packet[0] = self.CMD_HEADER
         packet[1] = self.PROTO_VERSION
@@ -794,18 +804,13 @@ class USBHIDDevice:
         # Put data starting at offset 4
         data_end = 4
         for i, b in enumerate(data):
-            if 4 + i < 60:  # Leave room for checksum and trailer
+            if 4 + i < 62:  # Leave room for trailer
                 packet[4 + i] = b
                 data_end = 4 + i + 1
 
-        # Calculate checksum: sum of bytes from offset 2 to end of data, XOR with 0x44
-        checksum_data = packet[2:data_end]
-        checksum = (sum(checksum_data) ^ 0x44) & 0xFF
-        packet[data_end] = checksum
-
-        # Add trailer right after checksum
-        packet[data_end + 1] = 0xEE
-        packet[data_end + 2] = 0xFF
+        # Add trailer right after data (no checksum)
+        packet[data_end] = 0xEE
+        packet[data_end + 1] = 0xFF
 
         return bytes(packet)
 
@@ -869,8 +874,7 @@ class USBHIDDevice:
             # Send with report ID 0
             self._device.write(b'\x00' + cmd)
 
-            # Read response (short timeout)
-            time.sleep(0.05)  # Small delay before reading
+            # Read response
             response = self._device.read(64, timeout_ms=500)
             if response:
                 response = bytes(response)
@@ -1120,20 +1124,25 @@ class USBHIDDevice:
             'battery_resistance_ohm': battery_resistance_mohm / 1000.0 if battery_resistance_mohm > 0 else None,  # mΩ to Ω
         }
 
+    # Number of consecutive no-response poll cycles before triggering USB prepare
+    NO_RESPONSE_THRESHOLD = 5
+
     def _poll_loop(self) -> None:
         """Background thread to poll device for status."""
         self._debug("INFO", "Poll loop started")
+        self._consecutive_no_response = 0
 
         while self._running and self._device:
             try:
-                # Request counters first (no data parameter - it breaks the checksum!)
+                # Request counters first
+                # OEM app sends data bytes 0b 00 8c with every query
                 counters = None
-                counter_resp = self._send_and_receive(self.CMD_TYPE_QUERY, self.SUB_CMD_COUNTERS)
+                counter_resp = self._send_and_receive(self.CMD_TYPE_QUERY, self.SUB_CMD_COUNTERS, b'\x0b\x00\x8c')
                 if counter_resp:
                     counters = self._parse_counters(counter_resp[4:62])
 
-                # Request live data (no data parameter)
-                response = self._send_and_receive(self.CMD_TYPE_QUERY, self.SUB_CMD_LIVE_DATA)
+                # Request live data
+                response = self._send_and_receive(self.CMD_TYPE_QUERY, self.SUB_CMD_LIVE_DATA, b'\x0b\x00\x8c')
                 if response:
                     payload = response[4:62]
                     status = self._parse_live_data(payload, counters)
@@ -1146,6 +1155,22 @@ class USBHIDDevice:
                             self._status_callback(status)
                         except Exception:
                             pass
+
+                # Track consecutive no-response cycles
+                if counter_resp is None and response is None:
+                    self._consecutive_no_response += 1
+                    self._debug("WARN", f"No response from device ({self._consecutive_no_response}/{self.NO_RESPONSE_THRESHOLD})")
+                    if self._consecutive_no_response >= self.NO_RESPONSE_THRESHOLD:
+                        self._debug("INFO", "Device not responding after init — USB prepare needed")
+                        self._running = False
+                        if self._prepare_callback:
+                            try:
+                                self._prepare_callback()
+                            except Exception:
+                                pass
+                        break
+                else:
+                    self._consecutive_no_response = 0
 
                 time.sleep(self.POLL_INTERVAL)
 

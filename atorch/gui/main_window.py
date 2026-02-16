@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
     test_progress = Signal(TestProgress)
     debug_message = Signal(str, str, bytes)  # event_type, message, data
     error_occurred = Signal(str)  # error message
+    prepare_needed = Signal()  # device needs USB prepare (no response detected)
 
     DEBUG_LOG_FILE = "/Users/steve/Projects/atorch/debug.log"
 
@@ -123,6 +124,7 @@ class MainWindow(QMainWindow):
         self._last_db_commit_time: Optional[datetime] = None  # Track last database commit
         self._db_commit_interval = 10  # Commit database every 10 seconds
         self._processing_status = False  # Flag to prevent signal queue buildup
+        self._awaiting_first_status = False  # True after connect, cleared on first response
 
         # Setup
         self._setup_alerts()
@@ -267,6 +269,8 @@ class MainWindow(QMainWindow):
         device.set_status_callback(self._on_device_status)
         device.set_error_callback(self._on_device_error)
         device.set_debug_callback(self._on_device_debug)
+        if hasattr(device, 'set_prepare_callback'):
+            device.set_prepare_callback(self._on_prepare_needed)
 
     def _create_ui(self) -> None:
         """Create the main UI layout."""
@@ -418,6 +422,7 @@ class MainWindow(QMainWindow):
         self.connection_changed.connect(self._update_ui_connection)
         self.test_progress.connect(self.battery_capacity_panel.update_progress)
         self.error_occurred.connect(self._show_error_message)
+        self.prepare_needed.connect(self._run_usb_prepare)
 
         # Connect control panel signals
         self.control_panel.connect_requested.connect(self._connect_device)
@@ -646,7 +651,8 @@ class MainWindow(QMainWindow):
 
             self.connection_changed.emit(True)
             conn_type_str = "USB HID" if connection_type == ConnectionType.USB_HID else "Serial"
-            self.statusbar.showMessage(f"Connected ({conn_type_str}): {self.device.port}")
+            self.statusbar.showMessage(f"Connected ({conn_type_str}) — trying to communicate with device...")
+            self._awaiting_first_status = True
         except DeviceError as e:
             QMessageBox.warning(self, "Connection Error", str(e))
 
@@ -3342,6 +3348,166 @@ class MainWindow(QMainWindow):
         # Emit signal to handle on main thread
         self.error_occurred.emit(message)
 
+    def _on_prepare_needed(self) -> None:
+        """Handle device needing USB prepare (called from device thread)."""
+        # Emit signal to handle on main thread
+        self.prepare_needed.emit()
+
+    # Timeout for the macOS password dialog before giving up
+    USB_PREPARE_TIMEOUT = 60  # seconds
+
+    @Slot()
+    def _run_usb_prepare(self) -> None:
+        """Run USB prepare script with admin privileges to initialize device.
+
+        On macOS, the DL24P requires a SET_IDLE HID class request after power-cycling
+        that macOS doesn't send during USB enumeration (Windows does). This runs
+        usb_prepare.py via osascript to prompt for admin credentials.
+        """
+        if sys.platform != 'darwin':
+            QMessageBox.information(
+                self, "Device Not Responding",
+                "The device was detected but is not responding.\n\n"
+                "Try unplugging and re-plugging the USB cable, then reconnect."
+            )
+            return
+
+        self.statusbar.showMessage("No response from device — USB initialization needed")
+
+        # Locate usb_prepare.py
+        if getattr(sys, 'frozen', False):
+            bundle_dir = Path(getattr(sys, '_MEIPASS', Path(sys.executable).parent))
+            usb_prepare_path = bundle_dir / 'usb_prepare.py'
+        else:
+            usb_prepare_path = Path(__file__).resolve().parent.parent.parent / 'usb_prepare.py'
+
+        if not usb_prepare_path.exists():
+            QMessageBox.warning(
+                self, "Device Not Responding",
+                "The device was detected but is not responding.\n\n"
+                "The USB initialization script could not be found.\n"
+                "Run manually in a terminal:\n\n"
+                "  sudo python usb_prepare.py"
+            )
+            self.statusbar.showMessage("Disconnected — USB init script not found")
+            return
+
+        # Explain what's about to happen
+        explain = QMessageBox(self)
+        explain.setIcon(QMessageBox.Information)
+        explain.setWindowTitle("USB Device Initialization Required")
+        explain.setText(
+            "The DL24P was detected but is not responding to commands."
+        )
+        explain.setInformativeText(
+            "After power-cycling, the device needs a one-time USB reset that "
+            "requires administrator privileges.\n\n"
+            "macOS will ask for your password to perform this initialization. "
+            "This is safe — it sends a standard USB HID reset command to the device."
+        )
+        explain.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        explain.setDefaultButton(QMessageBox.Ok)
+        explain.button(QMessageBox.Ok).setText("Continue")
+        if explain.exec() != QMessageBox.Ok:
+            self.statusbar.showMessage("USB initialization cancelled — device not connected")
+            return
+
+        # Disconnect first so usb_prepare.py can claim the device
+        self.statusbar.showMessage("Releasing USB device for initialization...")
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()  # Ensure dialog is dismissed and status bar updates
+        if self.device and self.device.is_connected:
+            self.device.disconnect()
+            self.connection_changed.emit(False)
+
+        self.statusbar.showMessage("Requesting administrator authorization...")
+        QApplication.processEvents()
+
+        # Build the shell command for osascript
+        python_exec = sys.executable
+        cmd_str = (
+            f'DYLD_LIBRARY_PATH=/opt/homebrew/lib '
+            f'{python_exec} -B {usb_prepare_path}'
+        )
+        cmd_str_escaped = cmd_str.replace('\\', '\\\\').replace('"', '\\"')
+
+        # Use 'with prompt' to show "Test Bench" in the macOS auth dialog
+        prompt_text = (
+            "Test Bench needs to send a USB reset command to initialize "
+            "the DL24P device."
+        )
+        prompt_escaped = prompt_text.replace('\\', '\\\\').replace('"', '\\"')
+        applescript = (
+            f'do shell script "{cmd_str_escaped}" '
+            f'with prompt "{prompt_escaped}" '
+            f'with administrator privileges'
+        )
+
+        try:
+            result = subprocess.run(
+                ['osascript', '-e', applescript],
+                capture_output=True, text=True, timeout=self.USB_PREPARE_TIMEOUT
+            )
+            if result.returncode == 0:
+                self.statusbar.showMessage("USB device initialized — waiting for driver to reattach...")
+
+                # Show success dialog that auto-dismisses after 3 seconds
+                success = QMessageBox(self)
+                success.setIcon(QMessageBox.Information)
+                success.setWindowTitle("USB Initialization Complete")
+                success.setText("Device initialized successfully.")
+                success.setInformativeText("Reconnecting automatically...")
+                success.setStandardButtons(QMessageBox.NoButton)
+                success.show()
+                QTimer.singleShot(3000, success.accept)
+
+                QTimer.singleShot(1500, self._reconnect_after_prepare)
+            else:
+                stderr = result.stderr.strip()
+                if 'User canceled' in stderr or 'canceled' in stderr.lower():
+                    self.statusbar.showMessage("Disconnected — USB initialization cancelled")
+                    self._show_prepare_cancelled_dialog()
+                else:
+                    self.statusbar.showMessage("Disconnected — USB initialization failed")
+                    QMessageBox.warning(
+                        self, "USB Initialization Failed",
+                        f"The initialization did not complete successfully.\n\n{stderr[:200]}"
+                    )
+        except subprocess.TimeoutExpired:
+            self.statusbar.showMessage("Disconnected — password dialog timed out")
+            self._show_prepare_cancelled_dialog()
+        except Exception as e:
+            self.statusbar.showMessage("Disconnected — USB initialization error")
+            QMessageBox.warning(
+                self, "USB Initialization Error",
+                f"An unexpected error occurred:\n\n{e}"
+            )
+
+    def _show_prepare_cancelled_dialog(self) -> None:
+        """Show dialog explaining that the device cannot work without USB init."""
+        dlg = QMessageBox(self)
+        dlg.setIcon(QMessageBox.Warning)
+        dlg.setWindowTitle("Connection Not Established")
+        dlg.setText("The device could not be initialized.")
+        dlg.setInformativeText(
+            "The DL24P requires a USB reset command after power-cycling, "
+            "which needs your macOS password.\n\n"
+            "Without this step, the device will not respond to the app.\n\n"
+            "To try again, click Connect."
+        )
+        dlg.setStandardButtons(QMessageBox.Ok)
+        dlg.exec()
+
+    def _reconnect_after_prepare(self) -> None:
+        """Reconnect to device after USB prepare completed successfully."""
+        try:
+            self.statusbar.showMessage("Scanning for device...")
+            self.control_panel._refresh_ports()
+            self.statusbar.showMessage("Reconnecting to device...")
+            self._connect_device()
+        except Exception as e:
+            self.statusbar.showMessage(f"Reconnect failed: {e}")
+
     @Slot(str)
     def _show_error_message(self, message: str) -> None:
         """Show error message in status bar (runs on main thread)."""
@@ -3370,6 +3536,14 @@ class MainWindow(QMainWindow):
 
     def _do_update_ui_status(self, status: DeviceStatus) -> None:
         """Internal method to update UI with device status."""
+        # Show "Communication established" on first successful response after connect
+        if self._awaiting_first_status:
+            self._awaiting_first_status = False
+            conn_type_str = "USB HID" if isinstance(self.device, USBHIDDevice) else "Serial"
+            self.statusbar.showMessage(
+                f"Communication established ({conn_type_str}) — {status.voltage_v:.2f}V"
+            )
+
         # Log data first (before UI update) if enabled
         if self._logging_enabled and self._current_session:
             # Check if enough time has elapsed since last log
