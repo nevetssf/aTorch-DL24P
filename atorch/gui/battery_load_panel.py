@@ -431,6 +431,8 @@ class BatteryLoadPanel(QWidget):
             index = self.battery_info_widget.presets_combo.findText(safe_name)
             if index >= 0:
                 self.battery_info_widget.presets_combo.setCurrentIndex(index)
+            # Emit signal so other panels can reload their preset lists
+            self.battery_info_widget.preset_list_changed.emit()
         except Exception as e:
             QMessageBox.warning(self, "Save Error", f"Failed to save preset: {e}")
 
@@ -455,6 +457,8 @@ class BatteryLoadPanel(QWidget):
             try:
                 preset_file.unlink()
                 self._load_battery_presets_list()
+                # Emit signal so other panels can reload their preset lists
+                self.battery_info_widget.preset_list_changed.emit()
             except Exception as e:
                 QMessageBox.warning(self, "Delete Error", f"Failed to delete preset: {e}")
 
@@ -653,10 +657,13 @@ class BatteryLoadPanel(QWidget):
         mode = mode_map.get(load_type, 0)
 
         try:
+            # Switch device to the correct mode first
+            self._device.set_mode(mode)
+
             # Set voltage cutoff
             self._device.set_voltage_cutoff(v_cutoff)
 
-            # Set mode and initial value
+            # Set initial value
             if load_type == "Current":
                 self._device.set_current(min_val / 1000.0)  # Convert mA to A
             elif load_type == "Resistance":
@@ -825,6 +832,10 @@ class BatteryLoadPanel(QWidget):
         elif not self._test_running:
             self.status_label.setText("Ready")
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
+
+    def reload_battery_presets(self) -> None:
+        """Reload battery presets list (called when another panel saves/deletes a preset)."""
+        self._load_battery_presets_list()
 
     def generate_test_filename(self) -> str:
         """Generate a test filename based on battery info and test conditions.

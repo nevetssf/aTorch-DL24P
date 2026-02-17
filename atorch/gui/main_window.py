@@ -396,6 +396,10 @@ class MainWindow(QMainWindow):
         self.battery_capacity_panel.battery_info_widget.settings_changed.connect(self._sync_battery_info_to_load)
         self.battery_load_panel.battery_info_widget.settings_changed.connect(self._sync_battery_info_to_capacity)
 
+        # Synchronize battery preset lists - when one panel saves/deletes a preset, reload the other panel's list
+        self.battery_capacity_panel.battery_info_widget.preset_list_changed.connect(self.battery_load_panel.reload_battery_presets)
+        self.battery_load_panel.battery_info_widget.preset_list_changed.connect(self.battery_capacity_panel.reload_battery_presets)
+
         # Connect charger panel signals
         self.charger_panel.test_started.connect(self._on_charger_start)
         self.charger_panel.test_stopped.connect(self._on_charger_stop)
@@ -3312,7 +3316,12 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         # Build the shell command for osascript
-        python_exec = sys.executable
+        # In frozen builds, sys.executable is the app binary, not Python
+        if getattr(sys, 'frozen', False):
+            import shutil
+            python_exec = shutil.which('python3') or '/usr/bin/python3'
+        else:
+            python_exec = sys.executable
         cmd_str = (
             f'DYLD_LIBRARY_PATH=/opt/homebrew/lib '
             f'{python_exec} -B {usb_prepare_path}'

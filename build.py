@@ -45,6 +45,11 @@ def build():
     if resources_dir.exists():
         cmd.append(f"--add-data={resources_dir}:resources")
 
+    # Add USB prepare script (needed for macOS device initialization)
+    usb_prepare = Path("usb_prepare.py")
+    if usb_prepare.exists():
+        cmd.append(f"--add-data={usb_prepare}:.")
+
     # Platform-specific options
     if system == "Darwin":
         # macOS

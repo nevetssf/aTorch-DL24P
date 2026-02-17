@@ -110,9 +110,25 @@ Run the main application:
 python -m atorch.main
 ```
 
+**macOS: First-Time Setup After Power Cycle**
+
+After power-cycling the DL24P, macOS requires a one-time initialization step before the app can communicate with the device. This is because macOS's HID driver uses SET_REPORT control transfers, while the DL24P firmware needs interrupt OUT transfers for its initialization sequence.
+
+```bash
+# Install libusb (one-time)
+brew install libusb
+pip install pyusb
+
+# Run after each device power cycle (requires sudo for USB endpoint access)
+sudo DYLD_LIBRARY_PATH=/opt/homebrew/lib .venv/bin/python usb_prepare.py
+```
+
+This sends the SET_IDLE HID class request and initialization sequence that Windows sends automatically during USB enumeration. You only need to run this once after power-cycling the device — the device retains its initialized state across USB disconnects.
+
 **Quick Start:**
 1. Connect your DL24P via USB
-2. Select "USB HID" connection type and click "Connect"
+2. On macOS, run `usb_prepare.py` if the device was power-cycled (see above)
+3. Select "USB HID" connection type and click "Connect"
 3. Choose a test panel (Battery Capacity, Battery Load, etc.)
 4. Configure test parameters
 5. Click "Start Test"
@@ -242,6 +258,7 @@ Tested on:
 See [TODO.md](TODO.md) for items being worked on.
 
 **Current Limitations:**
+- **macOS power-cycle initialization:** After power-cycling the DL24P, run `usb_prepare.py` once before using the app (see Quick Start above). This is not needed on Windows, where the OS sends the required HID class requests automatically during USB enumeration.
 - Bluetooth/serial connection not fully functional (use USB HID instead)
 - Device timing readout may need calibration
 - Some device commands may not work over USB HID (e.g., Reset Counters)

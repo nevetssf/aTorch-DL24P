@@ -47,9 +47,11 @@ Both use a polling thread that queries the device every 500ms for:
 2. Live data (sub-cmd 0x03) - mode settings, value_set, voltage cutoff
 
 **USB HID Protocol Format:**
-- Commands: `55 05 [cmd_type] [sub_cmd] [data...] [checksum] EE FF` (64 bytes padded)
+- Commands: `55 05 [cmd_type] [sub_cmd] [data...] EE FF` (64 bytes zero-padded, no checksum)
 - Responses: `AA 05 [cmd_type] [sub_cmd] [payload...] EE FF`
-- Checksum: `(sum of bytes from offset 2 to end of data) XOR 0x44`
+- Init: `55 05 [01-0a] 04 00 00 00 00 EE FF` (fire-and-forget, ~160ms apart)
+- Queries: `55 05 01 [03|05] EE FF` (device responds with payload)
+- Set value: `55 05 01 [sub_cmd] [4-byte IEEE 754 float] EE FF`
 
 **Mode Numbering Mismatch:**
 - GUI buttons: 0=CC, 1=CP, 2=CV, 3=CR

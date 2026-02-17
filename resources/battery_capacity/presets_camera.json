@@ -57,6 +57,8 @@
                      "rated_voltage": 7.2, "nominal_capacity": 750, "nominal_energy": 5.4, "technology": "Li-Ion"},
   "Wasabi DMW-BLC12": {"name": "DMW-BLC12", "manufacturer": "Wasabi", "oem_equivalent": "BP-DC12, DMW-BLC12",
                       "rated_voltage": 7.2, "nominal_capacity": 1400, "nominal_energy": 10.0, "technology": "Li-Ion"},
+  "Wasabi BTR-BLF19": {"name": "BTR-BLF19", "manufacturer": "Wasabi", "oem_equivalent": "DMW-BLF19",
+                      "rated_voltage": 7.2, "nominal_capacity": 2000, "nominal_energy": 14.4, "technology": "Li-Ion"},
   "Ricoh DB-110": {"name": "DB-110", "manufacturer": "Ricoh", "oem_equivalent": "DB-110",
                   "rated_voltage": 3.6, "nominal_capacity": 1350, "nominal_energy": 4.9, "technology": "Li-Ion"},
   "Ricoh DB-65": {"name": "DB-65", "manufacturer": "Ricoh", "oem_equivalent": "DB-65",

@@ -674,6 +674,10 @@ class BatteryCapacityPanel(QWidget):
                 self.status_label.setStyleSheet("color: red;")
                 self.start_btn.setEnabled(False)
 
+    def reload_battery_presets(self) -> None:
+        """Reload battery presets list (called when another panel saves/deletes a preset)."""
+        self._load_battery_presets_list()
+
     def update_test_progress(self, elapsed_seconds: float, capacity_mah: float, voltage: float = 0.0, energy_wh: float = 0.0) -> None:
         """Update progress bar, elapsed time, and test summary.
 
@@ -991,6 +995,8 @@ class BatteryCapacityPanel(QWidget):
             index = self.battery_info_widget.presets_combo.findText(safe_name)
             if index >= 0:
                 self.battery_info_widget.presets_combo.setCurrentIndex(index)
+            # Emit signal so other panels can reload their preset lists
+            self.battery_info_widget.preset_list_changed.emit()
         except Exception as e:
             QMessageBox.warning(self, "Save Error", f"Failed to save preset: {e}")
 
@@ -1022,6 +1028,8 @@ class BatteryCapacityPanel(QWidget):
             try:
                 preset_file.unlink()
                 self._load_battery_presets_list()
+                # Emit signal so other panels can reload their preset lists
+                self.battery_info_widget.preset_list_changed.emit()
             except Exception as e:
                 QMessageBox.warning(self, "Delete Error", f"Failed to delete preset: {e}")
 

@@ -136,6 +136,8 @@ class BatteryInfoWidget(QGroupBox):
 
     # Signal emitted when any battery info field changes
     settings_changed = Signal()
+    # Signal emitted when a preset is saved or deleted (so other panels can reload)
+    preset_list_changed = Signal()
 
     def __init__(self, title: str = "Battery Info", fixed_width: int = 350):
         super().__init__(title)
@@ -234,7 +236,7 @@ class BatteryInfoWidget(QGroupBox):
         self.serial_number_edit = QLineEdit()
         self.serial_number_edit.setPlaceholderText("Serial #")
         manuf_sn_layout.addWidget(self.serial_number_edit)
-        instance_layout.addRow("Manufactured", manuf_sn_layout)
+        instance_layout.addRow("Manuf", manuf_sn_layout)
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setMaximumHeight(50)
