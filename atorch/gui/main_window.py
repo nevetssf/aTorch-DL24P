@@ -127,6 +127,7 @@ class MainWindow(QMainWindow):
         self._db_commit_interval = 10  # Commit database every 10 seconds
         self._processing_status = False  # Flag to prevent signal queue buildup
         self._awaiting_first_status = False  # True after connect, cleared on first response
+        self._notification_settings = self._load_notification_settings()
 
         # Setup
         self._setup_alerts()
@@ -145,6 +146,9 @@ class MainWindow(QMainWindow):
         # Sync battery info on startup to ensure both panels start with same data
         # Use whichever panel's session file was modified most recently
         self._sync_battery_info_on_startup()
+
+        # Update notification icons from saved settings
+        self.control_panel.update_notification_icons(self._notification_settings)
 
         # Update timer
         self._update_timer = QTimer(self)
@@ -261,6 +265,78 @@ class MainWindow(QMainWindow):
                       self.charger_panel, self.power_bank_panel]:
             if hasattr(panel, 'set_inputs_enabled'):
                 panel.set_inputs_enabled(True)
+
+    def _send_notification(self, title: str, message: str, event: str = "ended") -> str:
+        """Send notifications via configured channels (macOS, ntfy, Pushover).
+
+        Args:
+            title: Notification title
+            message: Notification body
+            event: Event type — "started", "ended", or "aborted". Push notifications
+                   (ntfy/Pushover) are only sent if the corresponding checkbox is enabled.
+                   macOS desktop notification always fires.
+
+        Returns:
+            Description of what was sent, e.g. "Sent push to ntfy, Pushover" or "Push disabled for started".
+        """
+        import threading
+
+        # Always send macOS desktop notification (local, lightweight)
+        try:
+            subprocess.Popen([
+                "osascript", "-e",
+                f'display notification "{message}" with title "{title}"'
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+        ns = self._notification_settings
+
+        # Check if this event type is enabled for push notifications
+        event_key = f"notify_test_{event}"
+        if not ns.get(event_key, True):
+            return f"Push disabled for {event}"
+
+        push_targets = []
+
+        # ntfy
+        if ns.get("ntfy_enabled") and ns.get("ntfy_topic"):
+            push_targets.append("ntfy")
+            def _send_ntfy():
+                try:
+                    import urllib.request
+                    server = ns.get("ntfy_server", "https://ntfy.sh").rstrip("/")
+                    url = f"{server}/{ns['ntfy_topic']}"
+                    req = urllib.request.Request(url, data=message.encode(), method="POST")
+                    req.add_header("Title", title)
+                    urllib.request.urlopen(req, timeout=10)
+                except Exception:
+                    pass
+            threading.Thread(target=_send_ntfy, daemon=True).start()
+
+        # Pushover
+        if ns.get("pushover_enabled") and ns.get("pushover_user_key") and ns.get("pushover_app_token"):
+            push_targets.append("Pushover")
+            def _send_pushover():
+                try:
+                    import urllib.request
+                    import urllib.parse
+                    data = urllib.parse.urlencode({
+                        "token": ns["pushover_app_token"],
+                        "user": ns["pushover_user_key"],
+                        "title": title,
+                        "message": message,
+                    }).encode()
+                    req = urllib.request.Request("https://api.pushover.net/1/messages.json",
+                                                 data=data, method="POST")
+                    urllib.request.urlopen(req, timeout=10)
+                except Exception:
+                    pass
+            threading.Thread(target=_send_pushover, daemon=True).start()
+
+        if push_targets:
+            return f"Sent push to {', '.join(push_targets)}"
+        return "No push service configured"
 
     def _setup_callbacks(self) -> None:
         """Setup device callbacks (called when device is created)."""
@@ -433,6 +509,7 @@ class MainWindow(QMainWindow):
         # Connect control panel signals
         self.control_panel.connect_requested.connect(self._connect_device)
         self.control_panel.disconnect_requested.connect(self._disconnect_device)
+        self.control_panel.open_notification_settings.connect(self._show_notification_settings)
         self.status_panel.logging_toggled.connect(self._toggle_logging)
         self.status_panel.sample_time_changed.connect(self._set_sample_interval)
         self.status_panel.clear_requested.connect(self._clear_data)
@@ -981,8 +1058,8 @@ class MainWindow(QMainWindow):
                 summary["final_capacity_mah"] = final_reading["capacity_mah"]
                 summary["final_energy_wh"] = final_reading["energy_wh"]
 
-            # Calculate battery resistance for battery load tests
-            if test_panel_type == "battery_load" and len(readings_data) >= 2:
+            # Calculate resistance for load tests (battery load and charger)
+            if test_panel_type in ("battery_load", "charger") and len(readings_data) >= 2:
                 try:
                     # Extract current (A) and voltage (V) data
                     currents = [r["current_a"] for r in readings_data]
@@ -1065,10 +1142,20 @@ class MainWindow(QMainWindow):
         return result
 
     @Slot()
-    def _show_settings(self) -> None:
-        """Show settings dialog."""
-        dialog = SettingsDialog(self.notifier, self)
-        dialog.exec()
+    def _show_settings(self, tab_index: int = 0) -> None:
+        """Show settings dialog, optionally opening a specific tab."""
+        dialog = SettingsDialog(self.notifier, self,
+                                notification_settings=dict(self._notification_settings))
+        dialog.tabs.setCurrentIndex(tab_index)
+        if dialog.exec() == QDialog.Accepted:
+            self._notification_settings = dialog._notification_settings
+            self._save_notification_settings(self._notification_settings)
+            self.control_panel.update_notification_icons(self._notification_settings)
+
+    @Slot()
+    def _show_notification_settings(self) -> None:
+        """Show settings dialog with Notifications tab selected."""
+        self._show_settings(tab_index=2)
 
     @Slot()
     def _show_device_settings(self) -> None:
@@ -1238,6 +1325,51 @@ class MainWindow(QMainWindow):
                 return settings.get("tooltips_enabled", True)
         except Exception:
             return True  # Default to enabled on error
+
+    def _save_notification_settings(self, notif: dict) -> None:
+        """Save notification settings to settings.json."""
+        settings_file = Path.home() / ".atorch" / "settings.json"
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+
+        settings = {}
+        if settings_file.exists():
+            try:
+                with open(settings_file, 'r') as f:
+                    settings = json.load(f)
+            except Exception:
+                pass
+
+        settings["notifications"] = notif
+        try:
+            with open(settings_file, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception:
+            pass
+
+    def _load_notification_settings(self) -> dict:
+        """Load notification settings from settings.json."""
+        settings_file = Path.home() / ".atorch" / "settings.json"
+        defaults = {
+            "ntfy_enabled": False,
+            "ntfy_server": "https://ntfy.sh",
+            "ntfy_topic": "",
+            "pushover_enabled": False,
+            "pushover_user_key": "",
+            "pushover_app_token": "",
+            "notify_test_started": False,
+            "notify_test_ended": True,
+            "notify_test_aborted": True,
+        }
+        if not settings_file.exists():
+            return defaults
+        try:
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+                stored = settings.get("notifications", {})
+                # Merge with defaults so missing keys get default values
+                return {**defaults, **stored}
+        except Exception:
+            return defaults
 
     def _set_tooltips_enabled(self, enabled: bool) -> None:
         """Enable or disable all tooltips in the application.
@@ -2260,21 +2392,33 @@ class MainWindow(QMainWindow):
                 self._start_delay_timer.deleteLater()
                 self._start_delay_timer = None
             # Stop request - save data and turn off logging
+            num_readings = len(self._accumulated_readings)
+            saved_path = None
             if self._logging_enabled:
-                num_readings = len(self._accumulated_readings)
                 # Save test data to JSON if auto-save is enabled
                 if self.battery_capacity_panel.autosave_checkbox.isChecked():
                     saved_path = self._save_test_json()
-                    if saved_path:
-                        self.statusbar.showMessage(
-                            f"Test aborted: {num_readings} readings saved to {saved_path}"
-                        )
-                else:
-                    self.statusbar.showMessage(
-                        f"Test aborted: {num_readings} readings - click Save to export"
-                    )
                 self.status_panel.log_switch.setChecked(False)
                 self._toggle_logging(False)
+
+            # Always send notification when test stops (even if load-off abort already disabled logging)
+            bat_name = self.battery_capacity_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            runtime_txt = self.battery_capacity_panel.summary_runtime_item.text()
+            capacity_txt = self.battery_capacity_panel.summary_capacity_item.text()
+            energy_txt = self.battery_capacity_panel.summary_energy_item.text()
+            voltage_txt = self.battery_capacity_panel.summary_voltage_item.text()
+            msg = (
+                f"Battery Capacity test on {bat_name} ended at {now_str}\n"
+                f"Runtime: {runtime_txt}, Capacity: {capacity_txt}, "
+                f"Energy: {energy_txt}, Median V: {voltage_txt}"
+            )
+            push_status = self._send_notification("aTorch DL24P", msg, event="ended")
+            parts = [f"Test ended. Logged {num_readings} readings."]
+            if saved_path:
+                parts.append(f"Auto-saved {Path(saved_path).name}.")
+            parts.append(push_status + ".")
+            self.statusbar.showMessage(" ".join(parts))
             return
 
         # Auto-connect if DL24 device detected and not connected
@@ -2345,6 +2489,15 @@ class MainWindow(QMainWindow):
                 self.statusbar.showMessage(
                     f"Test started: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V"
                 )
+
+            # Send "started" notification
+            bat_name = self.battery_capacity_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            self._send_notification(
+                "aTorch DL24P",
+                f"Battery Capacity test on {bat_name} started at {now_str}",
+                event="started",
+            )
 
     @Slot()
     def _on_start_delay_tick(self) -> None:
@@ -2444,6 +2597,9 @@ class MainWindow(QMainWindow):
         # Clear device counters (mAh, Wh, time)
         self.device.reset_counters()
 
+        # Show point markers by default for Battery Load tests
+        self.plot_panel.show_points_checkbox.setChecked(True)
+
         # Start logging (which also turns on the load)
         if not self._logging_enabled:
             self.status_panel.log_switch.setChecked(True)
@@ -2451,13 +2607,22 @@ class MainWindow(QMainWindow):
 
         self.statusbar.showMessage("Battery Load test started")
 
+        bat_name = self.battery_load_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self._send_notification(
+            "aTorch DL24P",
+            f"Battery Load test on {bat_name} started at {now_str}",
+            event="started",
+        )
+
     @Slot()
     def _on_battery_load_stop(self) -> None:
         """Handle test stop from battery load panel."""
+        num_readings = len(self._accumulated_readings)
+        saved_path = None
+
         # Stop logging and save data if auto-save is enabled
         if self._logging_enabled:
-            num_readings = len(self._accumulated_readings)
-
             # Calculate resistance before saving/displaying
             resistance_ohm = None
             r_squared = None
@@ -2506,21 +2671,28 @@ class MainWindow(QMainWindow):
             if self.battery_load_panel.autosave_checkbox.isChecked():
                 saved_path = self._save_battery_load_json()
                 if saved_path:
-                    self.statusbar.showMessage(
-                        f"Battery Load test complete: {num_readings} readings saved to {saved_path}"
-                    )
-                    # Refresh history panel to show new file
                     self.history_panel.refresh()
-                else:
-                    self.statusbar.showMessage(
-                        f"Battery Load test complete: {num_readings} readings - click Save to export"
-                    )
-            else:
-                self.statusbar.showMessage(
-                    f"Battery Load test complete: {num_readings} readings - click Save to export"
-                )
             self.status_panel.log_switch.setChecked(False)
             self._toggle_logging(False)
+
+        # Always send notification when test stops (even if load-off abort already disabled logging)
+        bat_name = self.battery_load_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        runtime_txt = self.battery_load_panel.summary_runtime_item.text()
+        loadtype_txt = self.battery_load_panel.summary_loadtype_item.text()
+        loadrange_txt = self.battery_load_panel.summary_loadrange_item.text()
+        resistance_txt = self.battery_load_panel.summary_resistance_item.text()
+        msg = (
+            f"Battery Load test on {bat_name} ended at {now_str}\n"
+            f"Runtime: {runtime_txt}, Load: {loadtype_txt} {loadrange_txt}, "
+            f"Resistance: {resistance_txt}"
+        )
+        push_status = self._send_notification("aTorch DL24P", msg, event="ended")
+        parts = [f"Test ended. Logged {num_readings} readings."]
+        if saved_path:
+            parts.append(f"Auto-saved {Path(saved_path).name}.")
+        parts.append(push_status + ".")
+        self.statusbar.showMessage(" ".join(parts))
 
     @Slot(str)
     def _on_battery_load_save(self, filename: str) -> None:
@@ -2580,6 +2752,9 @@ class MainWindow(QMainWindow):
         # Clear device counters (mAh, Wh, time)
         self.device.reset_counters()
 
+        # Show point markers by default for Charger Load tests
+        self.plot_panel.show_points_checkbox.setChecked(True)
+
         # Start logging (which also turns on the load)
         if not self._logging_enabled:
             self.status_panel.log_switch.setChecked(True)
@@ -2587,31 +2762,90 @@ class MainWindow(QMainWindow):
 
         self.statusbar.showMessage("Charger test started")
 
+        bat_name = self.charger_panel.charger_name_edit.text().strip() or "Device"
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self._send_notification(
+            "aTorch DL24P",
+            f"Charger Load test on {bat_name} started at {now_str}",
+            event="started",
+        )
+
     @Slot()
     def _on_charger_stop(self) -> None:
         """Handle test stop from charger panel."""
+        num_readings = len(self._accumulated_readings)
+        saved_path = None
+
         # Stop logging and save data if auto-save is enabled
         if self._logging_enabled:
-            num_readings = len(self._accumulated_readings)
+            # Calculate resistance from V vs I data
+            resistance_ohm = None
+            r_squared = None
+            if len(self._accumulated_readings) >= 2:
+                try:
+                    import numpy as np
+                    # Extract current and voltage data
+                    currents = [r.current_a for r in self._accumulated_readings]
+                    voltages = [r.voltage_v for r in self._accumulated_readings]
+
+                    # Filter out zero current readings
+                    valid_points = [(c, v) for c, v in zip(currents, voltages) if c > 0]
+
+                    if len(valid_points) >= 2:
+                        currents_filtered = [c for c, v in valid_points]
+                        voltages_filtered = [v for c, v in valid_points]
+
+                        # Linear fit: voltage = intercept + slope * current
+                        coeffs = np.polyfit(currents_filtered, voltages_filtered, 1)
+                        slope = coeffs[0]
+                        resistance_ohm = -slope  # Internal resistance is -slope
+
+                        # Calculate R-squared
+                        voltages_pred = np.polyval(coeffs, currents_filtered)
+                        ss_res = np.sum((np.array(voltages_filtered) - voltages_pred) ** 2)
+                        ss_tot = np.sum((np.array(voltages_filtered) - np.mean(voltages_filtered)) ** 2)
+                        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                except Exception as e:
+                    print(f"Warning: Could not calculate resistance: {e}")
+
+            # Get test parameters
+            test_config = self.charger_panel.get_test_config()
+            runtime_s = int(self._accumulated_readings[-1].runtime_s) if self._accumulated_readings else 0
+
+            # Update summary table
+            self.charger_panel.update_test_summary(
+                runtime_s=runtime_s,
+                load_type=test_config["load_type"],
+                min_val=test_config["min"],
+                max_val=test_config["max"],
+                resistance_ohm=resistance_ohm,
+                r_squared=r_squared
+            )
+
             # Save test data to JSON if auto-save is enabled
             if self.charger_panel.autosave_checkbox.isChecked():
                 saved_path = self._save_charger_json()
                 if saved_path:
-                    self.statusbar.showMessage(
-                        f"Charger test complete: {num_readings} readings saved to {saved_path}"
-                    )
-                    # Refresh history panel to show new file
                     self.history_panel.refresh()
-                else:
-                    self.statusbar.showMessage(
-                        f"Charger test complete: {num_readings} readings - click Save to export"
-                    )
-            else:
-                self.statusbar.showMessage(
-                    f"Charger test complete: {num_readings} readings - click Save to export"
-                )
             self.status_panel.log_switch.setChecked(False)
             self._toggle_logging(False)
+
+        # Always send notification when test stops (even if load-off abort already disabled logging)
+        bat_name = self.charger_panel.charger_name_edit.text().strip() or "Device"
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        runtime_txt = self.charger_panel.summary_runtime_item.text()
+        loadtype_txt = self.charger_panel.summary_loadtype_item.text()
+        loadrange_txt = self.charger_panel.summary_loadrange_item.text()
+        msg = (
+            f"Charger Load test on {bat_name} ended at {now_str}\n"
+            f"Runtime: {runtime_txt}, Load: {loadtype_txt} {loadrange_txt}"
+        )
+        push_status = self._send_notification("aTorch DL24P", msg, event="ended")
+        parts = [f"Test ended. Logged {num_readings} readings."]
+        if saved_path:
+            parts.append(f"Auto-saved {Path(saved_path).name}.")
+        parts.append(push_status + ".")
+        self.statusbar.showMessage(" ".join(parts))
 
     @Slot(str)
     def _on_charger_save(self, filename: str) -> None:
@@ -2697,6 +2931,14 @@ class MainWindow(QMainWindow):
             )
             # Don't turn on load here - panel manages it
             self.statusbar.showMessage("Logging started")
+
+            charger_name = self.battery_charger_panel.charger_name_edit.text().strip() or "Device"
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            self._send_notification(
+                "aTorch DL24P",
+                f"Battery Charger test on {charger_name} started at {now_str}",
+                event="started",
+            )
         else:
             # Resume logging (for subsequent steps)
             self.statusbar.showMessage("Logging resumed")
@@ -2712,6 +2954,7 @@ class MainWindow(QMainWindow):
         # If panel is still running, this is a pause; otherwise it's final stop
         is_final_stop = not self.battery_charger_panel._test_running
 
+        saved_path = None
         if self._logging_enabled and is_final_stop:
             # Final stop - end logging and save
             num_readings = len(self._accumulated_readings)
@@ -2719,24 +2962,30 @@ class MainWindow(QMainWindow):
             if self.battery_charger_panel.autosave_checkbox.isChecked():
                 saved_path = self._save_battery_charger_json()
                 if saved_path:
-                    self.statusbar.showMessage(
-                        f"Battery Charger test complete: {num_readings} readings saved to {saved_path}"
-                    )
-                    # Refresh history panel to show new file
                     self.history_panel.refresh()
-                else:
-                    self.statusbar.showMessage(
-                        f"Battery Charger test complete: {num_readings} readings - click Save to export"
-                    )
-            else:
-                self.statusbar.showMessage(
-                    f"Battery Charger test complete: {num_readings} readings - click Save to export"
-                )
             self.status_panel.log_switch.setChecked(False)
             # Stop logging WITHOUT turning off load (panel controls load)
             self._logging_enabled = False
             # Unlock UI controls after test
             self._enable_controls_after_test()
+
+        if is_final_stop:
+            # Always send notification on final stop (even if load-off abort already disabled logging)
+            charger_name = self.battery_charger_panel.charger_name_edit.text().strip() or "Device"
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            num_readings = len(self._accumulated_readings)
+            runtime_s = int(self._accumulated_readings[-1].runtime_s) if self._accumulated_readings else 0
+            h, m, s = runtime_s // 3600, (runtime_s % 3600) // 60, runtime_s % 60
+            msg = (
+                f"Battery Charger test on {charger_name} ended at {now_str}\n"
+                f"Runtime: {h}h {m}m {s}s, Readings: {num_readings}"
+            )
+            push_status = self._send_notification("aTorch DL24P", msg, event="ended")
+            parts = [f"Test ended. Logged {num_readings} readings."]
+            if saved_path:
+                parts.append(f"Auto-saved {Path(saved_path).name}.")
+            parts.append(push_status + ".")
+            self.statusbar.showMessage(" ".join(parts))
         elif self._logging_enabled:
             # Pause between steps - just stop logging, don't save yet
             self._logging_enabled = False
@@ -3452,32 +3701,49 @@ class MainWindow(QMainWindow):
                         self.battery_load_panel.progress_bar.setValue(100)
                         self.battery_load_panel._test_running = False
 
+                    # Stop charger load test if running
+                    if self.charger_panel._test_running:
+                        self.charger_panel._test_timer.stop()
+                        self.charger_panel.start_btn.setText("Start")
+                        self.charger_panel.status_label.setText("Test Aborted (Load Off)")
+                        self.charger_panel.progress_bar.setValue(100)
+                        self.charger_panel._test_running = False
+
+                    # Determine which test was running based on status label
+                    if self.battery_load_panel.status_label.text() == "Test Aborted (Load Off)":
+                        test_type = "Battery Load"
+                        bat_name = self.battery_load_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
+                    elif self.charger_panel.status_label.text() == "Test Aborted (Load Off)":
+                        test_type = "Charger Load"
+                        bat_name = self.charger_panel.charger_name_edit.text().strip() or "Device"
+                    else:
+                        test_type = "Battery Capacity"
+                        bat_name = self.battery_capacity_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
+
                     # Save test data if auto-save is enabled
+                    saved_path = None
                     if self.battery_capacity_panel.autosave_checkbox.isChecked():
                         saved_path = self._save_test_json()
-                        if saved_path:
-                            self.statusbar.showMessage(
-                                f"Test aborted (load off): {num_readings} readings saved to {saved_path}"
-                            )
-                        else:
-                            self.statusbar.showMessage(
-                                f"Test aborted (load off): {num_readings} readings - click Save to export"
-                            )
                     elif self.battery_load_panel.autosave_checkbox.isChecked():
                         saved_path = self._save_battery_load_json()
                         if saved_path:
-                            self.statusbar.showMessage(
-                                f"Battery Load test aborted (load off): {num_readings} readings saved to {saved_path}"
-                            )
                             self.history_panel.refresh()
-                        else:
-                            self.statusbar.showMessage(
-                                f"Battery Load test aborted (load off): {num_readings} readings - click Save to export"
-                            )
-                    else:
-                        self.statusbar.showMessage(
-                            f"Test aborted (load off): {num_readings} readings - click Save to export"
-                        )
+                    elif self.charger_panel.autosave_checkbox.isChecked():
+                        saved_path = self._save_charger_json()
+                        if saved_path:
+                            self.history_panel.refresh()
+
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    msg = (
+                        f"{test_type} test on {bat_name} aborted (load off) at {now_str}\n"
+                        f"Readings: {num_readings}"
+                    )
+                    push_status = self._send_notification("aTorch DL24P", msg, event="aborted")
+                    parts = [f"Test aborted (load off). Logged {num_readings} readings."]
+                    if saved_path:
+                        parts.append(f"Auto-saved {Path(saved_path).name}.")
+                    parts.append(push_status + ".")
+                    self.statusbar.showMessage(" ".join(parts))
 
         self._prev_load_on = status.load_on
 

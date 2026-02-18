@@ -13,8 +13,9 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QTabWidget,
     QWidget,
+    QLineEdit,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from ..alerts.notifier import Notifier
 from ..alerts.conditions import VoltageAlert, TemperatureAlert
@@ -23,10 +24,11 @@ from ..alerts.conditions import VoltageAlert, TemperatureAlert
 class SettingsDialog(QDialog):
     """Dialog for configuring application settings."""
 
-    def __init__(self, notifier: Notifier, parent=None):
+    def __init__(self, notifier: Notifier, parent=None, notification_settings=None):
         super().__init__(parent)
 
         self.notifier = notifier
+        self._notification_settings = notification_settings or {}
 
         self.setWindowTitle("Settings")
         self.setMinimumWidth(400)
@@ -39,7 +41,8 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Tab widget
-        tabs = QTabWidget()
+        self.tabs = QTabWidget()
+        tabs = self.tabs
 
         # Alerts tab
         alerts_tab = QWidget()
@@ -114,6 +117,79 @@ class SettingsDialog(QDialog):
         display_layout.addStretch()
         tabs.addTab(display_tab, "Display")
 
+        # Notifications tab
+        notif_tab = QWidget()
+        notif_tab_layout = QVBoxLayout(notif_tab)
+
+        # ntfy group
+        ntfy_group = QGroupBox("ntfy")
+        ntfy_layout = QFormLayout(ntfy_group)
+
+        self.ntfy_enabled_check = QCheckBox("Enable")
+        self.ntfy_enabled_check.toggled.connect(self._update_ntfy_enabled)
+        ntfy_layout.addRow("", self.ntfy_enabled_check)
+
+        self.ntfy_server_edit = QLineEdit()
+        self.ntfy_server_edit.setPlaceholderText("https://ntfy.sh")
+        ntfy_layout.addRow("Server", self.ntfy_server_edit)
+
+        self.ntfy_topic_edit = QLineEdit()
+        self.ntfy_topic_edit.setPlaceholderText("e.g. atorch-my-device")
+        ntfy_layout.addRow("Topic", self.ntfy_topic_edit)
+
+        self.ntfy_test_btn = QPushButton("Send Test")
+        self.ntfy_test_btn.clicked.connect(self._test_ntfy)
+        ntfy_layout.addRow("", self.ntfy_test_btn)
+
+        notif_tab_layout.addWidget(ntfy_group)
+
+        # Pushover group
+        pushover_group = QGroupBox("Pushover")
+        pushover_layout = QFormLayout(pushover_group)
+
+        self.pushover_enabled_check = QCheckBox("Enable")
+        self.pushover_enabled_check.toggled.connect(self._update_pushover_enabled)
+        pushover_layout.addRow("", self.pushover_enabled_check)
+
+        self.pushover_user_edit = QLineEdit()
+        self.pushover_user_edit.setPlaceholderText("User Key from pushover.net")
+        pushover_layout.addRow("User Key", self.pushover_user_edit)
+
+        self.pushover_token_edit = QLineEdit()
+        self.pushover_token_edit.setPlaceholderText("Create app at pushover.net/apps")
+        pushover_layout.addRow("App Token", self.pushover_token_edit)
+
+        self.pushover_test_btn = QPushButton("Send Test")
+        self.pushover_test_btn.clicked.connect(self._test_pushover)
+        pushover_layout.addRow("", self.pushover_test_btn)
+
+        notif_tab_layout.addWidget(pushover_group)
+
+        # Events group — which events trigger push notifications
+        self.events_group = QGroupBox("Events")
+        events_layout = QVBoxLayout(self.events_group)
+
+        self.notify_started_check = QCheckBox("Test Started")
+        self.notify_started_check.setChecked(False)
+        events_layout.addWidget(self.notify_started_check)
+
+        self.notify_ended_check = QCheckBox("Test Ended")
+        self.notify_ended_check.setChecked(True)
+        events_layout.addWidget(self.notify_ended_check)
+
+        self.notify_aborted_check = QCheckBox("Test Aborted")
+        self.notify_aborted_check.setChecked(True)
+        events_layout.addWidget(self.notify_aborted_check)
+
+        notif_tab_layout.addWidget(self.events_group)
+
+        # Connect enable checkboxes to show/hide events group
+        self.ntfy_enabled_check.toggled.connect(self._update_events_visible)
+        self.pushover_enabled_check.toggled.connect(self._update_events_visible)
+
+        notif_tab_layout.addStretch()
+        tabs.addTab(notif_tab, "Notifications")
+
         layout.addWidget(tabs)
 
         # Buttons
@@ -146,6 +222,25 @@ class SettingsDialog(QDialog):
                 self.temp_threshold_spin.setValue(condition.threshold)
                 self.temp_external_check.setChecked(condition.use_external)
 
+        # Notification settings
+        ns = self._notification_settings
+        self.ntfy_enabled_check.setChecked(ns.get("ntfy_enabled", False))
+        self.ntfy_server_edit.setText(ns.get("ntfy_server", "https://ntfy.sh"))
+        self.ntfy_topic_edit.setText(ns.get("ntfy_topic", ""))
+        self.pushover_enabled_check.setChecked(ns.get("pushover_enabled", False))
+        self.pushover_user_edit.setText(ns.get("pushover_user_key", ""))
+        self.pushover_token_edit.setText(ns.get("pushover_app_token", ""))
+
+        # Event checkboxes
+        self.notify_started_check.setChecked(ns.get("notify_test_started", False))
+        self.notify_ended_check.setChecked(ns.get("notify_test_ended", True))
+        self.notify_aborted_check.setChecked(ns.get("notify_test_aborted", True))
+
+        # Apply initial enabled state
+        self._update_ntfy_enabled(self.ntfy_enabled_check.isChecked())
+        self._update_pushover_enabled(self.pushover_enabled_check.isChecked())
+        self._update_events_visible()
+
     def _save_and_accept(self) -> None:
         """Save settings and close dialog."""
         # Apply notification settings
@@ -173,7 +268,96 @@ class SettingsDialog(QDialog):
         # Always add test complete alert
         self.notifier.add_condition(TestCompleteAlert())
 
+        # Store updated notification settings for caller to retrieve
+        self._notification_settings = self.get_notification_settings()
+
         self.accept()
+
+    def get_notification_settings(self) -> dict:
+        """Return current notification settings from the UI."""
+        return {
+            "ntfy_enabled": self.ntfy_enabled_check.isChecked(),
+            "ntfy_server": self.ntfy_server_edit.text().strip() or "https://ntfy.sh",
+            "ntfy_topic": self.ntfy_topic_edit.text().strip(),
+            "pushover_enabled": self.pushover_enabled_check.isChecked(),
+            "pushover_user_key": self.pushover_user_edit.text().strip(),
+            "pushover_app_token": self.pushover_token_edit.text().strip(),
+            "notify_test_started": self.notify_started_check.isChecked(),
+            "notify_test_ended": self.notify_ended_check.isChecked(),
+            "notify_test_aborted": self.notify_aborted_check.isChecked(),
+        }
+
+    def _update_events_visible(self, _=None) -> None:
+        """Show/hide Events group based on whether any push service is enabled."""
+        visible = self.ntfy_enabled_check.isChecked() or self.pushover_enabled_check.isChecked()
+        self.events_group.setVisible(visible)
+
+    def _update_ntfy_enabled(self, enabled: bool) -> None:
+        """Enable/disable ntfy fields based on checkbox."""
+        self.ntfy_server_edit.setEnabled(enabled)
+        self.ntfy_topic_edit.setEnabled(enabled)
+        self.ntfy_test_btn.setEnabled(enabled)
+
+    def _update_pushover_enabled(self, enabled: bool) -> None:
+        """Enable/disable Pushover fields based on checkbox."""
+        self.pushover_user_edit.setEnabled(enabled)
+        self.pushover_token_edit.setEnabled(enabled)
+        self.pushover_test_btn.setEnabled(enabled)
+
+    def _test_ntfy(self) -> None:
+        """Send a test notification via ntfy."""
+        import threading
+        server = self.ntfy_server_edit.text().strip() or "https://ntfy.sh"
+        topic = self.ntfy_topic_edit.text().strip()
+        if not topic:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "ntfy", "Please enter a topic.")
+            return
+
+        def _send():
+            try:
+                import urllib.request
+                url = f"{server.rstrip('/')}/{topic}"
+                req = urllib.request.Request(url, data=b"Test notification from aTorch DL24P",
+                                             method="POST")
+                req.add_header("Title", "aTorch DL24P Test")
+                urllib.request.urlopen(req, timeout=10)
+            except Exception as e:
+                print(f"ntfy test failed: {e}")
+
+        threading.Thread(target=_send, daemon=True).start()
+        self.ntfy_test_btn.setText("Sent!")
+        QTimer.singleShot(2000, lambda: self.ntfy_test_btn.setText("Send Test"))
+
+    def _test_pushover(self) -> None:
+        """Send a test notification via Pushover."""
+        import threading
+        user = self.pushover_user_edit.text().strip()
+        token = self.pushover_token_edit.text().strip()
+        if not user or not token:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Pushover", "Please enter both User Key and App Token.")
+            return
+
+        def _send():
+            try:
+                import urllib.request
+                import urllib.parse
+                data = urllib.parse.urlencode({
+                    "token": token,
+                    "user": user,
+                    "title": "aTorch DL24P Test",
+                    "message": "Test notification from aTorch DL24P",
+                }).encode()
+                req = urllib.request.Request("https://api.pushover.net/1/messages.json",
+                                             data=data, method="POST")
+                urllib.request.urlopen(req, timeout=10)
+            except Exception as e:
+                print(f"Pushover test failed: {e}")
+
+        threading.Thread(target=_send, daemon=True).start()
+        self.pushover_test_btn.setText("Sent!")
+        QTimer.singleShot(2000, lambda: self.pushover_test_btn.setText("Send Test"))
 
 
 class DeviceSettingsDialog(QDialog):
