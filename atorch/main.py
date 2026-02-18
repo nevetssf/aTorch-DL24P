@@ -1,4 +1,4 @@
-"""Application entry point for aTorch DL24P Control."""
+"""Application entry point for Load Test Bench."""
 
 import sys
 import os
@@ -37,7 +37,7 @@ def _set_macos_app_name(name: str) -> None:
                 # CFBundleDisplayName controls the dock name on hover
                 info['CFBundleDisplayName'] = name
                 # Set the bundle identifier
-                info['CFBundleIdentifier'] = 'com.atorch.dl24p.testbench'
+                info['CFBundleIdentifier'] = 'com.loadtestbench.app'
                 # Also set the localized name
                 info['CFBundleExecutable'] = name
 
@@ -68,7 +68,7 @@ def _set_macos_dock_icon(icon_path: str) -> None:
 def main():
     """Main entry point."""
     # Set application name for macOS menu bar (must be before QApplication)
-    _set_macos_app_name("DL24/P Test Bench")
+    _set_macos_app_name("Load Test Bench")
 
     # Enable high DPI scaling
     QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -76,10 +76,10 @@ def main():
     )
 
     app = QApplication(sys.argv)
-    app.setApplicationName("DL24/P Test Bench")
-    app.setApplicationDisplayName("DL24/P Test Bench")
-    app.setOrganizationName("aTorch")
-    app.setOrganizationDomain("atorch.local")
+    app.setApplicationName("Load Test Bench")
+    app.setApplicationDisplayName("Load Test Bench")
+    app.setOrganizationName("LoadTestBench")
+    app.setOrganizationDomain("loadtestbench.local")
 
     # Set application icon
     icon_path = Path(__file__).parent.parent / "resources" / "icons" / "app_icon.icns"

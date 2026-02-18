@@ -8,8 +8,8 @@ from atorch.viewer.main_window import ViewerMainWindow
 def main():
     """Main entry point for Test Viewer."""
     app = QApplication(sys.argv)
-    app.setApplicationName("DL24/P Test Viewer")
-    app.setOrganizationName("aTorch")
+    app.setApplicationName("Load Test Viewer")
+    app.setOrganizationName("LoadTestBench")
 
     window = ViewerMainWindow()
     window.show()

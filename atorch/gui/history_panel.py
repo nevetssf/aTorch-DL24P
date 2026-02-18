@@ -42,10 +42,8 @@ class HistoryPanel(QWidget):
 
         self.database = database
         self._test_files: list[dict] = []  # List of test file info dicts
-        self._test_data_dir = Path.home() / ".atorch" / "test_data"
-
-        # Ensure directory exists
-        self._test_data_dir.mkdir(parents=True, exist_ok=True)
+        from ..config import get_data_dir
+        self._test_data_dir = get_data_dir() / "test_data"
 
         self._create_ui()
         self.refresh()

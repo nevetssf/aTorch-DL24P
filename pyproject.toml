@@ -3,16 +3,16 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "atorch-dl24p"
+name = "load-test-bench"
 version = "0.1.0"
-description = "Control and logging application for aTorch DL24P electronic load"
+description = "Electronic load control, test automation, and logging application"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Steve"}
 ]
-keywords = ["atorch", "dl24p", "electronic-load", "battery-testing"]
+keywords = ["electronic-load", "battery-testing", "discharge-test", "usb-hid"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

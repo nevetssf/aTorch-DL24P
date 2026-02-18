@@ -19,9 +19,8 @@ class Database:
             path: Path to database file. If None, uses default location.
         """
         if path is None:
-            # Default to user data directory
-            data_dir = Path.home() / ".atorch"
-            data_dir.mkdir(exist_ok=True)
+            from ..config import get_data_dir
+            data_dir = get_data_dir()
             path = data_dir / "tests.db"
 
         self.path = path

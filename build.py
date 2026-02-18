@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PyInstaller build script for aTorch DL24P Control."""
+"""PyInstaller build script for Load Test Bench."""
 
 import platform
 import subprocess
@@ -17,7 +17,7 @@ def build():
         sys.executable,
         "-m",
         "PyInstaller",
-        "--name=aTorch DL24P",
+        "--name=Load Test Bench",
         "--windowed",
         "--onefile",
         "--clean",
@@ -56,7 +56,7 @@ def build():
         icon_path = Path("resources/icons/app_icon.icns")
         if icon_path.exists():
             cmd.append(f"--icon={icon_path}")
-        cmd.append("--osx-bundle-identifier=com.atorch.dl24p")
+        cmd.append("--osx-bundle-identifier=com.loadtestbench.app")
     elif system == "Windows":
         # Windows
         icon_path = Path("resources/icons/atorch.ico")
@@ -77,9 +77,9 @@ def build():
     if result.returncode == 0:
         print("\nBuild successful!")
         if system == "Darwin":
-            print("Output: dist/aTorch DL24P.app")
+            print("Output: dist/Load Test Bench.app")
         else:
-            print("Output: dist/aTorch DL24P.exe")
+            print("Output: dist/Load Test Bench.exe")
     else:
         print("\nBuild failed!")
         sys.exit(1)
@@ -105,13 +105,13 @@ VSVersionInfo(
         StringTable(
           '040904B0',
           [
-            StringStruct('CompanyName', 'aTorch'),
-            StringStruct('FileDescription', 'aTorch DL24P Control'),
+            StringStruct('CompanyName', 'LoadTestBench'),
+            StringStruct('FileDescription', 'Load Test Bench'),
             StringStruct('FileVersion', '0.1.0'),
-            StringStruct('InternalName', 'atorch-dl24p'),
+            StringStruct('InternalName', 'load-test-bench'),
             StringStruct('LegalCopyright', 'MIT License'),
-            StringStruct('OriginalFilename', 'aTorch DL24P.exe'),
-            StringStruct('ProductName', 'aTorch DL24P Control'),
+            StringStruct('OriginalFilename', 'Load Test Bench.exe'),
+            StringStruct('ProductName', 'Load Test Bench'),
             StringStruct('ProductVersion', '0.1.0'),
           ]
         )

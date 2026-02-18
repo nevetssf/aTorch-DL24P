@@ -34,13 +34,11 @@ class BatteryLoadPanel(QWidget):
         self._default_test_presets = self._load_presets_file("battery_load/presets_test.json")
 
         # User presets directory
-        self._atorch_dir = Path.home() / ".atorch"
-        self._atorch_dir.mkdir(parents=True, exist_ok=True)
-        self._battery_presets_dir = self._atorch_dir / "battery_presets"
-        self._battery_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._test_presets_dir = self._atorch_dir / "battery_load_presets"
-        self._test_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._session_file = self._atorch_dir / "battery_load_session.json"
+        from ..config import get_data_dir
+        self._atorch_dir = get_data_dir()
+        self._battery_presets_dir = self._atorch_dir / "presets" / "battery_presets"
+        self._test_presets_dir = self._atorch_dir / "presets" / "battery_load_presets"
+        self._session_file = self._atorch_dir / "sessions" / "battery_load_session.json"
 
         # Flag to prevent saving during load
         self._loading_settings = False
@@ -104,55 +102,57 @@ class BatteryLoadPanel(QWidget):
         self.load_type_combo.currentTextChanged.connect(lambda: self._update_filename())
         params_layout.addRow("Load Type", self.load_type_combo)
 
-        # Min value
+        # Start, End, Steps on one row
+        range_layout = QHBoxLayout()
+
+        range_layout.addWidget(QLabel("Start"))
         self.min_spin = QDoubleSpinBox()
-        self.min_spin.setRange(0.0, 100000.0)
-        self.min_spin.setDecimals(1)
-        self.min_spin.setValue(10.0)
-        self.min_spin.setSuffix(" mA")
+        self.min_spin.setRange(0.0, 25.0)
+        self.min_spin.setDecimals(2)
+        self.min_spin.setSingleStep(0.1)
+        self.min_spin.setValue(0.0)
+        self.min_spin.setSuffix(" A")
         self.min_spin.valueChanged.connect(lambda: self._update_filename())
-        params_layout.addRow("Min", self.min_spin)
+        range_layout.addWidget(self.min_spin)
 
-        # Max value
+        range_layout.addWidget(QLabel("End"))
         self.max_spin = QDoubleSpinBox()
-        self.max_spin.setRange(0.0, 100000.0)
-        self.max_spin.setDecimals(1)
-        self.max_spin.setValue(100.0)
-        self.max_spin.setSuffix(" mA")
+        self.max_spin.setRange(0.0, 25.0)
+        self.max_spin.setDecimals(2)
+        self.max_spin.setSingleStep(0.1)
+        self.max_spin.setValue(0.10)
+        self.max_spin.setSuffix(" A")
         self.max_spin.valueChanged.connect(lambda: self._update_filename())
-        params_layout.addRow("Max", self.max_spin)
+        range_layout.addWidget(self.max_spin)
 
-        # Number of divisions with preset dropdown
-        num_steps_layout = QHBoxLayout()
+        range_layout.addWidget(QLabel("Steps"))
         self.num_steps_spin = QSpinBox()
         self.num_steps_spin.setRange(1, 999)
-        self.num_steps_spin.setValue(10)  # 10 divisions = 11 measurement points
+        self.num_steps_spin.setValue(10)
         self.num_steps_spin.valueChanged.connect(lambda: self._update_filename())
-        num_steps_layout.addWidget(self.num_steps_spin)
+        range_layout.addWidget(self.num_steps_spin)
 
-        self.num_steps_preset_combo = QComboBox()
-        self.num_steps_preset_combo.addItem("Presets...")  # Placeholder
-        self.num_steps_preset_combo.addItems(["5", "10", "20", "30", "40", "50"])
-        self.num_steps_preset_combo.setCurrentIndex(0)  # Show placeholder
-        self.num_steps_preset_combo.currentTextChanged.connect(self._on_num_steps_preset_changed)
-        num_steps_layout.addWidget(self.num_steps_preset_combo)
+        params_layout.addRow(range_layout)
 
-        params_layout.addRow("Divisions", num_steps_layout)
+        # Dwell time and V Cutoff on one row
+        dwell_cutoff_layout = QHBoxLayout()
 
-        # Dwell time
         self.dwell_time_spin = QSpinBox()
         self.dwell_time_spin.setRange(0, 3600)
         self.dwell_time_spin.setValue(5)
         self.dwell_time_spin.setSuffix(" s")
-        params_layout.addRow("Dwell Time", self.dwell_time_spin)
+        dwell_cutoff_layout.addWidget(self.dwell_time_spin)
 
-        # Voltage cutoff
+        dwell_cutoff_layout.addWidget(QLabel("V Cutoff"))
+
         self.v_cutoff_spin = QDoubleSpinBox()
         self.v_cutoff_spin.setRange(0.0, 60.0)
         self.v_cutoff_spin.setDecimals(2)
         self.v_cutoff_spin.setValue(3.0)
         self.v_cutoff_spin.setSuffix(" V")
-        params_layout.addRow("V Cutoff", self.v_cutoff_spin)
+        dwell_cutoff_layout.addWidget(self.v_cutoff_spin)
+
+        params_layout.addRow("Dwell Time", dwell_cutoff_layout)
 
         conditions_layout.addWidget(params_group)
         conditions_layout.addStretch()
@@ -273,29 +273,20 @@ class BatteryLoadPanel(QWidget):
     def _on_load_type_changed(self, load_type: str):
         """Update units based on selected load type."""
         if load_type == "Current":
-            suffix = " mA"
-            self.min_spin.setRange(0.0, 25000.0)
-            self.max_spin.setRange(0.0, 25000.0)
-            # Reset to current defaults
-            self.min_spin.setValue(10.0)
-            self.max_spin.setValue(100.0)
+            suffix = " A"
+            self.min_spin.setRange(0.0, 25.0)
+            self.max_spin.setRange(0.0, 25.0)
+            self.min_spin.setValue(0.0)
+            self.max_spin.setValue(0.10)
         elif load_type == "Resistance":
             suffix = " Ω"
             self.min_spin.setRange(0.1, 10000.0)
             self.max_spin.setRange(0.1, 10000.0)
-            # Reset to resistance defaults
             self.min_spin.setValue(1.0)
             self.max_spin.setValue(10.0)
 
         self.min_spin.setSuffix(suffix)
         self.max_spin.setSuffix(suffix)
-
-    def _on_num_steps_preset_changed(self, value: str):
-        """Update spinbox when preset is selected from dropdown."""
-        if value and value.isdigit():
-            self.num_steps_spin.setValue(int(value))
-            # Reset combo to placeholder after applying
-            self.num_steps_preset_combo.setCurrentIndex(0)
 
     def _connect_signals(self):
         """Connect battery preset and test preset signals."""
@@ -519,8 +510,8 @@ class BatteryLoadPanel(QWidget):
             # Load test conditions from preset
             load_type = preset_data.get("load_type", "Current")
             self.load_type_combo.setCurrentText(load_type)
-            self.min_spin.setValue(preset_data.get("min", 10.0))
-            self.max_spin.setValue(preset_data.get("max", 100.0))
+            self.min_spin.setValue(float(preset_data.get("min", 0)))
+            self.max_spin.setValue(float(preset_data.get("max", 0.1)))
             self.num_steps_spin.setValue(preset_data.get("num_steps", 10))
             self.dwell_time_spin.setValue(preset_data.get("dwell_time", 5))
 
@@ -665,7 +656,7 @@ class BatteryLoadPanel(QWidget):
 
             # Set initial value
             if load_type == "Current":
-                self._device.set_current(min_val / 1000.0)  # Convert mA to A
+                self._device.set_current(min_val)  # Already in A
             elif load_type == "Resistance":
                 self._device.set_resistance(min_val)  # Ohms
 
@@ -741,7 +732,7 @@ class BatteryLoadPanel(QWidget):
         load_type = self.load_type_combo.currentText()
         try:
             if load_type == "Current":
-                self._device.set_current(self._current_value / 1000.0)  # Convert mA to A
+                self._device.set_current(self._current_value)  # Already in A
             elif load_type == "Resistance":
                 self._device.set_resistance(self._current_value)  # Ohms
         except Exception as e:
@@ -814,7 +805,6 @@ class BatteryLoadPanel(QWidget):
         self.min_spin.setEnabled(enabled)
         self.max_spin.setEnabled(enabled)
         self.num_steps_spin.setEnabled(enabled)
-        self.num_steps_preset_combo.setEnabled(enabled)
         self.dwell_time_spin.setEnabled(enabled)
         self.v_cutoff_spin.setEnabled(enabled)
         self.battery_info_widget.set_inputs_enabled(enabled)
@@ -1121,14 +1111,7 @@ class BatteryLoadPanel(QWidget):
         # Load range with units
         unit_map = {"Current": "A", "Resistance": "Ω"}
         unit = unit_map.get(load_type, "")
-        # Convert from mA if needed
-        if load_type == "Current":
-            min_display = min_val / 1000.0
-            max_display = max_val / 1000.0
-        else:
-            min_display = min_val
-            max_display = max_val
-        load_range_str = f"{min_display:.3f}-{max_display:.3f} {unit}"
+        load_range_str = f"{min_val:.3f}-{max_val:.3f} {unit}"
         self.summary_loadrange_item.setText(load_range_str)
 
         # Resistance

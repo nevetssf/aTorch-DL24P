@@ -70,13 +70,11 @@ class BatteryCapacityPanel(QWidget):
         self._default_test_presets = self._load_presets_file("battery_capacity/presets_test.json")
 
         # User presets directories and settings file
-        self._atorch_dir = Path.home() / ".atorch"
-        self._atorch_dir.mkdir(parents=True, exist_ok=True)
-        self._battery_presets_dir = self._atorch_dir / "battery_presets"
-        self._battery_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._test_presets_dir = self._atorch_dir / "test_presets"
-        self._test_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._last_session_file = self._atorch_dir / "battery_capacity_session.json"
+        from ..config import get_data_dir
+        self._atorch_dir = get_data_dir()
+        self._battery_presets_dir = self._atorch_dir / "presets" / "battery_presets"
+        self._test_presets_dir = self._atorch_dir / "presets" / "test_presets"
+        self._last_session_file = self._atorch_dir / "sessions" / "battery_capacity_session.json"
 
         self._create_ui()
         self._connect_save_signals()

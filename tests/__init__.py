@@ -1,1 +1,1 @@
-"""Tests for aTorch DL24P Control application."""
+"""Tests for Load Test Bench application."""

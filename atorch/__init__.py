@@ -1,3 +1,3 @@
-"""aTorch DL24P Control & Logging Application."""
+"""Load Test Bench — Electronic Load Control & Logging."""
 
 __version__ = "0.1.0"

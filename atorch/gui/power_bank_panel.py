@@ -65,13 +65,11 @@ class PowerBankPanel(QWidget):
         self._default_test_presets = self._load_presets_file("power_bank/presets_test.json")
 
         # User presets directories and settings file
-        self._atorch_dir = Path.home() / ".atorch"
-        self._atorch_dir.mkdir(parents=True, exist_ok=True)
-        self._power_bank_presets_dir = self._atorch_dir / "power_bank_presets"
-        self._power_bank_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._test_presets_dir = self._atorch_dir / "power_bank_test_presets"
-        self._test_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._last_session_file = self._atorch_dir / "power_bank_session.json"
+        from ..config import get_data_dir
+        self._atorch_dir = get_data_dir()
+        self._power_bank_presets_dir = self._atorch_dir / "presets" / "power_bank_presets"
+        self._test_presets_dir = self._atorch_dir / "presets" / "power_bank_test_presets"
+        self._last_session_file = self._atorch_dir / "sessions" / "power_bank_session.json"
 
         self._create_ui()
         self._connect_save_signals()

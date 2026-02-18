@@ -43,13 +43,11 @@ class BatteryChargerPanel(QWidget):
         self._default_test_presets = self._load_presets_file("battery_charger/presets_test.json")
 
         # User presets directory
-        self._atorch_dir = Path.home() / ".atorch"
-        self._atorch_dir.mkdir(parents=True, exist_ok=True)
-        self._charger_presets_dir = self._atorch_dir / "battery_charger_presets"
-        self._charger_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._test_presets_dir = self._atorch_dir / "battery_charger_test_presets"
-        self._test_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._session_file = self._atorch_dir / "battery_charger_session.json"
+        from ..config import get_data_dir
+        self._atorch_dir = get_data_dir()
+        self._charger_presets_dir = self._atorch_dir / "presets" / "battery_charger_presets"
+        self._test_presets_dir = self._atorch_dir / "presets" / "battery_charger_test_presets"
+        self._session_file = self._atorch_dir / "sessions" / "battery_charger_session.json"
 
         # Flag to prevent saving during load
         self._loading_settings = False

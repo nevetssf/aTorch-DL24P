@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QGroupBox, QFormLayout,
     QLabel, QComboBox, QSpinBox, QDoubleSpinBox, QPushButton, QSpacerItem, QSizePolicy,
-    QMessageBox, QProgressBar, QCheckBox, QLineEdit
+    QMessageBox, QProgressBar, QCheckBox, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PySide6.QtCore import Signal, Slot, QTimer, Qt
 
@@ -31,13 +31,11 @@ class ChargerPanel(QWidget):
         self._default_test_presets = self._load_presets_file("charger/presets_test.json")
 
         # User presets directory
-        self._atorch_dir = Path.home() / ".atorch"
-        self._atorch_dir.mkdir(parents=True, exist_ok=True)
-        self._charger_presets_dir = self._atorch_dir / "charger_presets"
-        self._charger_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._test_presets_dir = self._atorch_dir / "charger_presets"
-        self._test_presets_dir.mkdir(parents=True, exist_ok=True)
-        self._session_file = self._atorch_dir / "charger_session.json"
+        from ..config import get_data_dir
+        self._atorch_dir = get_data_dir()
+        self._charger_presets_dir = self._atorch_dir / "presets" / "charger_presets"
+        self._test_presets_dir = self._atorch_dir / "presets" / "charger_presets"
+        self._session_file = self._atorch_dir / "sessions" / "charger_session.json"
 
         # Flag to prevent saving during load
         self._loading_settings = False
@@ -100,44 +98,55 @@ class ChargerPanel(QWidget):
         self.load_type_combo.currentTextChanged.connect(self._on_load_type_changed)
         params_layout.addRow("Load Type", self.load_type_combo)
 
-        # Min value
+        # Start, End, Steps on one row
+        range_layout = QHBoxLayout()
+
+        range_layout.addWidget(QLabel("Start"))
         self.min_spin = QDoubleSpinBox()
-        self.min_spin.setRange(0.0, 100000.0)
-        self.min_spin.setDecimals(1)
-        self.min_spin.setValue(10.0)
-        self.min_spin.setSuffix(" mA")
-        params_layout.addRow("Min", self.min_spin)
+        self.min_spin.setRange(0.0, 25.0)
+        self.min_spin.setDecimals(2)
+        self.min_spin.setSingleStep(0.1)
+        self.min_spin.setValue(0.0)
+        self.min_spin.setSuffix(" A")
+        range_layout.addWidget(self.min_spin)
 
-        # Max value
+        range_layout.addWidget(QLabel("End"))
         self.max_spin = QDoubleSpinBox()
-        self.max_spin.setRange(0.0, 100000.0)
-        self.max_spin.setDecimals(1)
-        self.max_spin.setValue(100.0)
-        self.max_spin.setSuffix(" mA")
-        params_layout.addRow("Max", self.max_spin)
+        self.max_spin.setRange(0.0, 25.0)
+        self.max_spin.setDecimals(2)
+        self.max_spin.setSingleStep(0.1)
+        self.max_spin.setValue(0.10)
+        self.max_spin.setSuffix(" A")
+        range_layout.addWidget(self.max_spin)
 
-        # Number of divisions with preset dropdown
-        num_steps_layout = QHBoxLayout()
+        range_layout.addWidget(QLabel("Steps"))
         self.num_steps_spin = QSpinBox()
         self.num_steps_spin.setRange(1, 999)
-        self.num_steps_spin.setValue(10)  # 10 divisions = 11 measurement points
-        num_steps_layout.addWidget(self.num_steps_spin)
+        self.num_steps_spin.setValue(10)
+        range_layout.addWidget(self.num_steps_spin)
 
-        self.num_steps_preset_combo = QComboBox()
-        self.num_steps_preset_combo.addItem("Presets...")  # Placeholder
-        self.num_steps_preset_combo.addItems(["5", "10", "20", "30", "40", "50"])
-        self.num_steps_preset_combo.setCurrentIndex(0)  # Show placeholder
-        self.num_steps_preset_combo.currentTextChanged.connect(self._on_num_steps_preset_changed)
-        num_steps_layout.addWidget(self.num_steps_preset_combo)
+        params_layout.addRow(range_layout)
 
-        params_layout.addRow("Divisions", num_steps_layout)
+        # Dwell time and V Cutoff on one row
+        dwell_cutoff_layout = QHBoxLayout()
 
-        # Dwell time
         self.dwell_time_spin = QSpinBox()
         self.dwell_time_spin.setRange(0, 3600)
         self.dwell_time_spin.setValue(5)
         self.dwell_time_spin.setSuffix(" s")
-        params_layout.addRow("Dwell Time", self.dwell_time_spin)
+        dwell_cutoff_layout.addWidget(self.dwell_time_spin)
+
+        dwell_cutoff_layout.addWidget(QLabel("V Cutoff"))
+
+        self.v_cutoff_spin = QDoubleSpinBox()
+        self.v_cutoff_spin.setRange(0.0, 60.0)
+        self.v_cutoff_spin.setDecimals(2)
+        self.v_cutoff_spin.setValue(3.0)
+        self.v_cutoff_spin.setSuffix(" V")
+        self.v_cutoff_spin.setToolTip("Stop test when voltage drops below this value (0 = disabled)")
+        dwell_cutoff_layout.addWidget(self.v_cutoff_spin)
+
+        params_layout.addRow("Dwell Time", dwell_cutoff_layout)
 
         conditions_layout.addWidget(params_group)
         conditions_layout.addStretch()
@@ -255,6 +264,56 @@ class ChargerPanel(QWidget):
         self.time_label.setAlignment(Qt.AlignCenter)
         control_layout.addWidget(self.time_label)
 
+        # Reduce spacing before Test Summary
+        control_layout.addSpacing(-5)
+
+        # Test Summary table
+        summary_group = QGroupBox("Test Summary")
+        summary_layout = QVBoxLayout(summary_group)
+        summary_layout.setContentsMargins(6, 0, 6, 6)
+
+        self.summary_table = QTableWidget(1, 5)
+        self.summary_table.setHorizontalHeaderLabels(["Run Time", "Load Type", "Load Range", "Resistance", "R²"])
+        self.summary_table.verticalHeader().setVisible(False)
+        self.summary_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.summary_table.setSelectionMode(QTableWidget.NoSelection)
+        self.summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.summary_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        # Set all columns to stretch equally
+        header = self.summary_table.horizontalHeader()
+        for col in range(5):
+            header.setSectionResizeMode(col, QHeaderView.Stretch)
+
+        # Make the single row taller
+        self.summary_table.setRowHeight(0, 35)
+
+        # Create value items (store references for updates)
+        self.summary_runtime_item = QTableWidgetItem("--")
+        self.summary_loadtype_item = QTableWidgetItem("--")
+        self.summary_loadrange_item = QTableWidgetItem("--")
+        self.summary_resistance_item = QTableWidgetItem("--")
+        self.summary_rsquared_item = QTableWidgetItem("--")
+
+        # Center align all values
+        for item in [self.summary_runtime_item, self.summary_loadtype_item,
+                     self.summary_loadrange_item, self.summary_resistance_item,
+                     self.summary_rsquared_item]:
+            item.setTextAlignment(Qt.AlignCenter)
+
+        self.summary_table.setItem(0, 0, self.summary_runtime_item)
+        self.summary_table.setItem(0, 1, self.summary_loadtype_item)
+        self.summary_table.setItem(0, 2, self.summary_loadrange_item)
+        self.summary_table.setItem(0, 3, self.summary_resistance_item)
+        self.summary_table.setItem(0, 4, self.summary_rsquared_item)
+
+        # Set fixed height to prevent scrolling
+        table_height = self.summary_table.horizontalHeader().height() + self.summary_table.rowHeight(0) + 2
+        self.summary_table.setFixedHeight(table_height)
+
+        summary_layout.addWidget(self.summary_table)
+        control_layout.addWidget(summary_group)
+
         # Add stretch to push file-related controls to bottom
         control_layout.addStretch()
 
@@ -289,36 +348,26 @@ class ChargerPanel(QWidget):
     def _on_load_type_changed(self, load_type: str):
         """Update units based on selected load type."""
         if load_type == "Current":
-            suffix = " mA"
-            self.min_spin.setRange(0.0, 25000.0)
-            self.max_spin.setRange(0.0, 25000.0)
-            # Reset to current defaults
-            self.min_spin.setValue(10.0)
-            self.max_spin.setValue(100.0)
+            suffix = " A"
+            self.min_spin.setRange(0.0, 25.0)
+            self.max_spin.setRange(0.0, 25.0)
+            self.min_spin.setValue(0.0)
+            self.max_spin.setValue(0.10)
         elif load_type == "Power":
-            suffix = " mW"
-            self.min_spin.setRange(0.0, 100000.0)
-            self.max_spin.setRange(0.0, 100000.0)
-            # Reset to power defaults
-            self.min_spin.setValue(100.0)
-            self.max_spin.setValue(1000.0)
+            suffix = " W"
+            self.min_spin.setRange(0.0, 100.0)
+            self.max_spin.setRange(0.0, 100.0)
+            self.min_spin.setValue(0.0)
+            self.max_spin.setValue(1.0)
         elif load_type == "Resistance":
             suffix = " Ω"
             self.min_spin.setRange(0.1, 10000.0)
             self.max_spin.setRange(0.1, 10000.0)
-            # Reset to resistance defaults
             self.min_spin.setValue(1.0)
             self.max_spin.setValue(10.0)
 
         self.min_spin.setSuffix(suffix)
         self.max_spin.setSuffix(suffix)
-
-    def _on_num_steps_preset_changed(self, value: str):
-        """Update spinbox when preset is selected from dropdown."""
-        if value and value.isdigit():
-            self.num_steps_spin.setValue(int(value))
-            # Reset combo to placeholder after applying
-            self.num_steps_preset_combo.setCurrentIndex(0)
 
     def _connect_signals(self):
         """Connect charger preset and test preset signals."""
@@ -527,10 +576,11 @@ class ChargerPanel(QWidget):
             # Load test conditions from preset
             load_type = preset_data.get("load_type", "Current")
             self.load_type_combo.setCurrentText(load_type)
-            self.min_spin.setValue(preset_data.get("min", 10.0))
-            self.max_spin.setValue(preset_data.get("max", 100.0))
+            self.min_spin.setValue(float(preset_data.get("min", 0)))
+            self.max_spin.setValue(float(preset_data.get("max", 0.1)))
             self.num_steps_spin.setValue(preset_data.get("num_steps", 10))
             self.dwell_time_spin.setValue(preset_data.get("dwell_time", 5))
+            self.v_cutoff_spin.setValue(preset_data.get("v_cutoff", 0.0))
 
     def _save_test_preset(self):
         """Save current test conditions as a preset."""
@@ -551,7 +601,8 @@ class ChargerPanel(QWidget):
             "min": self.min_spin.value(),
             "max": self.max_spin.value(),
             "num_steps": self.num_steps_spin.value(),
-            "dwell_time": self.dwell_time_spin.value()
+            "dwell_time": self.dwell_time_spin.value(),
+            "v_cutoff": self.v_cutoff_spin.value(),
         }
         safe_name = "".join(c for c in preset_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
@@ -660,13 +711,21 @@ class ChargerPanel(QWidget):
         mode = mode_map.get(load_type, 0)
 
         try:
-            # Set mode and initial value
+            # Switch device to the correct mode first
+            self._device.set_mode(mode)
+
+            # Set initial value
             if load_type == "Current":
-                self._device.set_current(min_val / 1000.0)  # Convert mA to A
+                self._device.set_current(min_val)  # Already in A
             elif load_type == "Power":
-                self._device.set_power(min_val / 1000.0)  # Convert mW to W
+                self._device.set_power(min_val)  # Already in W
             elif load_type == "Resistance":
                 self._device.set_resistance(min_val)  # Ohms
+
+            # Set voltage cutoff on device
+            v_cutoff = self.v_cutoff_spin.value()
+            if v_cutoff > 0:
+                self._device.set_voltage_cutoff(v_cutoff)
 
             # Turn on load
             self._device.turn_on()
@@ -733,9 +792,9 @@ class ChargerPanel(QWidget):
         load_type = self.load_type_combo.currentText()
         try:
             if load_type == "Current":
-                self._device.set_current(self._current_value / 1000.0)  # Convert mA to A
+                self._device.set_current(self._current_value)  # Already in A
             elif load_type == "Power":
-                self._device.set_power(self._current_value / 1000.0)  # Convert mW to W
+                self._device.set_power(self._current_value)  # Already in W
             elif load_type == "Resistance":
                 self._device.set_resistance(self._current_value)  # Ohms
         except Exception as e:
@@ -808,8 +867,8 @@ class ChargerPanel(QWidget):
         self.min_spin.setEnabled(enabled)
         self.max_spin.setEnabled(enabled)
         self.num_steps_spin.setEnabled(enabled)
-        self.num_steps_preset_combo.setEnabled(enabled)
         self.dwell_time_spin.setEnabled(enabled)
+        self.v_cutoff_spin.setEnabled(enabled)
         self.charger_presets_combo.setEnabled(enabled)
         self.save_charger_preset_btn.setEnabled(enabled)
         self.delete_charger_preset_btn.setEnabled(enabled)
@@ -837,6 +896,46 @@ class ChargerPanel(QWidget):
         elif not self._test_running:
             self.status_label.setText("Ready")
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
+
+    def update_test_summary(self, runtime_s: int, load_type: str, min_val: float, max_val: float,
+                           resistance_ohm: float = None, r_squared: float = None):
+        """Update the test summary table with results.
+
+        Args:
+            runtime_s: Test runtime in seconds
+            load_type: Type of load test (Current/Power/Resistance)
+            min_val: Minimum load value
+            max_val: Maximum load value
+            resistance_ohm: Calculated resistance (optional)
+            r_squared: R-squared value of fit (optional)
+        """
+        # Format runtime
+        hours = int(runtime_s // 3600)
+        minutes = int((runtime_s % 3600) // 60)
+        seconds = int(runtime_s % 60)
+        runtime_str = f"{hours}h {minutes}m {seconds}s"
+        self.summary_runtime_item.setText(runtime_str)
+
+        # Load type
+        self.summary_loadtype_item.setText(load_type)
+
+        # Load range with units
+        unit_map = {"Current": "A", "Power": "W", "Resistance": "Ω"}
+        unit = unit_map.get(load_type, "")
+        load_range_str = f"{min_val:.3f}-{max_val:.3f} {unit}"
+        self.summary_loadrange_item.setText(load_range_str)
+
+        # Resistance
+        if resistance_ohm is not None:
+            self.summary_resistance_item.setText(f"{resistance_ohm:.3f} Ω")
+        else:
+            self.summary_resistance_item.setText("--")
+
+        # R-squared
+        if r_squared is not None:
+            self.summary_rsquared_item.setText(f"{r_squared:.4f}")
+        else:
+            self.summary_rsquared_item.setText("--")
 
     def generate_test_filename(self) -> str:
         """Generate a test filename based on charger info and test conditions.
@@ -956,6 +1055,7 @@ class ChargerPanel(QWidget):
         self.max_spin.valueChanged.connect(self._on_settings_changed)
         self.num_steps_spin.valueChanged.connect(self._on_settings_changed)
         self.dwell_time_spin.valueChanged.connect(self._on_settings_changed)
+        self.v_cutoff_spin.valueChanged.connect(self._on_settings_changed)
         self.test_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
         # Charger Info fields
@@ -995,6 +1095,7 @@ class ChargerPanel(QWidget):
                 "max": self.max_spin.value(),
                 "num_steps": self.num_steps_spin.value(),
                 "dwell_time": self.dwell_time_spin.value(),
+                "v_cutoff": self.v_cutoff_spin.value(),
                 "preset": self.test_presets_combo.currentText(),
             },
             "charger_info": charger_info,
@@ -1044,6 +1145,8 @@ class ChargerPanel(QWidget):
                 self.num_steps_spin.setValue(test_config["num_steps"])
             if "dwell_time" in test_config:
                 self.dwell_time_spin.setValue(test_config["dwell_time"])
+            if "v_cutoff" in test_config:
+                self.v_cutoff_spin.setValue(test_config["v_cutoff"])
 
             # Load Charger Info
             charger_info = settings.get("charger_info", {})
@@ -1080,6 +1183,7 @@ class ChargerPanel(QWidget):
             "max": self.max_spin.value(),
             "num_steps": self.num_steps_spin.value(),  # Now represents divisions (actual steps = divisions + 1)
             "dwell_time": self.dwell_time_spin.value(),
+            "v_cutoff": self.v_cutoff_spin.value(),
         }
 
     def get_charger_info(self) -> dict:

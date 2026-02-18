@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QGroupBox,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, Slot, QThread
-from PySide6.QtGui import QAction, QCloseEvent, QIcon
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal, Slot, QThread
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QIcon
 
 from ..protocol.device import Device, USBHIDDevice, DeviceError
 from ..protocol.atorch_protocol import DeviceStatus
@@ -36,6 +36,7 @@ from ..data.database import Database
 from ..data.models import TestSession, Reading
 from ..data.export import export_csv, export_json, export_excel
 from ..automation.test_runner import TestRunner, TestProgress
+from ..config import get_data_dir
 from ..alerts.notifier import Notifier
 from ..alerts.conditions import (
     VoltageAlert,
@@ -72,7 +73,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("DL24/P Test Bench")
+        data_dir = str(get_data_dir())
+        self.setWindowTitle(f"Load Test Bench — {data_dir}")
+        self.setWindowFilePath(data_dir)
         self.setMinimumSize(1200, 947)
 
         # Clear debug log file on startup
@@ -569,13 +572,23 @@ class MainWindow(QMainWindow):
         # File menu
         file_menu = menubar.addMenu("&File")
 
-        export_action = QAction("&Export Current Session...", self)
+        self.save_session_action = QAction("&Save Session", self)
+        self.save_session_action.triggered.connect(self._save_session)
+        file_menu.addAction(self.save_session_action)
+
+        self.save_session_as_action = QAction("Save Session &As...", self)
+        self.save_session_as_action.triggered.connect(self._save_session_as)
+        file_menu.addAction(self.save_session_as_action)
+
+        file_menu.addSeparator()
+
+        export_action = QAction("Save &Logged Data...", self)
         export_action.triggered.connect(self._export_session)
         file_menu.addAction(export_action)
 
         file_menu.addSeparator()
 
-        settings_action = QAction("&Settings...", self)
+        settings_action = QAction("Se&ttings...", self)
         settings_action.triggered.connect(self._show_settings)
         file_menu.addAction(settings_action)
 
@@ -627,10 +640,6 @@ class MainWindow(QMainWindow):
         # Tools menu
         tools_menu = menubar.addMenu("&Tools")
 
-        database_action = QAction("&Database Management...", self)
-        database_action.triggered.connect(self._show_database_dialog)
-        tools_menu.addAction(database_action)
-
         test_viewer_action = QAction("Test &Viewer", self)
         test_viewer_action.triggered.connect(self._launch_test_viewer)
         tools_menu.addAction(test_viewer_action)
@@ -681,7 +690,7 @@ class MainWindow(QMainWindow):
 
         # Create system tray icon
         self.tray_icon = QSystemTrayIcon(QIcon(str(icon_path)), self)
-        self.tray_icon.setToolTip("DL24/P Test Bench")
+        self.tray_icon.setToolTip("Load Test Bench")
 
         # Create context menu
         tray_menu = QMenu()
@@ -735,6 +744,16 @@ class MainWindow(QMainWindow):
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
         self.statusbar.showMessage("Disconnected")
+
+        # Clickable data directory link (permanent widget on the right)
+        data_dir = get_data_dir()
+        folder_btn = QPushButton(f"\U0001F4C2 {data_dir}")
+        folder_btn.setFlat(True)
+        folder_btn.setCursor(Qt.PointingHandCursor)
+        folder_btn.setStyleSheet("QPushButton { color: #888; font-size: 11px; border: none; } QPushButton:hover { color: #aaa; }")
+        folder_btn.setToolTip("Open data directory")
+        folder_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(data_dir))))
+        self.statusbar.addPermanentWidget(folder_btn)
 
     @Slot()
     @Slot(str)
@@ -987,6 +1006,43 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage("Counters reset")
 
     @Slot()
+    def _save_session(self) -> None:
+        """Save current session to default JSON location (~/.atorch/test_data/)."""
+        if not self._accumulated_readings:
+            QMessageBox.information(self, "No Data", "No session data to save.")
+            return
+        saved_path = self._save_test_json()
+        if saved_path:
+            self.statusbar.showMessage(f"Saved to {Path(saved_path).name}")
+
+    @Slot()
+    def _save_session_as(self) -> None:
+        """Save current session to a user-chosen JSON file."""
+        if not self._accumulated_readings:
+            QMessageBox.information(self, "No Data", "No session data to save.")
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = f"session_{timestamp}.json"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Session As", default_name, "JSON (*.json)"
+        )
+        if not path:
+            return
+
+        test_config = self.battery_capacity_panel.get_test_config()
+        battery_info = self.battery_capacity_panel.get_battery_info()
+        result = self._write_test_json(
+            Path(path).stem, test_config, battery_info,
+            list(self._accumulated_readings)
+        )
+        if result:
+            self.statusbar.showMessage(f"Saved to {path}")
+        else:
+            QMessageBox.warning(self, "Save Error", "Failed to save session.")
+
+    @Slot()
     def _export_session(self) -> None:
         """Export current or selected session (from menu)."""
         self._export_session_with_name("")
@@ -1087,8 +1143,7 @@ class MainWindow(QMainWindow):
             filename += '.json'
 
         # Create output directory if needed
-        output_dir = Path.home() / ".atorch" / "test_data"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = get_data_dir() / "test_data"
         output_path = output_dir / filename
 
         # Build test data structure using Reading.to_dict()
@@ -1201,7 +1256,8 @@ class MainWindow(QMainWindow):
     def _show_settings(self, tab_index: int = 0) -> None:
         """Show settings dialog, optionally opening a specific tab."""
         dialog = SettingsDialog(self.notifier, self,
-                                notification_settings=dict(self._notification_settings))
+                                notification_settings=dict(self._notification_settings),
+                                database=self.database)
         dialog.tabs.setCurrentIndex(tab_index)
         if dialog.exec() == QDialog.Accepted:
             self._notification_settings = dialog._notification_settings
@@ -1333,10 +1389,10 @@ class MainWindow(QMainWindow):
         """Show about dialog."""
         QMessageBox.about(
             self,
-            "About DL24/P Test Bench",
-            "<h2>DL24/P Test Bench</h2>"
+            "About Load Test Bench",
+            "<h2>Load Test Bench</h2>"
             "<p><b>Version 1.0.0</b></p>"
-            "<p>Test automation suite for the aTorch DL24P electronic load.</p>"
+            "<p>Test automation suite for the Load Test Bench electronic load.</p>"
             "<p>Features:</p>"
             "<ul>"
             "<li>Battery Capacity — discharge testing with mAh/Wh measurement</li>"
@@ -1371,8 +1427,7 @@ class MainWindow(QMainWindow):
         Args:
             enabled: True if tooltips are enabled
         """
-        settings_file = Path.home() / ".atorch" / "settings.json"
-        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        settings_file = get_data_dir() / "settings.json"
 
         # Load existing settings or create new
         settings = {}
@@ -1399,7 +1454,7 @@ class MainWindow(QMainWindow):
         Returns:
             True if tooltips should be enabled (default), False otherwise
         """
-        settings_file = Path.home() / ".atorch" / "settings.json"
+        settings_file = get_data_dir() / "settings.json"
 
         if not settings_file.exists():
             return True  # Default to enabled
@@ -1413,8 +1468,7 @@ class MainWindow(QMainWindow):
 
     def _save_notification_settings(self, notif: dict) -> None:
         """Save notification settings to settings.json."""
-        settings_file = Path.home() / ".atorch" / "settings.json"
-        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        settings_file = get_data_dir() / "settings.json"
 
         settings = {}
         if settings_file.exists():
@@ -1433,7 +1487,7 @@ class MainWindow(QMainWindow):
 
     def _load_notification_settings(self) -> dict:
         """Load notification settings from settings.json."""
-        settings_file = Path.home() / ".atorch" / "settings.json"
+        settings_file = get_data_dir() / "settings.json"
         defaults = {
             "ntfy_enabled": False,
             "ntfy_server": "https://ntfy.sh",
@@ -1526,7 +1580,7 @@ class MainWindow(QMainWindow):
     def _show_help(self) -> None:
         """Show comprehensive help documentation."""
         dialog = QDialog(self)
-        dialog.setWindowTitle("DL24/P Test Bench Help")
+        dialog.setWindowTitle("Load Test Bench Help")
         dialog.resize(900, 700)
 
         layout = QVBoxLayout(dialog)
@@ -1754,7 +1808,7 @@ class MainWindow(QMainWindow):
             </style>
         </head>
         <body>
-            <h1>DL24/P Test Bench Help</h1>
+            <h1>Load Test Bench Help</h1>
 
             <h2>Getting Started</h2>
 
@@ -1860,7 +1914,7 @@ class MainWindow(QMainWindow):
                 <li><b>Auto-save:</b> Enable in test panels — saves JSON when test completes</li>
                 <li><b>Manual save:</b> Click <b>Save</b> for a custom filename</li>
                 <li><b>Export:</b> CSV and Excel formats available</li>
-                <li><b>Location:</b> <code>~/.atorch/test_data/</code></li>
+                <li><b>Location:</b> See Settings → Database for the data directory</li>
             </ul>
 
             <h3>History Panel</h3>
@@ -1959,17 +2013,17 @@ class MainWindow(QMainWindow):
 
             <table>
                 <tr><th>Content</th><th>Path</th></tr>
-                <tr><td>User data</td><td><code>~/.atorch/</code></td></tr>
-                <tr><td>Test results</td><td><code>~/.atorch/test_data/</code></td></tr>
-                <tr><td>Database</td><td><code>~/.atorch/tests.db</code></td></tr>
-                <tr><td>Session state</td><td><code>~/.atorch/*_session.json</code></td></tr>
-                <tr><td>User presets</td><td><code>~/.atorch/*_presets/</code></td></tr>
+                <tr><td>User data</td><td>See Settings → Database for the data directory</td></tr>
+                <tr><td>Test results</td><td><code>test_data/</code> (within data directory)</td></tr>
+                <tr><td>Database</td><td><code>tests.db</code> (within data directory)</td></tr>
+                <tr><td>Session state</td><td><code>sessions/</code> (within data directory)</td></tr>
+                <tr><td>User presets</td><td><code>presets/</code> (within data directory)</td></tr>
             </table>
 
             <hr class="section-divider">
 
             <p style="text-align: center; color: #94a3b8; font-size: 13px; margin-top: 24px;">
-                DL24/P Test Bench v1.0.0 &nbsp;·&nbsp; Built with PySide6 and pyqtgraph<br>
+                Load Test Bench v1.0.0 &nbsp;·&nbsp; Built with PySide6 and pyqtgraph<br>
                 <a href="https://github.com/nevetssf/aTorch-DL24P" style="color: #64748b;">github.com/nevetssf/aTorch-DL24P</a>
             </p>
         </body>
@@ -2405,9 +2459,9 @@ class MainWindow(QMainWindow):
     @Slot()
     def _sync_battery_info_on_startup(self) -> None:
         """Sync battery info on startup using most recently modified session file."""
-        atorch_dir = Path.home() / ".atorch"
-        capacity_session = atorch_dir / "battery_capacity_session.json"
-        load_session = atorch_dir / "battery_load_session.json"
+        data_dir = get_data_dir()
+        capacity_session = data_dir / "sessions" / "battery_capacity_session.json"
+        load_session = data_dir / "sessions" / "battery_load_session.json"
 
         # Determine which session file was modified most recently
         capacity_mtime = capacity_session.stat().st_mtime if capacity_session.exists() else 0
@@ -2496,7 +2550,7 @@ class MainWindow(QMainWindow):
                 f"Runtime: {runtime_txt}, Capacity: {capacity_txt}, "
                 f"Energy: {energy_txt}, Median V: {voltage_txt}"
             )
-            push_status = self._send_notification("aTorch DL24P", msg, event="ended")
+            push_status = self._send_notification("Load Test Bench", msg, event="ended")
             parts = [f"Test ended. Logged {num_readings} readings."]
             if saved_path:
                 parts.append(f"Auto-saved {Path(saved_path).name}.")
@@ -2577,7 +2631,7 @@ class MainWindow(QMainWindow):
             bat_name = self.battery_capacity_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             self._send_notification(
-                "aTorch DL24P",
+                "Load Test Bench",
                 f"Battery Capacity test on {bat_name} started at {now_str}",
                 event="started",
             )
@@ -2693,7 +2747,7 @@ class MainWindow(QMainWindow):
         bat_name = self.battery_load_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         self._send_notification(
-            "aTorch DL24P",
+            "Load Test Bench",
             f"Battery Load test on {bat_name} started at {now_str}",
             event="started",
         )
@@ -2770,7 +2824,7 @@ class MainWindow(QMainWindow):
             f"Runtime: {runtime_txt}, Load: {loadtype_txt} {loadrange_txt}, "
             f"Resistance: {resistance_txt}"
         )
-        push_status = self._send_notification("aTorch DL24P", msg, event="ended")
+        push_status = self._send_notification("Load Test Bench", msg, event="ended")
         parts = [f"Test ended. Logged {num_readings} readings."]
         if saved_path:
             parts.append(f"Auto-saved {Path(saved_path).name}.")
@@ -2848,7 +2902,7 @@ class MainWindow(QMainWindow):
         bat_name = self.charger_panel.charger_name_edit.text().strip() or "Device"
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         self._send_notification(
-            "aTorch DL24P",
+            "Load Test Bench",
             f"Charger Load test on {bat_name} started at {now_str}",
             event="started",
         )
@@ -2923,7 +2977,7 @@ class MainWindow(QMainWindow):
             f"Charger Load test on {bat_name} ended at {now_str}\n"
             f"Runtime: {runtime_txt}, Load: {loadtype_txt} {loadrange_txt}"
         )
-        push_status = self._send_notification("aTorch DL24P", msg, event="ended")
+        push_status = self._send_notification("Load Test Bench", msg, event="ended")
         parts = [f"Test ended. Logged {num_readings} readings."]
         if saved_path:
             parts.append(f"Auto-saved {Path(saved_path).name}.")
@@ -3018,7 +3072,7 @@ class MainWindow(QMainWindow):
             charger_name = self.battery_charger_panel.charger_name_edit.text().strip() or "Device"
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             self._send_notification(
-                "aTorch DL24P",
+                "Load Test Bench",
                 f"Battery Charger test on {charger_name} started at {now_str}",
                 event="started",
             )
@@ -3063,7 +3117,7 @@ class MainWindow(QMainWindow):
                 f"Battery Charger test on {charger_name} ended at {now_str}\n"
                 f"Runtime: {h}h {m}m {s}s, Readings: {num_readings}"
             )
-            push_status = self._send_notification("aTorch DL24P", msg, event="ended")
+            push_status = self._send_notification("Load Test Bench", msg, event="ended")
             parts = [f"Test ended. Logged {num_readings} readings."]
             if saved_path:
                 parts.append(f"Auto-saved {Path(saved_path).name}.")
@@ -3294,8 +3348,7 @@ class MainWindow(QMainWindow):
             return
 
         # Default to test_data directory
-        default_dir = str(Path.home() / ".atorch" / "test_data")
-        Path(default_dir).mkdir(parents=True, exist_ok=True)
+        default_dir = str(get_data_dir() / "test_data")
 
         # Generate default filename from current JSON filename
         json_filename = self.battery_capacity_panel.filename_edit.text().strip()
@@ -3821,7 +3874,7 @@ class MainWindow(QMainWindow):
                         f"{test_type} test on {bat_name} aborted (load off) at {now_str}\n"
                         f"Readings: {num_readings}"
                     )
-                    push_status = self._send_notification("aTorch DL24P", msg, event="aborted")
+                    push_status = self._send_notification("Load Test Bench", msg, event="aborted")
                     parts = [f"Test aborted (load off). Logged {num_readings} readings."]
                     if saved_path:
                         parts.append(f"Auto-saved {Path(saved_path).name}.")

@@ -42,16 +42,15 @@ class ViewerMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("DL24/P Test Viewer")
+        self.setWindowTitle("Load Test Viewer")
         self.setMinimumSize(1200, 800)
 
         # Default data directory
-        self.data_directory = Path.home() / ".atorch" / "test_data"
-        self.data_directory.mkdir(parents=True, exist_ok=True)
+        from ..config import get_data_dir
+        self._atorch_dir = get_data_dir()
+        self.data_directory = self._atorch_dir / "test_data"
 
         # Settings file
-        self._atorch_dir = Path.home() / ".atorch"
-        self._atorch_dir.mkdir(parents=True, exist_ok=True)
         self._settings_file = self._atorch_dir / "test_viewer_settings.json"
 
         # Currently displayed datasets
@@ -673,11 +672,11 @@ class ViewerMainWindow(QMainWindow):
         """Show about dialog."""
         QMessageBox.about(
             self,
-            "About DL24/P Test Viewer",
-            "<h2>DL24/P Test Viewer</h2>"
+            "About Load Test Viewer",
+            "<h2>Load Test Viewer</h2>"
             "<p><b>Version 1.0.0</b></p>"
             "<p>Companion application for viewing and comparing test data "
-            "from the DL24/P Test Bench.</p>"
+            "from the Load Test Bench.</p>"
             "<p><b>Features:</b></p>"
             "<ul>"
             "<li>View and compare multiple test results</li>"

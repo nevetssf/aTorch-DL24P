@@ -13,7 +13,7 @@ class DebugConsole(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("DL24/P Test Viewer - Debug Console")
+        self.setWindowTitle("Load Test Viewer - Debug Console")
         self.setMinimumSize(800, 600)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 

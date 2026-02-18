@@ -30,7 +30,7 @@ def _set_macos_app_name(name: str) -> None:
                 # CFBundleDisplayName controls the dock name on hover
                 info['CFBundleDisplayName'] = name
                 # Set the bundle identifier
-                info['CFBundleIdentifier'] = 'com.atorch.dl24p.testviewer'
+                info['CFBundleIdentifier'] = 'com.loadtestbench.viewer'
                 # Also set the localized name
                 info['CFBundleExecutable'] = name
 
@@ -61,12 +61,12 @@ def _set_macos_dock_icon(icon_path: str) -> None:
 def main():
     """Main entry point."""
     # Set application name for macOS menu bar (must be before QApplication)
-    _set_macos_app_name("DL24/P Test Viewer")
+    _set_macos_app_name("Load Test Viewer")
 
     app = QApplication(sys.argv)
-    app.setApplicationName("DL24/P Test Viewer")
-    app.setApplicationDisplayName("DL24/P Test Viewer")
-    app.setOrganizationName("aTorch")
+    app.setApplicationName("Load Test Viewer")
+    app.setApplicationDisplayName("Load Test Viewer")
+    app.setOrganizationName("LoadTestBench")
 
     # Set application icon
     icon_path = Path(__file__).parent.parent.parent / "resources" / "icons" / "app_icon.icns"

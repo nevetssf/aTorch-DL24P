@@ -1,4 +1,4 @@
-"""Device communication for aTorch DL24P (Serial and USB HID)."""
+"""Device communication (Serial and USB HID)."""
 
 import struct
 import threading

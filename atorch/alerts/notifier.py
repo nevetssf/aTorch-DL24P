@@ -119,7 +119,7 @@ class Notifier:
 
     def _send_desktop_notification(self, result: AlertResult) -> None:
         """Send a desktop notification."""
-        title = "aTorch DL24P"
+        title = "Load Test Bench"
         message = result.message
 
         system = platform.system()
@@ -143,7 +143,7 @@ class Notifier:
                 $text[0].AppendChild($xml.CreateTextNode("{title}")) | Out-Null
                 $text[1].AppendChild($xml.CreateTextNode("{message}")) | Out-Null
                 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-                [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("aTorch DL24P").Show($toast)
+                [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Load Test Bench").Show($toast)
                 '''
                 subprocess.run(
                     ["powershell", "-Command", ps_script],

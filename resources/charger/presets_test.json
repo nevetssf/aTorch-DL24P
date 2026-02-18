@@ -1,70 +1,70 @@
 {
   "5W USB Standard": {
     "load_type": "Current",
-    "min": 0.1,
+    "min": 0,
     "max": 1.0,
-    "num_steps": 9,
+    "num_steps": 10,
     "dwell_time": 5
   },
   "20W USB-C PD": {
     "load_type": "Current",
-    "min": 0.5,
+    "min": 0,
     "max": 2.5,
     "num_steps": 10,
     "dwell_time": 5
   },
   "30W Quick Test": {
     "load_type": "Current",
-    "min": 0.5,
+    "min": 0,
     "max": 3.0,
     "num_steps": 5,
     "dwell_time": 3
   },
   "45W Extended": {
     "load_type": "Current",
-    "min": 1.0,
+    "min": 0,
     "max": 5.0,
     "num_steps": 10,
     "dwell_time": 10
   },
   "65W Laptop Charger": {
     "load_type": "Current",
-    "min": 1.0,
+    "min": 0,
     "max": 3.5,
     "num_steps": 10,
     "dwell_time": 5
   },
   "100W High Power": {
     "load_type": "Current",
-    "min": 1.0,
+    "min": 0,
     "max": 5.0,
     "num_steps": 10,
     "dwell_time": 5
   },
   "Power Sweep 5-30W": {
     "load_type": "Power",
-    "min": 5.0,
+    "min": 0,
     "max": 30.0,
     "num_steps": 10,
     "dwell_time": 5
   },
   "Power Sweep 10-65W": {
     "load_type": "Power",
-    "min": 10.0,
+    "min": 0,
     "max": 65.0,
     "num_steps": 11,
     "dwell_time": 5
   },
   "Resistance Test 1-10Ω": {
     "load_type": "Resistance",
-    "min": 1.0,
-    "max": 10.0,
+    "min": 1,
+    "max": 10,
     "num_steps": 9,
     "dwell_time": 5
   },
   "Quick Voltage Reg Check": {
     "load_type": "Current",
-    "min": 0.5,
+    "min": 0,
     "max": 3.0,
     "num_steps": 5,
     "dwell_time": 2

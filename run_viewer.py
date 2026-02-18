@@ -14,8 +14,8 @@ from PySide6.QtWidgets import QApplication
 def main():
     """Main entry point."""
     app = QApplication(sys.argv)
-    app.setApplicationName("DL24/P Test Viewer")
-    app.setOrganizationName("aTorch")
+    app.setApplicationName("Load Test Viewer")
+    app.setOrganizationName("LoadTestBench")
 
     window = ViewerMainWindow()
     window.show()
