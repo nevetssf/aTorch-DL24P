@@ -195,6 +195,14 @@ class BatteryCapacityPanel(QWidget):
 
         self.params_form.addRow("Time Limit", time_limit_layout)
 
+        # Start Delay (captures unloaded voltage before turning on load)
+        self.start_delay_spin = QSpinBox()
+        self.start_delay_spin.setRange(0, 60)
+        self.start_delay_spin.setValue(5)
+        self.start_delay_spin.setSuffix("s")
+        self.start_delay_spin.setToolTip("Delay before turning on load (captures unloaded voltage)")
+        self.params_form.addRow("Start Delay", self.start_delay_spin)
+
         params_panel_layout.addLayout(self.params_form)
 
         # Apply button
@@ -433,6 +441,8 @@ class BatteryCapacityPanel(QWidget):
             if "duration_seconds" in test_config:
                 self.duration_spin.setValue(test_config["duration_seconds"])
                 self._sync_hours_minutes()
+            if "start_delay" in test_config:
+                self.start_delay_spin.setValue(test_config["start_delay"])
 
             # Load battery info
             battery_info = data.get("battery_info", {})
@@ -590,6 +600,15 @@ class BatteryCapacityPanel(QWidget):
         ):
             self._update_ui_stopped()
 
+    def update_start_delay_countdown(self, remaining: int) -> None:
+        """Update status label with start delay countdown.
+
+        Args:
+            remaining: Seconds remaining in start delay
+        """
+        self.status_label.setText(f"Start Delay: {remaining}s")
+        self.status_label.setStyleSheet("color: blue; font-weight: bold;")
+
     def _update_ui_running(self) -> None:
         """Update UI for running state."""
         self.start_btn.setText("Abort")
@@ -601,6 +620,7 @@ class BatteryCapacityPanel(QWidget):
         self.timed_checkbox.setEnabled(False)
         self.hours_spin.setEnabled(False)
         self.minutes_spin.setEnabled(False)
+        self.start_delay_spin.setEnabled(False)
 
         # Reset voltage readings and summary for new test
         self._voltage_readings = []
@@ -642,6 +662,7 @@ class BatteryCapacityPanel(QWidget):
         self.timed_checkbox.setEnabled(True)
         self.hours_spin.setEnabled(self.timed_checkbox.isChecked())
         self.minutes_spin.setEnabled(self.timed_checkbox.isChecked())
+        self.start_delay_spin.setEnabled(True)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("")
         self.elapsed_label.setText("0h 0m 0s")
@@ -658,6 +679,7 @@ class BatteryCapacityPanel(QWidget):
         self.timed_checkbox.setEnabled(enabled)
         self.hours_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
         self.minutes_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
+        self.start_delay_spin.setEnabled(enabled)
         self.battery_info_widget.set_inputs_enabled(enabled)
         self.autosave_checkbox.setEnabled(enabled)
         self.filename_edit.setEnabled(enabled)
@@ -1204,6 +1226,7 @@ class BatteryCapacityPanel(QWidget):
             "voltage_cutoff": self.cutoff_spin.value(),
             "timed": self.timed_checkbox.isChecked(),
             "duration_seconds": self.duration_spin.value() if self.timed_checkbox.isChecked() else 0,
+            "start_delay": self.start_delay_spin.value(),
         }
 
     def get_battery_info(self) -> dict:
@@ -1266,6 +1289,7 @@ class BatteryCapacityPanel(QWidget):
         self.minutes_spin.valueChanged.connect(self._sync_duration)
         self.hours_spin.valueChanged.connect(self._on_settings_changed)
         self.minutes_spin.valueChanged.connect(self._on_settings_changed)
+        self.start_delay_spin.valueChanged.connect(self._on_settings_changed)
         self.test_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
         # Battery Info fields (handled by widget's settings_changed signal)
@@ -1293,6 +1317,7 @@ class BatteryCapacityPanel(QWidget):
                 "voltage_cutoff": self.cutoff_spin.value(),
                 "timed": self.timed_checkbox.isChecked(),
                 "duration": self.duration_spin.value(),
+                "start_delay": self.start_delay_spin.value(),
                 "preset": self.test_presets_combo.currentText(),
             },
             "battery_info": battery_info,
@@ -1332,6 +1357,8 @@ class BatteryCapacityPanel(QWidget):
             if "duration" in test_config:
                 self.duration_spin.setValue(test_config["duration"])
                 self._sync_hours_minutes()
+            if "start_delay" in test_config:
+                self.start_delay_spin.setValue(test_config["start_delay"])
             if "preset" in test_config and test_config["preset"]:
                 index = self.test_presets_combo.findText(test_config["preset"])
                 if index >= 0:

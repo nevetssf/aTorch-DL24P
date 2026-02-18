@@ -112,6 +112,7 @@ class MainWindow(QMainWindow):
         self._last_completed_session: Optional[TestSession] = None  # Keep last session for export
         self._logging_enabled = False
         self._logging_start_time: Optional[datetime] = None  # Track when logging started
+        self._start_delay_timer: Optional[QTimer] = None  # Timer for start delay countdown
         self._sample_interval = 1.0  # Sample interval in seconds (default 1s)
         self._last_log_time: Optional[float] = None  # Timestamp of last logged reading
         # Limit accumulated readings to last 48 hours at 1 Hz = 172,800 max
@@ -790,8 +791,13 @@ class MainWindow(QMainWindow):
         self._last_log_time = None  # Reset to force immediate log on next update
 
     @Slot(bool)
-    def _toggle_logging(self, enabled: bool) -> None:
-        """Toggle manual data logging."""
+    def _toggle_logging(self, enabled: bool, turn_on_load: bool = True) -> None:
+        """Toggle manual data logging.
+
+        Args:
+            enabled: Whether to enable or disable logging
+            turn_on_load: Whether to turn on the load when enabling (False for start delay)
+        """
         if enabled and not self._current_session:
             # Start new session
             self._logging_start_time = datetime.now()
@@ -810,8 +816,8 @@ class MainWindow(QMainWindow):
             self._load_off_count = 0  # Reset load-off counter for new test
             import time as _time
             self._logging_started_at = _time.time()  # Grace period for load-off detection
-            # Turn on the load when logging starts
-            if self.device and self.device.is_connected:
+            # Turn on the load when logging starts (unless delayed)
+            if turn_on_load and self.device and self.device.is_connected:
                 self.device.turn_on()
                 self.control_panel.power_switch.setChecked(True)
             self.statusbar.showMessage("Logging started")
@@ -2328,6 +2334,11 @@ class MainWindow(QMainWindow):
             duration_s: Duration in seconds (0 for no limit)
         """
         if discharge_type == 0 and value == 0 and voltage_cutoff == 0:
+            # Cancel start delay timer if active
+            if hasattr(self, '_start_delay_timer') and self._start_delay_timer is not None:
+                self._start_delay_timer.stop()
+                self._start_delay_timer.deleteLater()
+                self._start_delay_timer = None
             # Stop request - save data and turn off logging
             if self._logging_enabled:
                 num_readings = len(self._accumulated_readings)
@@ -2390,12 +2401,52 @@ class MainWindow(QMainWindow):
             self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
             self.plot_panel._axis_checkboxes["Y"].setChecked(True)
 
-        # Start logging (which also turns on the load)
+        # Get start delay from panel
+        start_delay = self.battery_capacity_panel.start_delay_spin.value()
+
+        # Start logging
         if not self._logging_enabled:
             self.status_panel.log_switch.setChecked(True)
-            self._toggle_logging(True)
+            if start_delay > 0:
+                # Start logging without turning on load (capture unloaded voltage)
+                self._toggle_logging(True, turn_on_load=False)
+                # Set up countdown timer to turn on load after delay
+                self._start_delay_remaining = start_delay
+                self.battery_capacity_panel.update_start_delay_countdown(start_delay)
+                self._start_delay_timer = QTimer(self)
+                self._start_delay_timer.timeout.connect(self._on_start_delay_tick)
+                self._start_delay_timer.start(1000)
+                self.statusbar.showMessage(
+                    f"Test started: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V "
+                    f"(load on in {start_delay}s)"
+                )
+            else:
+                self._toggle_logging(True)
+                self.statusbar.showMessage(
+                    f"Test started: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V"
+                )
 
-        self.statusbar.showMessage(f"Test started: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V")
+    @Slot()
+    def _on_start_delay_tick(self) -> None:
+        """Handle start delay countdown tick (called every 1s)."""
+        self._start_delay_remaining -= 1
+        if self._start_delay_remaining <= 0:
+            # Delay complete - turn on the load
+            self._start_delay_timer.stop()
+            self._start_delay_timer.deleteLater()
+            self._start_delay_timer = None
+            if self.device and self.device.is_connected:
+                self.device.turn_on()
+                self.control_panel.power_switch.setChecked(True)
+            # Reset grace period start so load-off detection starts fresh
+            import time as _time
+            self._logging_started_at = _time.time()
+            self.battery_capacity_panel.status_label.setText("Running")
+            self.battery_capacity_panel.status_label.setStyleSheet("color: orange; font-weight: bold;")
+            self.statusbar.showMessage("Load turned on")
+        else:
+            # Update countdown
+            self.battery_capacity_panel.update_start_delay_countdown(self._start_delay_remaining)
 
     @Slot()
     def _on_automation_pause(self) -> None:
@@ -3534,8 +3585,12 @@ class MainWindow(QMainWindow):
             if status.load_on:
                 self._load_off_count = 0  # Reset counter when load is on
             else:
-                # Allow a 3-second grace period after test start for turn_on to take effect
-                grace_elapsed = (_time.time() - getattr(self, '_logging_started_at', 0)) > 3.0
+                # Allow a 3-second grace period after load turn-on for it to take effect
+                # During start delay, the timer is active so skip load-off detection entirely
+                if getattr(self, '_start_delay_timer', None) is not None:
+                    grace_elapsed = False
+                else:
+                    grace_elapsed = (_time.time() - getattr(self, '_logging_started_at', 0)) > 3.0
                 if grace_elapsed:
                     self._load_off_count += 1
 
