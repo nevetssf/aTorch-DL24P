@@ -193,15 +193,17 @@ class BatteryCapacityPanel(QWidget):
         self.duration_spin.setValue(3600)
         self.duration_spin.setVisible(False)  # Hidden, calculated from hours/minutes
 
-        self.params_form.addRow("Time Limit", time_limit_layout)
-
         # Start Delay (captures unloaded voltage before turning on load)
+        time_limit_layout.addSpacing(10)
+        time_limit_layout.addWidget(QLabel("Delay"))
         self.start_delay_spin = QSpinBox()
         self.start_delay_spin.setRange(0, 60)
         self.start_delay_spin.setValue(5)
         self.start_delay_spin.setSuffix("s")
         self.start_delay_spin.setToolTip("Delay before turning on load (captures unloaded voltage)")
-        self.params_form.addRow("Start Delay", self.start_delay_spin)
+        time_limit_layout.addWidget(self.start_delay_spin)
+
+        self.params_form.addRow("Time Limit", time_limit_layout)
 
         params_panel_layout.addLayout(self.params_form)
 

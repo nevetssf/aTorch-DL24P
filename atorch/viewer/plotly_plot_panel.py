@@ -285,8 +285,8 @@ class PlotlyPlotPanel(QWidget):
             'battery_capacity': 'Battery Capacity',
             'battery_load': 'Battery Load',
             'battery_charger': 'Battery Charger',
-            'charger': 'Wall Charger',
-            'power_bank': 'Power Bank',
+            'charger': 'Charger Load',
+            'power_bank': 'Power Bank Capacity',
         }
         title = test_type_titles.get(self._test_type, 'Test Data') if self._test_type else 'Test Data'
 

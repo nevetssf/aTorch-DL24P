@@ -350,17 +350,15 @@ class MainWindow(QMainWindow):
         self.bottom_tabs.setTabToolTip(charger_idx, "Monitor and log battery charging sessions")
 
         self.charger_panel = ChargerPanel()
-        wall_idx = self.bottom_tabs.addTab(self.charger_panel, "Wall Charger")
-        self.bottom_tabs.setTabEnabled(wall_idx, False)
-        self.bottom_tabs.setTabToolTip(wall_idx, "Under development")
+        self.bottom_tabs.addTab(self.charger_panel, "Charger Load")
 
         self.power_bank_panel = PowerBankPanel(None, self.database)  # test_runner set on connect
-        powerbank_idx = self.bottom_tabs.addTab(self.power_bank_panel, "Power Bank")
+        powerbank_idx = self.bottom_tabs.addTab(self.power_bank_panel, "Power Bank Capacity")
         self.bottom_tabs.setTabEnabled(powerbank_idx, False)
         self.bottom_tabs.setTabToolTip(powerbank_idx, "Under development")
 
         # Track WIP tabs so they stay disabled at all times
-        self._wip_tab_indices = {wall_idx, powerbank_idx}
+        self._wip_tab_indices = {powerbank_idx}
 
         self.history_panel = HistoryPanel(self.database)
         self.history_panel.json_file_selected.connect(self._on_history_json_selected)
@@ -1177,7 +1175,7 @@ class MainWindow(QMainWindow):
             "<li>JSON, CSV, and Excel export</li>"
             "<li>SQLite database storage with history browser</li>"
             "</ul>"
-            "<p style='color: #888;'>Wall Charger and Power Bank tests are under development.</p>"
+            "<p style='color: #888;'>Charger Load and Power Bank Capacity tests are under development.</p>"
             "<p>© 2026 • Built with PySide6 and pyqtgraph</p>"
             "<p>For help, see <b>Help → Test Bench Help</b></p>",
         )
@@ -1611,7 +1609,7 @@ class MainWindow(QMainWindow):
             <p><b>Use for:</b> Verifying charger specs, comparing charging profiles, identifying counterfeits.</p>
 
             <div class="callout wip">
-                <b>Coming soon:</b> Wall Charger and Power Bank test panels are under development.
+                <b>Coming soon:</b> Charger Load and Power Bank Capacity test panels are under development.
             </div>
 
             <hr class="section-divider">
@@ -2053,7 +2051,7 @@ class MainWindow(QMainWindow):
             if readings:
                 self._on_session_loaded(readings)
 
-            self.statusbar.showMessage(f"Loaded Power Bank test: {Path(file_path).name}")
+            self.statusbar.showMessage(f"Loaded Power Bank Capacity test: {Path(file_path).name}")
 
         finally:
             self.power_bank_panel._loading_settings = False
@@ -2806,11 +2804,11 @@ class MainWindow(QMainWindow):
                     saved_path = self._save_power_bank_json()
                     if saved_path:
                         self.statusbar.showMessage(
-                            f"Power Bank test aborted: {num_readings} readings saved to {saved_path}"
+                            f"Power Bank Capacity test aborted: {num_readings} readings saved to {saved_path}"
                         )
                 else:
                     self.statusbar.showMessage(
-                        f"Power Bank test aborted: {num_readings} readings - click Save to export"
+                        f"Power Bank Capacity test aborted: {num_readings} readings - click Save to export"
                     )
                 self.status_panel.log_switch.setChecked(False)
                 self._toggle_logging(False)
@@ -2848,7 +2846,7 @@ class MainWindow(QMainWindow):
         self.plot_panel._axis_checkboxes["Y"].setChecked(True)
 
         output_voltage = self.power_bank_panel.output_voltage_combo.currentText().split()[0]
-        self.statusbar.showMessage(f"Power Bank test started: {output_voltage} @ {value}A")
+        self.statusbar.showMessage(f"Power Bank Capacity test started: {output_voltage} @ {value}A")
 
     @Slot(str)
     def _on_power_bank_save(self, filename: str) -> None:

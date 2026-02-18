@@ -25,8 +25,8 @@ Both applications are designed for battery testing, characterization, and qualit
 - **Battery Capacity** - Discharge tests with voltage cutoff and time limits
 - **Battery Load** - Load curve characterization (current/power/resistance sweep)
 - **Battery Charger** - Charger output characterization
-- **Wall Charger** - AC adapter load testing
-- **Power Bank** - Power bank capacity and efficiency testing
+- **Charger Load** - AC adapter load testing
+- **Power Bank Capacity** - Power bank capacity and efficiency testing
 
 **Data Management:**
 - SQLite database for permanent storage

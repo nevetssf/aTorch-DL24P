@@ -100,8 +100,8 @@ When loading test data from the History panel, the graph axes should be configur
 **Future Test Types:**
 As new test panels are implemented, add their graph configurations here:
 - Battery Charger: TBD
-- Charger: TBD
-- Power Bank: TBD
+- Charger Load: TBD
+- Power Bank Capacity: TBD
 
 Implementation: See `_on_history_json_selected()` and `_load_battery_load_history()` in `main_window.py`
 
