@@ -28,7 +28,6 @@ class PlotPanelContainer(QWidget):
             'battery_capacity': {'x_axis': 'Voltage', 'x_reversed': True, 'y1': 'Energy Remaining', 'y2': 'Current', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': False},
             'battery_load': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Power', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': False},
             'battery_charger': {'x_axis': 'Voltage', 'x_reversed': False, 'y1': 'Current', 'y2': 'Power', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': True},
-            'cable_resistance': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'R Load', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': False},
             'charger': {'x_axis': 'Current', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Power', 'y2_enabled': False, 'normalize': False, 'show_lines': True, 'show_points': False},
             'power_bank': {'x_axis': 'Time', 'x_reversed': False, 'y1': 'Voltage', 'y2': 'Current', 'y2_enabled': True, 'normalize': False, 'show_lines': True, 'show_points': False},
         }

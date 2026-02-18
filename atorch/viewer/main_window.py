@@ -26,7 +26,6 @@ class ViewerMainWindow(QMainWindow):
         'battery_capacity': 'Battery Capacity',
         'battery_load': 'Battery Load',
         'battery_charger': 'Battery Charger',
-        'cable_resistance': 'Cable Resistance',
         'charger': 'Wall Charger',
         'power_bank': 'Power Bank',
     }

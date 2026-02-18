@@ -54,7 +54,6 @@ from .battery_load_panel import BatteryLoadPanel
 from .power_bank_panel import PowerBankPanel
 from .charger_panel import ChargerPanel
 from .battery_charger_panel import BatteryChargerPanel
-from .cable_resistance_panel import CableResistancePanel
 
 
 class MainWindow(QMainWindow):
@@ -258,7 +257,7 @@ class MainWindow(QMainWindow):
 
         # Re-enable input fields on all test panels
         for panel in [self.battery_capacity_panel, self.battery_load_panel,
-                      self.battery_charger_panel, self.cable_resistance_panel,
+                      self.battery_charger_panel,
                       self.charger_panel, self.power_bank_panel]:
             if hasattr(panel, 'set_inputs_enabled'):
                 panel.set_inputs_enabled(True)
@@ -350,11 +349,6 @@ class MainWindow(QMainWindow):
         charger_idx = self.bottom_tabs.addTab(self.battery_charger_panel, "Battery Charger")
         self.bottom_tabs.setTabToolTip(charger_idx, "Monitor and log battery charging sessions")
 
-        self.cable_resistance_panel = CableResistancePanel()
-        cable_idx = self.bottom_tabs.addTab(self.cable_resistance_panel, "Cable Resistance")
-        self.bottom_tabs.setTabEnabled(cable_idx, False)
-        self.bottom_tabs.setTabToolTip(cable_idx, "Under development")
-
         self.charger_panel = ChargerPanel()
         wall_idx = self.bottom_tabs.addTab(self.charger_panel, "Wall Charger")
         self.bottom_tabs.setTabEnabled(wall_idx, False)
@@ -366,7 +360,7 @@ class MainWindow(QMainWindow):
         self.bottom_tabs.setTabToolTip(powerbank_idx, "Under development")
 
         # Track WIP tabs so they stay disabled at all times
-        self._wip_tab_indices = {cable_idx, wall_idx, powerbank_idx}
+        self._wip_tab_indices = {wall_idx, powerbank_idx}
 
         self.history_panel = HistoryPanel(self.database)
         self.history_panel.json_file_selected.connect(self._on_history_json_selected)
@@ -415,13 +409,6 @@ class MainWindow(QMainWindow):
         self.battery_charger_panel.manual_save_requested.connect(self._on_battery_charger_save)
         self.battery_charger_panel.session_loaded.connect(self._on_session_loaded)
         self.battery_charger_panel.export_csv_requested.connect(self._on_export_csv)
-
-        # Connect cable resistance panel signals
-        self.cable_resistance_panel.test_started.connect(self._on_cable_resistance_start)
-        self.cable_resistance_panel.test_stopped.connect(self._on_cable_resistance_stop)
-        self.cable_resistance_panel.manual_save_requested.connect(self._on_cable_resistance_save)
-        self.cable_resistance_panel.session_loaded.connect(self._on_session_loaded)
-        self.cable_resistance_panel.export_csv_requested.connect(self._on_export_csv)
 
         # Connect power bank panel signals
         self.power_bank_panel.start_test_requested.connect(self._on_power_bank_start)
@@ -668,7 +655,6 @@ class MainWindow(QMainWindow):
             self.battery_load_panel.set_device_and_plot(self.device, self.plot_panel)
             self.charger_panel.set_device_and_plot(self.device, self.plot_panel)
             self.battery_charger_panel.set_device_and_plot(self.device, self.plot_panel)
-            self.cable_resistance_panel.set_device_and_plot(self.device, self.plot_panel)
 
             self.connection_changed.emit(True)
             conn_type_str = "USB HID" if connection_type == ConnectionType.USB_HID else "Serial"
@@ -698,7 +684,6 @@ class MainWindow(QMainWindow):
         self.battery_load_panel.set_device_and_plot(None, None)
         self.charger_panel.set_device_and_plot(None, None)
         self.battery_charger_panel.set_device_and_plot(None, None)
-        self.cable_resistance_panel.set_device_and_plot(None, None)
 
         # Disconnect
         if self.device:
@@ -1192,7 +1177,7 @@ class MainWindow(QMainWindow):
             "<li>JSON, CSV, and Excel export</li>"
             "<li>SQLite database storage with history browser</li>"
             "</ul>"
-            "<p style='color: #888;'>Cable Resistance, Wall Charger, and Power Bank tests are under development.</p>"
+            "<p style='color: #888;'>Wall Charger and Power Bank tests are under development.</p>"
             "<p>© 2026 • Built with PySide6 and pyqtgraph</p>"
             "<p>For help, see <b>Help → Test Bench Help</b></p>",
         )
@@ -1626,7 +1611,7 @@ class MainWindow(QMainWindow):
             <p><b>Use for:</b> Verifying charger specs, comparing charging profiles, identifying counterfeits.</p>
 
             <div class="callout wip">
-                <b>Coming soon:</b> Cable Resistance, Wall Charger, and Power Bank test panels are under development.
+                <b>Coming soon:</b> Wall Charger and Power Bank test panels are under development.
             </div>
 
             <hr class="section-divider">
@@ -1802,9 +1787,8 @@ class MainWindow(QMainWindow):
             "battery_capacity": 0,
             "battery_load": 1,
             "battery_charger": 2,
-            "cable_resistance": 3,
-            "charger": 4,
-            "power_bank": 5,
+            "charger": 3,
+            "power_bank": 4,
         }
 
         # Switch to the appropriate tab
@@ -1812,7 +1796,7 @@ class MainWindow(QMainWindow):
         self.bottom_tabs.setCurrentIndex(tab_index)
 
         # Only load data for battery_capacity, battery_load, battery_charger, charger, and power_bank types (others are placeholders)
-        if test_panel_type not in ("battery_capacity", "battery_load", "battery_charger", "cable_resistance", "charger", "power_bank"):
+        if test_panel_type not in ("battery_capacity", "battery_load", "battery_charger", "charger", "power_bank"):
             self.statusbar.showMessage(f"Selected {test_panel_type.replace('_', ' ').title()} test file (panel not yet implemented)")
             return
 
@@ -1826,11 +1810,6 @@ class MainWindow(QMainWindow):
         # Handle battery_charger test type
         if test_panel_type == "battery_charger":
             self._load_battery_charger_history(file_path, data)
-            return
-
-        # Handle cable_resistance test type
-        if test_panel_type == "cable_resistance":
-            self._load_cable_resistance_history(file_path, data)
             return
 
         # Handle charger test type
@@ -2209,63 +2188,6 @@ class MainWindow(QMainWindow):
 
         finally:
             self.battery_charger_panel._loading_settings = False
-
-    def _load_cable_resistance_history(self, file_path: str, data: dict) -> None:
-        """Load cable resistance test data from history.
-
-        Args:
-            file_path: Path to the JSON file
-            data: Parsed JSON data
-        """
-        # Load test configuration into cable resistance panel
-        self.cable_resistance_panel._loading_settings = True
-        try:
-            test_config = data.get("test_config", {})
-            if "source_voltage" in test_config:
-                self.cable_resistance_panel.source_voltage_spin.setValue(test_config["source_voltage"])
-            if "min_current" in test_config:
-                self.cable_resistance_panel.min_current_spin.setValue(test_config["min_current"])
-            if "max_current" in test_config:
-                self.cable_resistance_panel.max_current_spin.setValue(test_config["max_current"])
-            if "num_steps" in test_config:
-                self.cable_resistance_panel.num_steps_spin.setValue(test_config["num_steps"])
-            if "dwell_time" in test_config:
-                self.cable_resistance_panel.dwell_time_spin.setValue(test_config["dwell_time"])
-
-            # Load cable info
-            cable_info = data.get("cable_info", {})
-            if "name" in cable_info:
-                self.cable_resistance_panel.cable_name_edit.setText(cable_info["name"])
-            if "cable_type" in cable_info:
-                self.cable_resistance_panel.cable_type_combo.setCurrentText(cable_info["cable_type"])
-            if "rated_current" in cable_info:
-                self.cable_resistance_panel.rated_current_combo.setCurrentText(str(cable_info["rated_current"]))
-            if "length_m" in cable_info:
-                self.cable_resistance_panel.cable_length_spin.setValue(cable_info["length_m"])
-            if "wire_gauge" in cable_info:
-                gauge_text = str(cable_info["wire_gauge"]) if cable_info["wire_gauge"] != "Unknown" else "Unknown"
-                self.cable_resistance_panel.wire_gauge_combo.setCurrentText(gauge_text)
-            if "notes" in cable_info:
-                self.cable_resistance_panel.notes_edit.setPlainText(cable_info["notes"])
-
-            # Update filename
-            self.cable_resistance_panel.filename_edit.setText(Path(file_path).name)
-
-            # Set graph axes for cable resistance tests (Current vs Voltage)
-            self.plot_panel.x_axis_combo.setCurrentText("Current")
-            if "Y" in self.plot_panel._axis_dropdowns:
-                self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
-                self.plot_panel._axis_checkboxes["Y"].setChecked(True)
-
-            # Load readings for display
-            readings = data.get("readings", [])
-            if readings:
-                self._on_session_loaded(readings)
-
-            self.statusbar.showMessage(f"Loaded Cable Resistance test: {Path(file_path).name}")
-
-        finally:
-            self.cable_resistance_panel._loading_settings = False
 
     @Slot()
     def _sync_battery_info_on_startup(self) -> None:
@@ -2866,96 +2788,6 @@ class MainWindow(QMainWindow):
         return result
 
     @Slot()
-    def _on_cable_resistance_start(self) -> None:
-        """Handle test start from cable resistance panel."""
-        # Auto-connect if DL24 device detected and not connected
-        if not self.device or not self.device.is_connected:
-            if not self._try_auto_connect():
-                return
-
-        # Clear data and previous session before starting new test
-        self._clear_data()
-        self._last_completed_session = None
-
-        # Clear device counters (mAh, Wh, time)
-        self.device.reset_counters()
-
-        # Start logging (which also turns on the load)
-        if not self._logging_enabled:
-            self.status_panel.log_switch.setChecked(True)
-            self._toggle_logging(True)
-
-        self.statusbar.showMessage("Cable Resistance test started")
-
-    @Slot()
-    def _on_cable_resistance_stop(self) -> None:
-        """Handle test stop from cable resistance panel."""
-        # Stop logging and save data if auto-save is enabled
-        if self._logging_enabled:
-            num_readings = len(self._accumulated_readings)
-            # Save test data to JSON if auto-save is enabled
-            if self.cable_resistance_panel.autosave_checkbox.isChecked():
-                saved_path = self._save_cable_resistance_json()
-                if saved_path:
-                    self.statusbar.showMessage(
-                        f"Cable Resistance test complete: {num_readings} readings saved to {saved_path}"
-                    )
-                    # Refresh history panel to show new file
-                    self.history_panel.refresh()
-                else:
-                    self.statusbar.showMessage(
-                        f"Cable Resistance test complete: {num_readings} readings - click Save to export"
-                    )
-            else:
-                self.statusbar.showMessage(
-                    f"Cable Resistance test complete: {num_readings} readings - click Save to export"
-                )
-            self.status_panel.log_switch.setChecked(False)
-            self._toggle_logging(False)
-
-    @Slot(str)
-    def _on_cable_resistance_save(self, filename: str) -> None:
-        """Handle manual save request from cable resistance panel.
-
-        Args:
-            filename: The filename to save as
-        """
-        if not self._accumulated_readings:
-            self.statusbar.showMessage("No data to save")
-            return
-
-        saved_path = self._save_cable_resistance_json(filename)
-        if saved_path:
-            self.statusbar.showMessage(f"Saved: {saved_path}")
-            # Refresh history panel to show new file
-            self.history_panel.refresh()
-
-    def _save_cable_resistance_json(self, filename: Optional[str] = None) -> Optional[str]:
-        """Save cable resistance test data to JSON file.
-
-        Args:
-            filename: Optional filename to use. If None, uses the filename from cable resistance panel.
-
-        Returns:
-            Path to saved file, or None if save failed
-        """
-        # Get test configuration and cable info from cable resistance panel
-        test_config = self.cable_resistance_panel.get_test_config()
-        cable_info = self.cable_resistance_panel.get_cable_info()
-
-        # Use provided filename or get from cable resistance panel
-        if filename is None:
-            filename = self.cable_resistance_panel.filename_edit.text().strip()
-            if not filename:
-                filename = self.cable_resistance_panel.generate_test_filename()
-
-        result = self._write_test_json(filename, test_config, cable_info,
-                                       list(self._accumulated_readings),
-                                       test_panel_type="cable_resistance")
-        if result is None:
-            self.statusbar.showMessage("Failed to save test data")
-        return result
-
     @Slot(int, float, float, int)
     def _on_power_bank_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
         """Handle test start request from power bank panel.

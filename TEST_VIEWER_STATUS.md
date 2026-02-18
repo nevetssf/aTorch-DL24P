@@ -4,7 +4,7 @@
 
 ### Core Structure
 - ✅ Main window with plot panel on top and tabs on bottom
-- ✅ Six tabs for different test types (Battery Capacity, Battery Load, Battery Charger, Cable Resistance, Wall Charger, Power Bank)
+- ✅ Five tabs for different test types (Battery Capacity, Battery Load, Battery Charger, Wall Charger, Power Bank)
 - ✅ Test list panels showing JSON files for each test type
 
 ### Test List Panel Features

@@ -33,7 +33,6 @@ class HistoryPanel(QWidget):
         "battery_capacity": "Battery Capacity",
         "battery_load": "Battery Load",
         "battery_charger": "Battery Charger",
-        "cable_resistance": "Cable Resistance",
         "charger": "Charger",
         "power_bank": "Power Bank",
     }
@@ -203,10 +202,6 @@ class HistoryPanel(QWidget):
                     power_bank_info = data.get("power_bank_info", {})
                     manufacturer = power_bank_info.get("manufacturer", "")
                     device_name = power_bank_info.get("name", "")
-                elif test_panel_type == "cable_resistance":
-                    cable_info = data.get("cable_info", {})
-                    device_name = cable_info.get("name", "")
-                    # Cable resistance doesn't have manufacturer field
 
                 # Build summary with manufacturer prefix
                 if manufacturer:

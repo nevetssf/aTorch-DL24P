@@ -24,7 +24,6 @@ Both applications are designed for battery testing, characterization, and qualit
 **Test Panels:**
 - **Battery Capacity** - Discharge tests with voltage cutoff and time limits
 - **Battery Load** - Load curve characterization (current/power/resistance sweep)
-- **Cable Resistance** - USB cable voltage drop measurement
 - **Battery Charger** - Charger output characterization
 - **Wall Charger** - AC adapter load testing
 - **Power Bank** - Power bank capacity and efficiency testing

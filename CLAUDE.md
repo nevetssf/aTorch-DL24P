@@ -100,7 +100,6 @@ When loading test data from the History panel, the graph axes should be configur
 **Future Test Types:**
 As new test panels are implemented, add their graph configurations here:
 - Battery Charger: TBD
-- Cable Resistance: TBD
 - Charger: TBD
 - Power Bank: TBD
 

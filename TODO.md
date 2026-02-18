@@ -5,7 +5,6 @@
 ### Placeholder Test Panels
 The following test automation tabs are placeholders and need implementation:
 - **Battery Charger** - Test and analyze battery charger performance
-- **Cable Resistance** - Measure USB cable resistance and voltage drop
 - **Charger** - Test power adapter output and efficiency
 
 ### PyInstaller Builds
