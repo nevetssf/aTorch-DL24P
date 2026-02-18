@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QFrame,
     QPushButton,
-    QLineEdit,
     QCheckBox,
     QComboBox,
 )
@@ -253,20 +252,9 @@ class StatusPanel(QWidget):
 
         log_layout.addLayout(logging_layout)
 
-        # Filename prefix input
-        name_layout = QHBoxLayout()
-        self.battery_label = QLabel("Prefix")
-        name_layout.addWidget(self.battery_label)
-        self.battery_name_edit = QLineEdit()
-        self.battery_name_edit.setText("battery")
-        self.battery_name_edit.setEnabled(False)
-        self.battery_name_edit.setToolTip("Filename prefix for exported data files")
-        name_layout.addWidget(self.battery_name_edit)
-        log_layout.addLayout(name_layout)
-
         # Save and Clear buttons
         buttons_layout = QHBoxLayout()
-        self.save_btn = QPushButton("Export")
+        self.save_btn = QPushButton("Save...")
         self.save_btn.setEnabled(False)
         self.save_btn.setToolTip("Export logged data to JSON or CSV file")
         self.save_btn.clicked.connect(self._on_save_clicked)
@@ -343,10 +331,6 @@ class StatusPanel(QWidget):
         self.log_label_on.setEnabled(connected)
         self.sample_time_combo.setEnabled(connected)
 
-        # Battery name
-        self.battery_label.setEnabled(connected)
-        self.battery_name_edit.setEnabled(connected)
-
         # Buttons
         self.clear_btn.setEnabled(connected)
         self.save_btn.setEnabled(connected)
@@ -398,8 +382,7 @@ class StatusPanel(QWidget):
     @Slot()
     def _on_save_clicked(self) -> None:
         """Handle save button click."""
-        battery_name = self.battery_name_edit.text().strip()
-        self.save_requested.emit(battery_name)
+        self.save_requested.emit("")
 
     def update_status(self, status: DeviceStatus) -> None:
         """Update display with device status."""

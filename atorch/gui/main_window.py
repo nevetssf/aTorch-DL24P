@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QTextBrowser,
     QPushButton,
     QSystemTrayIcon,
+    QGroupBox,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QThread
 from PySide6.QtGui import QAction, QCloseEvent, QIcon
@@ -72,7 +73,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("DL24/P Test Bench")
-        self.setMinimumSize(1200, 800)
+        self.setMinimumSize(1200, 947)
 
         # Clear debug log file on startup
         with open(self.DEBUG_LOG_FILE, 'w') as f:
@@ -147,8 +148,11 @@ class MainWindow(QMainWindow):
         # Use whichever panel's session file was modified most recently
         self._sync_battery_info_on_startup()
 
+        # Update main group title from detected device
+        self._update_main_group_title()
+
         # Update notification icons from saved settings
-        self.control_panel.update_notification_icons(self._notification_settings)
+        self._update_notification_icons()
 
         # Update timer
         self._update_timer = QTimer(self)
@@ -204,7 +208,7 @@ class MainWindow(QMainWindow):
         # Disable data logging controls (except the load switch is handled by status panel)
         self.status_panel.log_switch.setEnabled(False)
         self.status_panel.sample_time_combo.setEnabled(False)
-        self.status_panel.battery_name_edit.setEnabled(False)
+
 
         # Disable all test panel tabs except the current one
         current_tab = self.bottom_tabs.currentIndex()
@@ -252,7 +256,7 @@ class MainWindow(QMainWindow):
             # Re-enable data logging controls
             self.status_panel.log_switch.setEnabled(True)
             self.status_panel.sample_time_combo.setEnabled(True)
-            self.status_panel.battery_name_edit.setEnabled(True)
+
 
         # Re-enable test panel tabs (except WIP tabs which stay disabled)
         for i in range(self.bottom_tabs.count()):
@@ -381,7 +385,13 @@ class MainWindow(QMainWindow):
         splitter.setSizes([250, 700, 250])
         from PySide6.QtWidgets import QSizePolicy
         splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(splitter, stretch=1)
+        # Main panel group box (title updated on connect with device name)
+        self.main_group = QGroupBox("Main")
+        self.main_group.setMinimumHeight(340)
+        main_group_layout = QVBoxLayout(self.main_group)
+        main_group_layout.setContentsMargins(4, 4, 4, 4)
+        main_group_layout.addWidget(splitter)
+        main_layout.addWidget(self.main_group, stretch=1)
 
         # Bottom section: Collapsible Test Automation with tabs
         from PySide6.QtWidgets import QToolButton, QFrame
@@ -403,6 +413,44 @@ class MainWindow(QMainWindow):
         automation_label.setStyleSheet("font-weight: bold;")
         header_layout.addWidget(automation_label)
         header_layout.addStretch()
+
+        # Notification indicator buttons
+        notif_inactive_style = (
+            "QPushButton { font-size: 10px; font-weight: bold; color: #888; "
+            "border: 1px solid #888; border-radius: 3px; padding: 1px 4px; }"
+            "QPushButton:hover { background: rgba(128,128,128,0.15); }"
+        )
+        self.ntfy_btn = QPushButton("ntfy")
+        self.ntfy_btn.setFlat(True)
+        self.ntfy_btn.setCursor(Qt.PointingHandCursor)
+        self.ntfy_btn.setFixedHeight(20)
+        self.ntfy_btn.setStyleSheet(notif_inactive_style)
+        self.ntfy_btn.setToolTip(
+            "ntfy push notifications\n\n"
+            "Sends push notifications to your phone via ntfy.sh\n"
+            "when a test completes or is aborted.\n\n"
+            "Setup: Enter your ntfy topic in Settings > Notifications.\n"
+            "Grey = disabled, Green = active.\n"
+            "Click to open notification settings."
+        )
+        self.ntfy_btn.clicked.connect(self._show_notification_settings)
+        header_layout.addWidget(self.ntfy_btn)
+
+        self.pushover_btn = QPushButton("Pushover")
+        self.pushover_btn.setFlat(True)
+        self.pushover_btn.setCursor(Qt.PointingHandCursor)
+        self.pushover_btn.setFixedHeight(20)
+        self.pushover_btn.setStyleSheet(notif_inactive_style)
+        self.pushover_btn.setToolTip(
+            "Pushover push notifications\n\n"
+            "Sends push notifications to your phone via Pushover\n"
+            "when a test completes or is aborted.\n\n"
+            "Setup: Enter your User Key in Settings > Notifications.\n"
+            "Grey = disabled, Green = active.\n"
+            "Click to open notification settings."
+        )
+        self.pushover_btn.clicked.connect(self._show_notification_settings)
+        header_layout.addWidget(self.pushover_btn)
 
         main_layout.addLayout(header_layout)
 
@@ -509,7 +557,6 @@ class MainWindow(QMainWindow):
         # Connect control panel signals
         self.control_panel.connect_requested.connect(self._connect_device)
         self.control_panel.disconnect_requested.connect(self._disconnect_device)
-        self.control_panel.open_notification_settings.connect(self._show_notification_settings)
         self.status_panel.logging_toggled.connect(self._toggle_logging)
         self.status_panel.sample_time_changed.connect(self._set_sample_interval)
         self.status_panel.clear_requested.connect(self._clear_data)
@@ -565,6 +612,18 @@ class MainWindow(QMainWindow):
         self.device_settings_action.triggered.connect(self._show_device_settings)
         device_menu.addAction(self.device_settings_action)
 
+        device_menu.addSeparator()
+
+        self.logging_action = QAction("&Logging", self)
+        self.logging_action.setCheckable(True)
+        self.logging_action.setChecked(True)  # On by default (matches old Debug Log checkbox)
+        self.logging_action.setToolTip("Log debug output to debug.log")
+        device_menu.addAction(self.logging_action)
+
+        debug_action = QAction("View Li&ve Logs", self)
+        debug_action.triggered.connect(self._show_debug_window)
+        device_menu.addAction(debug_action)
+
         # Tools menu
         tools_menu = menubar.addMenu("&Tools")
 
@@ -582,12 +641,6 @@ class MainWindow(QMainWindow):
         clear_plots_action = QAction("&Clear Plots", self)
         clear_plots_action.triggered.connect(self.plot_panel.clear_data)
         view_menu.addAction(clear_plots_action)
-
-        view_menu.addSeparator()
-
-        debug_action = QAction("&Debug Console", self)
-        debug_action.triggered.connect(self._show_debug_window)
-        view_menu.addAction(debug_action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -732,6 +785,8 @@ class MainWindow(QMainWindow):
             self.battery_charger_panel.set_device_and_plot(self.device, self.plot_panel)
 
             self.connection_changed.emit(True)
+            # Update main group title with device name
+            self._update_main_group_title()
             conn_type_str = "USB HID" if connection_type == ConnectionType.USB_HID else "Serial"
             self.statusbar.showMessage(f"Connected ({conn_type_str}) — trying to communicate with device...")
             self._awaiting_first_status = True
@@ -764,6 +819,7 @@ class MainWindow(QMainWindow):
         if self.device:
             self.device.disconnect()
         self.connection_changed.emit(False)
+        self._update_main_group_title()
         self.statusbar.showMessage("Disconnected")
 
     def _try_auto_connect(self) -> bool:
@@ -1150,7 +1206,36 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             self._notification_settings = dialog._notification_settings
             self._save_notification_settings(self._notification_settings)
-            self.control_panel.update_notification_icons(self._notification_settings)
+            self._update_notification_icons()
+
+    def _update_main_group_title(self) -> None:
+        """Update main group box title from device name or port list."""
+        # If connected, use the port combo text (contains product name)
+        port_text = self.control_panel.port_combo.currentText()
+        if port_text and port_text != "No USB HID devices found" and port_text != "hidapi not installed":
+            # Extract the product name (before any serial number in parentheses)
+            name = port_text.split("(")[0].strip()
+            self.main_group.setTitle(name)
+        else:
+            self.main_group.setTitle("Main")
+
+    def _update_notification_icons(self) -> None:
+        """Update ntfy/Pushover button colors based on current settings."""
+        active = (
+            "QPushButton { font-size: 10px; font-weight: bold; color: #4CAF50; "
+            "border: 1px solid #4CAF50; border-radius: 3px; padding: 1px 4px; }"
+            "QPushButton:hover { background: rgba(76,175,80,0.15); }"
+        )
+        inactive = (
+            "QPushButton { font-size: 10px; font-weight: bold; color: #888; "
+            "border: 1px solid #888; border-radius: 3px; padding: 1px 4px; }"
+            "QPushButton:hover { background: rgba(128,128,128,0.15); }"
+        )
+        ns = self._notification_settings
+        ntfy_on = ns.get("ntfy_enabled") and ns.get("ntfy_topic")
+        self.ntfy_btn.setStyleSheet(active if ntfy_on else inactive)
+        po_on = ns.get("pushover_enabled") and ns.get("pushover_user_key") and ns.get("pushover_app_token")
+        self.pushover_btn.setStyleSheet(active if po_on else inactive)
 
     @Slot()
     def _show_notification_settings(self) -> None:
@@ -1383,7 +1468,6 @@ class MainWindow(QMainWindow):
             self.control_panel.refresh_btn,
             self.control_panel.connect_btn,
             self.control_panel.disconnect_btn,
-            self.control_panel.debug_log_checkbox,
             self.control_panel.cc_btn,
             self.control_panel.cp_btn,
             self.control_panel.cv_btn,
@@ -1427,7 +1511,6 @@ class MainWindow(QMainWindow):
         for widget in [
             self.status_panel.log_switch,
             self.status_panel.sample_time_combo,
-            self.status_panel.battery_name_edit,
             self.status_panel.save_btn,
             self.status_panel.clear_log_btn,
             self.status_panel.clear_btn,
@@ -3893,7 +3976,7 @@ class MainWindow(QMainWindow):
     def _on_debug_message(self, event_type: str, message: str, data: bytes) -> None:
         """Handle debug message in main thread."""
         # Queue to file if debug logging is enabled (written by background thread)
-        if hasattr(self, 'control_panel') and self.control_panel.debug_logging_enabled:
+        if hasattr(self, 'logging_action') and self.logging_action.isChecked():
             try:
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
                 log_line = f"[{timestamp}] {event_type}: {message}"

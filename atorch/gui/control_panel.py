@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QSpinBox,
-    QCheckBox,
     QFrame,
     QButtonGroup,
     QRadioButton,
@@ -223,11 +222,7 @@ class ControlPanel(QWidget):
         port_layout.addWidget(self.refresh_btn)
         conn_layout.addLayout(port_layout)
 
-        # Debug logging checkbox
-        self.debug_log_checkbox = QCheckBox("Debug Log")
-        self.debug_log_checkbox.setChecked(True)  # On by default
-        self.debug_log_checkbox.setToolTip("Log debug output to debug.log")
-        conn_layout.addWidget(self.debug_log_checkbox)
+
 
         # Connect and Disconnect buttons
         btn_layout = QHBoxLayout()
@@ -531,11 +526,6 @@ class ControlPanel(QWidget):
         if self.port_combo.currentIndex() >= 0:
             return self.port_combo.currentData()
         return None
-
-    @property
-    def debug_logging_enabled(self) -> bool:
-        """Check if debug logging is enabled."""
-        return self.debug_log_checkbox.isChecked()
 
     def set_connected(self, connected: bool) -> None:
         """Update UI for connection state."""
