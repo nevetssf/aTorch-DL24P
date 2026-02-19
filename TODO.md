@@ -2,14 +2,20 @@
 
 ## Pending Features
 
-### Placeholder Test Panels
-The following test automation tabs are placeholders and need implementation:
-- **Battery Charger** - Test and analyze battery charger performance
-- **Charger Load** - Test power adapter output and efficiency
-
 ### PyInstaller Builds
 - Windows build not yet tested
 - Consider code signing for macOS distribution
+
+### Database Schema Overhaul
+- **Issue**: The current database schema and how it's populated are out of sync with how data logging actually works
+- The schema was designed early on and hasn't kept pace with changes to the logging pipeline (bounded deque, commit batching, test panel types, etc.)
+- Needs a full review of:
+  - Table structure (sessions, readings) — do they match current test types and data flow?
+  - How sessions are created, updated, and finalized across all test panels
+  - Which fields are actually populated vs left empty/stale
+  - Whether the schema supports all current test types (battery capacity, battery load, battery charger, charger load, power bank)
+  - Alignment between database storage and JSON export format
+- Consider migration strategy for existing `tests.db` files
 
 ### Future Enhancements
 - Export to Excel format improvements
@@ -27,37 +33,7 @@ The following test automation tabs are placeholders and need implementation:
 
 ---
 
-## Resolved Issues
-
-### Test Conditions Save/Load - DONE
-- Implemented preset system with Save/Delete buttons
-- Default presets in `resources/battery_capacity/presets_test.json`
-- User presets saved to `~/.atorch/test_presets/`
-- Settings persist across app restarts via `last_session.json`
-
-### Time Limit Setting - RESOLVED
-- **Device protocol has two modes**:
-  - Minutes mode (flag=0x02): `[minutes, 0x00, 0x00, 0x02]` - for times < 60 min
-  - Hours mode (flag=0x01): `[hours, 0x00, 0x00, 0x01]` - for times >= 60 min
-- **Limitation**: Device does NOT support combined hours+minutes. When hours > 0, only whole hours are sent (minutes discarded)
-- **pcapng data verified**:
-  - 10m: `0a 00 00 02` (10 minutes, minutes mode)
-  - 30m: `1e 00 00 02` (30 minutes, minutes mode)
-  - 45m: `2d 00 00 02` (45 minutes, minutes mode)
-  - 1h45m: `01 00 00 01` (1 hour only, hours mode - 45min dropped by PC app!)
-- **Implementation**: Fixed in `set_discharge_time()` to use correct mode based on hours value
-
----
-
 ## Known Issues
-
-### Auto-Connect on Test Start - NEEDS FIX
-- **Issue**: Auto-connect functionality in Start buttons needs to be fixed
-- **Location**: Battery Capacity and Battery Load test panels
-- **Current behavior**: Attempts to auto-connect when Start is clicked if DL24 device is detected in port list
-- **Implementation**: `_try_auto_connect()` method in `main_window.py`
-- **Problem**: Connection timing or logic needs improvement
-- **Next steps**: Review connection sequence and ensure proper synchronization
 
 ### Bluetooth Communication Not Working
 - **Issue**: DL24P connects via Bluetooth SPP but doesn't respond to commands
@@ -73,32 +49,7 @@ The following test automation tabs are placeholders and need implementation:
 - **Workaround**: Use USB HID connection (primary supported method)
 - **Next step**: Capture Bluetooth traffic from official iOS app using Apple's PacketLogger to reverse-engineer the protocol
 
-### Device Timing Readout
-- **Issue**: The device time display in the GUI doesn't match the physical device display
-- **Current state**: Tried offsets 20, 28 with various interpretations (raw seconds, ticks/48)
-- **Device shows**: 10:24 (minutes:seconds)
-- **GUI shows**: Different value
-- **Notes**: Need to find correct offset and/or encoding for the load-on runtime counter
-
-### GUI Freezing During Long Tests - UNDER INVESTIGATION
-- **Issue**: GUI freezes after ~1-1.5 hours of continuous test running
-- **Observed freezes**: ~30min, ~1h26m, ~1h30m
-- **Fixes applied (2026-02-09)**:
-  1. Signal queue overflow prevention - skip updates if still processing previous one
-  2. Database commit batching - commit every 10s instead of per-reading
-  3. Reduced USB HID polling from 0.5s to 1.0s
-  4. Removed periodic auto-save during acquisition
-  5. **Stopped appending to `_current_session.readings`** (unbounded list causing memory growth)
-     - All data preserved in database and `_accumulated_readings` (bounded deque, 48h capacity)
-     - JSON export uses `_accumulated_readings`, not `_current_session.readings`
-- **Status**: Testing in progress - user running long-duration test to verify
-- **If still freezing, investigate**:
-  - Debug file logging blocking main thread
-  - Plot panel memory with 3600+ data points
-  - `_accumulated_readings` is bounded (maxlen=172800) so shouldn't be the issue
-- **Reference**: See CLAUDE.md "GUI Freezing Issues" section for full details
-
-### Display Precision vs USB Protocol Precision - NEEDS INVESTIGATION
+### Display Precision vs USB Protocol Precision
 - **Issue**: Device screen shows more precision than USB protocol transmits
 - **Current state**: Device transmits integer values via USB HID:
   - Current: integer mA (e.g., 49 mA, not 49.123 mA)
@@ -107,7 +58,6 @@ The following test automation tabs are placeholders and need implementation:
 - **Device screen**: Shows calculated values with more precision (e.g., 1.84 mWh)
 - **App display**: Shows integer values with .000 decimal places (e.g., 2.000 mWh)
 - **Root cause**: DL24P firmware rounds to integers before USB transmission
-- **Current workaround**: Display with 3 decimals (shows .000 for integer values)
 - **Possible improvements**:
   - Calculate energy locally from accumulated V×I×time for more precision
   - Interpolate between readings for smoother display
@@ -115,7 +65,7 @@ The following test automation tabs are placeholders and need implementation:
   - Document limitation in user guide
 - **Note**: Saved data (JSON, CSV) uses same precision as USB protocol
 
-### Battery Resistance Protocol Parsing - NEEDS INVESTIGATION
+### Battery Resistance Protocol Parsing
 - **Issue**: Battery internal resistance value fluctuates more than expected when reading from device protocol
 - **Current location**: Offset 36-37 in counters response (sub-cmd 0x05), uint16 big-endian, milli-ohms
 - **Problem**: The bytes overlap with MOSFET temperature (offset 36-39 as uint32 LE)
@@ -133,22 +83,60 @@ The following test automation tabs are placeholders and need implementation:
   - Monitor more payload samples to find consistent storage location
   - May need to capture USB traffic when battery R changes significantly
 
-### Window Recovery Responsivity - FIXED
-- **Issue**: Application becomes sluggish when screen turns off or after running for extended periods
-- **Root causes identified**:
-  1. Lock contention between poll thread and GUI thread when macOS USB power management slows USB I/O
-     - Poll thread holds lock during USB read (500ms+ when power management active)
-     - GUI operations wait for lock causing sluggishness
-  2. Debug Window constantly updated on main thread even when hidden
-     - 6 messages per poll × 1 Hz = 21,600+ GUI operations per hour
-     - insertHtml() and DOM maintenance competes with UI responsiveness
-- **Fixes applied (2026-02-10)**:
-  1. Added 1-second timeout to lock acquisition for all GUI-called device methods
-     - Methods fail gracefully if lock busy instead of blocking GUI indefinitely
-     - Maintains command-response atomicity while preventing GUI freeze
-  2. Only update Debug Window when visible
-     - Skips all debug_window.log() calls when window is hidden
-     - Eliminates 21,600+ unnecessary GUI operations per hour
-- **Implementation**:
-  - `device.py` - Added `GUI_LOCK_TIMEOUT = 1.0` and `lock_timeout` parameter
-  - `main_window.py` - Added visibility check in `_on_debug_message()`
+---
+
+## Resolved Issues
+
+### Package Rename - DONE (2026-02-19)
+- Renamed Python package from `atorch/` to `load_test_bench/`
+- All imports, build scripts, pyproject.toml, and tests updated
+- Entry point: `run_load_test_bench.py` (was `run_atorch.py`)
+
+### Help System - DONE (2026-02-19)
+- Moved from in-app QTextBrowser dialog to standalone HTML opened in system browser
+- `resources/help/help.html` with dark mode, table of contents, anchor links
+- Help → Connection Troubleshooting opens to #troubleshooting anchor
+
+### Control Panel Mode-Specific Inputs - DONE (2026-02-19)
+- After test ends/aborts, only the input for the active mode is re-enabled
+- Uses `control_panel._update_mode_controls()` instead of blindly enabling all spinboxes
+
+### All Test Panels Implemented - DONE
+- **Battery Capacity** - Constant current discharge with capacity measurement
+- **Battery Load** - Stepped load characterization (CC/CR/CP)
+- **Battery Charger** - CC-CV charging profile analysis via CV mode simulation
+- **Charger Load** - Power adapter output testing with stepped loads
+- **Power Bank Capacity** - Full discharge capacity testing with auto-voltage detection
+
+### Auto-Connect on Test Start - DONE
+- `_try_auto_connect()` in `main_window.py` works across all test panels
+- Automatically connects when Start is clicked if device is detected but not connected
+
+### GUI Freezing During Long Tests - DONE (2026-02-09)
+- Signal queue overflow prevention (skip updates if still processing)
+- Database commit batching (every 10s instead of per-reading)
+- Reduced USB HID polling from 0.5s to 1.0s
+- Removed periodic auto-save during acquisition
+- Stopped appending to unbounded `_current_session.readings` list
+- All data preserved in database and bounded `_accumulated_readings` deque (48h capacity)
+
+### Window Recovery Responsivity - DONE (2026-02-10)
+- 1-second lock timeout for GUI-called device methods (fail gracefully vs freeze)
+- Debug window only updated when visible (eliminates 21,600+ unnecessary GUI ops/hour)
+
+### Data Directory Migration - DONE (2026-02-18)
+- Centralized via `load_test_bench/config.py` → `get_data_dir()`
+- macOS: `~/Library/Application Support/Load Test Bench/`
+- Legacy `~/.atorch/` auto-migrated on first run
+- User presets in `<data_dir>/presets/` (organized by type)
+
+### Test Conditions Save/Load - DONE
+- Preset system with Save/Delete buttons across all panels
+- Default presets in `resources/` subdirectories
+- User presets saved to `<data_dir>/presets/`
+- Session state persists across app restarts
+
+### Time Limit Setting - DONE
+- Device protocol supports minutes mode (flag=0x02) and hours mode (flag=0x01)
+- Device does NOT support combined hours+minutes (limitation of firmware)
+- Fixed in `set_discharge_time()` to use correct mode based on hours value

@@ -842,6 +842,10 @@ class PowerBankPanel(QWidget):
         if self.start_btn.text() != "Abort":
             return
 
+        # Always show "Running" while test is active (clears countdown text)
+        self.status_label.setText("Running")
+        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+
         h = int(elapsed_seconds) // 3600
         m = (int(elapsed_seconds) % 3600) // 60
         s = int(elapsed_seconds) % 60

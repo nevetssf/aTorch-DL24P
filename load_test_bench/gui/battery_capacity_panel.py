@@ -611,8 +611,8 @@ class BatteryCapacityPanel(QWidget):
         Args:
             remaining: Seconds remaining in start delay
         """
-        self.status_label.setText(f"Start Delay: {remaining}s")
-        self.status_label.setStyleSheet("color: blue; font-weight: bold;")
+        self.status_label.setText(f"Starting in {remaining} seconds")
+        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
 
     def _update_ui_running(self) -> None:
         """Update UI for running state."""
@@ -721,6 +721,10 @@ class BatteryCapacityPanel(QWidget):
         """
         if self.start_btn.text() != "Abort":
             return  # Not running
+
+        # Always show "Running" while test is active (clears countdown text)
+        self.status_label.setText("Running")
+        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
 
         # Store voltage reading for median calculation
         if voltage > 0:
