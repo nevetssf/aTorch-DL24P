@@ -10,7 +10,7 @@ if getattr(sys, 'frozen', False):
     bundle_dir = sys._MEIPASS
     sys.path.insert(0, bundle_dir)
 
-from atorch.main import main
+from load_test_bench.main import main
 
 if __name__ == "__main__":
     main()

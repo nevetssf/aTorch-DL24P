@@ -70,7 +70,7 @@ def launch_test_bench():
     """Launch the Test Bench application."""
     print("\n=== Launching Test Bench ===")
     proc = subprocess.Popen(
-        [sys.executable, "-m", "atorch.main"],
+        [sys.executable, "-m", "load_test_bench.main"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
@@ -83,7 +83,7 @@ def launch_test_viewer():
     """Launch the Test Viewer application."""
     print("\n=== Launching Test Viewer ===")
     proc = subprocess.Popen(
-        [sys.executable, "-m", "atorch.viewer"],
+        [sys.executable, "-m", "load_test_bench.viewer"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )

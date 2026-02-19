@@ -27,10 +27,10 @@ source .venv/bin/activate
 
 ```bash
 # Run the application (Test Bench - device control + testing)
-python -m atorch.main
+python -m load_test_bench.main
 
 # Run the Test Viewer (standalone, no device needed)
-python -m atorch.viewer
+python -m load_test_bench.viewer
 
 # Run all tests
 pytest
@@ -42,9 +42,15 @@ pytest tests/test_protocol.py
 pytest -v
 ```
 
+## Launching the App
+
+**IMPORTANT**: When launching the app (`python -m load_test_bench.main` or `python -m load_test_bench.viewer`):
+1. **Kill previous instance first**: Before launching, find and kill any previous instance that you launched. Use the background task ID from the previous launch to stop it — do NOT do a blanket `pkill python` or similar, as the user may have other Python processes running.
+2. **Run in background**: Always launch the app non-blocking (using `run_in_background`) so the user can continue interacting with you while the app is running.
+
 ## Architecture
 
-### Device Communication (`atorch/protocol/`)
+### Device Communication (`load_test_bench/protocol/`)
 
 Two device classes with identical APIs:
 - `Device` - Serial communication (Bluetooth, legacy)
@@ -66,7 +72,16 @@ Both use a polling thread that queries the device every 500ms for:
 - Device internal: 0=CC, 1=CV, 2=CR, 3=CP
 - Translation required when reading mode from device status
 
-### GUI Structure (`atorch/gui/`)
+**Control Panel Mode-Specific Inputs:**
+When re-enabling controls after a test ends/aborts, only the input for the active mode should be enabled:
+- CC → Current spinbox + Set button + preset current buttons only
+- CP → Power spinbox + Set button only
+- CV → Voltage spinbox + Set button only
+- CR → Resistance spinbox + Set button only
+- Shared controls (cutoff, discharge time, mode buttons) are always enabled
+- Use `control_panel._update_mode_controls()` to apply this — never enable all spinboxes blindly
+
+### GUI Structure (`load_test_bench/gui/`)
 
 - `MainWindow` - Orchestrates device connection, manages `TestRunner`, routes status updates
 - `ControlPanel` - Connection UI, mode buttons (CC/CP/CV/CR), load on/off, parameter spinboxes
@@ -113,7 +128,7 @@ As new test panels are implemented, add their graph configurations here:
 
 Implementation: See `_on_history_json_selected()` and `_load_battery_load_history()` in `main_window.py`
 
-### Test Automation (`atorch/automation/`)
+### Test Automation (`load_test_bench/automation/`)
 
 `TestRunner` manages discharge tests with configurable:
 - Current setpoint
@@ -124,10 +139,10 @@ Profiles saved as JSON in `profiles/` directory.
 
 ## Key Files
 
-- `atorch/protocol/device.py` - USB HID communication, packet building, response parsing
-- `atorch/protocol/atorch_protocol.py` - `DeviceStatus` dataclass, serial protocol (legacy)
-- `atorch/gui/control_panel.py` - Mode switching, parameter sync between GUI and device
-- `atorch/gui/main_window.py` - Application lifecycle, device connection handling
+- `load_test_bench/protocol/device.py` - USB HID communication, packet building, response parsing
+- `load_test_bench/protocol/atorch_protocol.py` - `DeviceStatus` dataclass, serial protocol (legacy)
+- `load_test_bench/gui/control_panel.py` - Mode switching, parameter sync between GUI and device
+- `load_test_bench/gui/main_window.py` - Application lifecycle, device connection handling
 
 ## Known Protocol Details
 
@@ -196,7 +211,7 @@ def _on_debug_message(self, event_type: str, message: str, data: bytes) -> None:
 
 ## User Data Locations
 
-All user data stored in the data directory (see `atorch/config.py` → `get_data_dir()`):
+All user data stored in the data directory (see `load_test_bench/config.py` → `get_data_dir()`):
 - `sessions/` - Panel state files (`*_session.json`, restored on app restart)
 - `presets/` - User-saved presets organized by test type (`battery_presets/`, `test_presets/`, etc.)
 - `test_data/` - Auto-saved JSON test results
@@ -261,7 +276,7 @@ The database management dialog (`Tools → Database Management`) provides:
 - Exported JSON/CSV files are NOT affected (remain on disk)
 - Use case: Clean up test database after long testing periods
 
-**Implementation:** `atorch/gui/database_dialog.py` - DatabaseDialog class
+**Implementation:** `load_test_bench/gui/database_dialog.py` - DatabaseDialog class
 
 ## Collapsible Panel Implementation
 
@@ -273,10 +288,10 @@ The Test Automation panel uses a custom collapse approach:
 
 ## PyInstaller Builds
 
-Build script: `build.py` using `run_atorch.py` as entry point (handles frozen imports).
+Build script: `build.py` using `run_load_test_bench.py` as entry point (handles frozen imports).
 
 ```bash
-python build.py  # Creates dist/aTorch DL24P.app (macOS) or .exe (Windows)
+python build.py  # Creates dist/Load Test Bench.app (macOS) or .exe (Windows)
 ```
 
 Hidden imports required: PySide6, pyqtgraph, numpy, pandas, serial, hid

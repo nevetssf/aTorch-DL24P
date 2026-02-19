@@ -1,7 +1,7 @@
 """Tests for the Atorch protocol implementation."""
 
 import pytest
-from atorch.protocol.atorch_protocol import AtorchProtocol, Command, DeviceStatus
+from load_test_bench.protocol.atorch_protocol import AtorchProtocol, Command, DeviceStatus
 
 
 class TestAtorchProtocol:

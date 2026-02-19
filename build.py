@@ -66,7 +66,7 @@ def build():
         cmd.append("--version-file=version_info.txt")
 
     # Add the launcher script (handles package imports for frozen builds)
-    cmd.append("run_atorch.py")
+    cmd.append("run_load_test_bench.py")
 
     print(f"Building for {system}...")
     print(f"Command: {' '.join(cmd)}")

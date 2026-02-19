@@ -2,7 +2,7 @@
 
 import sys
 from PySide6.QtWidgets import QApplication
-from atorch.viewer.main_window import ViewerMainWindow
+from load_test_bench.viewer.main_window import ViewerMainWindow
 
 
 def main():

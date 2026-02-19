@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QLabel,
     QDialog,
-    QTextBrowser,
     QPushButton,
     QSystemTrayIcon,
     QGroupBox,
@@ -240,28 +239,15 @@ class MainWindow(QMainWindow):
             self.control_panel.cv_btn.setEnabled(True)
             self.control_panel.cr_btn.setEnabled(True)
 
-            # Re-enable parameter spinboxes
-            self.control_panel.current_spin.setEnabled(True)
-            self.control_panel.power_spin.setEnabled(True)
-            self.control_panel.voltage_spin.setEnabled(True)
-            self.control_panel.resistance_spin.setEnabled(True)
+            # Re-enable shared controls (cutoff, discharge time)
             self.control_panel.cutoff_spin.setEnabled(True)
+            self.control_panel.set_cutoff_btn.setEnabled(True)
             self.control_panel.discharge_hours_spin.setEnabled(True)
             self.control_panel.discharge_mins_spin.setEnabled(True)
-
-            # Re-enable Set buttons
-            self.control_panel.set_current_btn.setEnabled(True)
-            self.control_panel.set_power_btn.setEnabled(True)
-            self.control_panel.set_voltage_btn.setEnabled(True)
-            self.control_panel.set_resistance_btn.setEnabled(True)
-            self.control_panel.set_cutoff_btn.setEnabled(True)
             self.control_panel.set_discharge_btn.setEnabled(True)
 
-            # Re-enable preset current buttons (0.1A, 0.2A, 0.5A, 1.0A)
-            for i in range(self.control_panel.preset_btns.count()):
-                widget = self.control_panel.preset_btns.itemAt(i).widget()
-                if widget:
-                    widget.setEnabled(True)
+            # Re-enable mode-specific inputs based on current mode
+            self.control_panel._update_mode_controls()
 
             # Re-enable data logging controls
             self.status_panel.log_switch.setEnabled(True)
@@ -1627,453 +1613,27 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _show_help(self) -> None:
-        """Show comprehensive help documentation."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Load Test Bench Help")
-        dialog.resize(900, 700)
-
-        layout = QVBoxLayout(dialog)
-
-        # Create text browser for scrollable HTML content
-        browser = QTextBrowser()
-        browser.setOpenExternalLinks(True)
-        browser.setHtml(self._get_help_html())
-        layout.addWidget(browser)
-
-        # Close button
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(dialog.accept)
-        layout.addWidget(close_btn)
-
-        dialog.exec()
+        """Open help documentation in the system browser."""
+        self._open_help_html()
 
     @Slot()
     def _show_connection_troubleshooting(self) -> None:
-        """Show USB connection troubleshooting help."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Connection Troubleshooting")
-        dialog.resize(700, 600)
+        """Open USB connection troubleshooting in the system browser."""
+        self._open_help_html("troubleshooting")
 
-        layout = QVBoxLayout(dialog)
+    def _open_help_html(self, anchor: str = "") -> None:
+        """Open the standalone help HTML file in the system browser.
 
-        # Create text browser for scrollable HTML content
-        browser = QTextBrowser()
-        browser.setOpenExternalLinks(True)
-        browser.setHtml(self._get_troubleshooting_html())
-        layout.addWidget(browser)
-
-        # Close button
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(dialog.accept)
-        layout.addWidget(close_btn)
-
-        dialog.exec()
-
-    def _get_troubleshooting_html(self) -> str:
-        """Get USB connection troubleshooting documentation as HTML.
-
-        Returns:
-            HTML string with troubleshooting information
+        Args:
+            anchor: Optional anchor to scroll to (e.g. "troubleshooting")
         """
-        return """
-        <html>
-        <head>
-            <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; padding: 15px; }
-                h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
-                h2 { color: #34495e; margin-top: 20px; border-bottom: 1px solid #bdc3c7; padding-bottom: 5px; }
-                h3 { color: #7f8c8d; margin-top: 15px; }
-                .problem { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 10px; margin: 10px 0; }
-                .solution { background-color: #d4edda; border-left: 4px solid #28a745; padding: 10px; margin: 10px 0; }
-                .note { background-color: #d1ecf1; border-left: 4px solid #17a2b8; padding: 10px; margin: 10px 0; }
-                ul { margin-left: 20px; }
-                li { margin: 8px 0; }
-                code { background-color: #ecf0f1; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
-            </style>
-        </head>
-        <body>
-            <h1>USB Connection Troubleshooting</h1>
-
-            <h2>Problem: Live Readings Stop Updating</h2>
-            <div class="problem">
-                <strong>Symptom:</strong> The device is connected and can be controlled (load on/off works),
-                but Live Readings (voltage, current, power) stop updating.
-            </div>
-
-            <h3>Root Cause</h3>
-            <p>This is a <strong>known issue with macOS USB HID drivers</strong>, particularly when:</p>
-            <ul>
-                <li>The Mac goes to sleep or the display turns off</li>
-                <li>macOS suspends USB devices for power management</li>
-                <li>The USB HID driver enters a stuck state where commands are sent but responses aren't received</li>
-            </ul>
-
-            <h3>Solutions (Try in Order)</h3>
-
-            <div class="solution">
-                <strong>1. Click the Reset Button</strong>
-                <ul>
-                    <li>Click the <code>Reset</code> button next to the Disconnect button</li>
-                    <li>This disconnects and reconnects after a 2-second delay</li>
-                    <li>Works in some cases, but not always due to macOS driver limitations</li>
-                </ul>
-            </div>
-
-            <div class="solution">
-                <strong>2. Manual Disconnect/Reconnect</strong>
-                <ul>
-                    <li>Click <code>Disconnect</code></li>
-                    <li>Wait 2-3 seconds</li>
-                    <li>Click <code>Connect</code></li>
-                    <li>Same as Reset button, but with manual control over timing</li>
-                </ul>
-            </div>
-
-            <div class="solution">
-                <strong>3. Unplug and Replug USB Cable (Most Reliable)</strong>
-                <ul>
-                    <li>Physically unplug the USB cable from the DL24P or computer</li>
-                    <li>Wait 2-3 seconds</li>
-                    <li>Plug it back in</li>
-                    <li>Click <code>Connect</code> in the app</li>
-                    <li><strong>This is the most reliable solution</strong> for stuck USB HID states</li>
-                </ul>
-            </div>
-
-            <h3>Why Software Reset Doesn't Always Work</h3>
-            <p>Research shows this is a limitation of the hidapi library and macOS USB HID drivers:</p>
-            <ul>
-                <li><strong>macOS Power Management:</strong> When the Mac sleeps, USB devices may not properly wake up
-                    (<a href="https://kb.plugable.com/docking-stations-and-video/devices-are-not-detected-after-waking-from-sleep-or-after-rebooting-on-macos">Plugable KB Article</a>)</li>
-                <li><strong>HID Driver State:</strong> The IOHIDDevice can get stuck in a state where closing and reopening
-                    doesn't clear pending operations (<a href="https://github.com/libusb/hidapi/issues/171">hidapi Issue #171</a>)</li>
-                <li><strong>No Reset Function:</strong> There's no programmatic way to reset IOHIDDevice state - physical
-                    disconnect is required (<a href="https://github.com/signal11/hidapi/issues/114">hidapi Issue #114</a>)</li>
-            </ul>
-
-            <h3>Prevention Tips</h3>
-            <div class="note">
-                <ul>
-                    <li><strong>Prevent Mac Sleep:</strong> System Settings → Battery → Prevent automatic sleeping when display is off</li>
-                    <li><strong>Use a USB Hub:</strong> Some users report better reliability with powered USB hubs</li>
-                    <li><strong>Avoid USB-C Adapters:</strong> Direct USB-A connection may be more stable</li>
-                    <li><strong>Keep App Active:</strong> Minimize display sleep timeout while running tests</li>
-                </ul>
-            </div>
-
-            <h2>Other Connection Issues</h2>
-
-            <h3>Device Not Found</h3>
-            <ul>
-                <li>Check USB cable is fully inserted</li>
-                <li>Try a different USB port</li>
-                <li>Verify device powers on (screen shows readings)</li>
-                <li>Check that no other app is using the device</li>
-            </ul>
-
-            <h3>Connection Error</h3>
-            <ul>
-                <li>Close any other apps that might be using the DL24P</li>
-                <li>Restart the Test Bench app</li>
-                <li>Try unplugging/replugging USB cable</li>
-            </ul>
-
-            <h3>Debug Logging</h3>
-            <p>Enable <strong>Debug Log</strong> checkbox in the Control Panel to see detailed USB communication
-            in <code>debug.log</code>. Look for "No response received" warnings to confirm the stuck state issue.</p>
-        </body>
-        </html>
-        """
-
-    def _get_help_html(self) -> str:
-        """Get comprehensive help documentation as HTML.
-
-        Returns:
-            HTML string with full documentation
-        """
-        return """
-        <html>
-        <head>
-            <style>
-                body {
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                    line-height: 1.7; color: #1a1a2e; padding: 20px;
-                }
-                h1 {
-                    color: #16213e; font-size: 26px; font-weight: 700;
-                    border-bottom: 3px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px;
-                }
-                h2 {
-                    color: #1e3a5f; font-size: 20px; font-weight: 600;
-                    margin-top: 28px; padding: 8px 12px;
-                    background: linear-gradient(135deg, #eff6ff, #f0f9ff);
-                    border-left: 4px solid #3b82f6; border-radius: 4px;
-                }
-                h3 {
-                    color: #334155; font-size: 16px; font-weight: 600; margin-top: 18px;
-                }
-                code {
-                    background-color: #f1f5f9; padding: 2px 6px; border-radius: 4px;
-                    font-family: 'SF Mono', Menlo, monospace; font-size: 13px; color: #334155;
-                }
-                .callout {
-                    padding: 12px 16px; margin: 14px 0; border-radius: 8px;
-                    font-size: 14px; line-height: 1.5;
-                }
-                .warning {
-                    background-color: #fef2f2; border-left: 4px solid #ef4444; color: #991b1b;
-                }
-                .tip {
-                    background-color: #f0fdf4; border-left: 4px solid #22c55e; color: #166534;
-                }
-                .note {
-                    background-color: #fffbeb; border-left: 4px solid #f59e0b; color: #92400e;
-                }
-                .info {
-                    background-color: #eff6ff; border-left: 4px solid #3b82f6; color: #1e40af;
-                }
-                .wip {
-                    background-color: #f5f5f5; border-left: 4px solid #9ca3af; color: #6b7280;
-                    font-style: italic;
-                }
-                ul { margin-left: 16px; padding-left: 8px; }
-                li { margin: 6px 0; }
-                ol li { margin: 8px 0; }
-                b { color: #1e293b; }
-                a { color: #3b82f6; }
-                table {
-                    border-collapse: collapse; margin: 12px 0; width: 100%;
-                }
-                th {
-                    background: #f1f5f9; padding: 8px 12px; text-align: left;
-                    border-bottom: 2px solid #cbd5e1; font-weight: 600; font-size: 13px;
-                }
-                td {
-                    padding: 6px 12px; border-bottom: 1px solid #e2e8f0; font-size: 13px;
-                }
-                .section-divider {
-                    border: none; border-top: 1px solid #e2e8f0; margin: 28px 0;
-                }
-            </style>
-        </head>
-        <body>
-            <h1>Load Test Bench Help</h1>
-
-            <h2>Getting Started</h2>
-
-            <h3>Connecting to the DL24P</h3>
-            <ol>
-                <li>Connect the DL24P to your computer via USB</li>
-                <li>The app auto-detects the device — click <b>Connect</b> in the Control Panel</li>
-                <li>The status bar shows connection state and live voltage once communication is established</li>
-            </ol>
-
-            <div class="callout note">
-                <b>macOS note:</b> After power-cycling the DL24P, the app may prompt for your password
-                to send a one-time USB reset command. This is normal and only needed once per power cycle.
-            </div>
-
-            <h3>Basic Controls</h3>
-            <p>The Control Panel provides manual control of the electronic load:</p>
-            <ul>
-                <li><b>Mode:</b> CC (Constant Current), CP (Constant Power), CV (Constant Voltage), CR (Constant Resistance)</li>
-                <li><b>Value:</b> Set the load value for the selected mode</li>
-                <li><b>Voltage Cutoff:</b> Minimum voltage before the load automatically turns off</li>
-                <li><b>Load On/Off:</b> Toggle the electronic load</li>
-            </ul>
-
-            <div class="callout warning">
-                <b>Important:</b> Always set an appropriate voltage cutoff when testing batteries to prevent over-discharge damage.
-            </div>
-
-            <hr class="section-divider">
-
-            <h2>Test Panels</h2>
-
-            <h3>Battery Capacity</h3>
-            <p>Discharges a battery at constant current and measures total capacity (mAh) and energy (Wh).</p>
-            <ul>
-                <li><b>Discharge Current:</b> Constant current draw (e.g., 1.0A)</li>
-                <li><b>Voltage Cutoff:</b> Stop voltage (e.g., 3.0V for Li-Ion)</li>
-                <li><b>Time Limit:</b> Optional maximum test duration</li>
-                <li><b>Battery Info:</b> Document the battery name, chemistry, rated capacity, etc.</li>
-            </ul>
-            <p><b>Use for:</b> Measuring actual capacity, verifying specs, comparing brands, tracking degradation.</p>
-
-            <div class="callout tip">
-                <b>Tip:</b> Use presets for common battery types (Canon, Nikon, Eneloop, etc.) to quickly set up tests.
-                Use 0.5C or lower discharge rate for the most accurate capacity readings.
-            </div>
-
-            <h3>Battery Load</h3>
-            <p>Steps through load levels to characterize how battery voltage responds under different loads.</p>
-            <ul>
-                <li><b>Load Type:</b> Current, Power, or Resistance sweep</li>
-                <li><b>Min/Max:</b> Load range to test (e.g., 0.5A to 3A)</li>
-                <li><b>Steps:</b> Number of measurement points</li>
-                <li><b>Dwell Time:</b> Settling time at each level for stable readings</li>
-            </ul>
-            <p><b>Use for:</b> Measuring internal resistance, evaluating high-drain performance, comparing battery health.</p>
-
-            <h3>Battery Charger</h3>
-            <p>Simulates battery voltage levels using CV mode and measures the charger's current output,
-            revealing the CC-CV charging profile.</p>
-            <ul>
-                <li><b>Chemistry:</b> Determines voltage range (Li-Ion 1S/2S/3S, NiMH, LiFePO4)</li>
-                <li><b>Voltage Range:</b> Simulated battery voltage from depleted to full</li>
-                <li><b>Steps / Dwell:</b> Resolution and settling time</li>
-            </ul>
-            <p><b>Setup:</b> Connect charger output to DL24P input. The DL24P acts as a simulated battery.</p>
-            <p><b>Use for:</b> Verifying charger specs, comparing charging profiles, identifying counterfeits.</p>
-
-            <hr class="section-divider">
-
-            <h2>Plots &amp; Live Data</h2>
-
-            <h3>Real-Time Plots</h3>
-            <p>The Plot Panel displays live data with up to 4 configurable axes:</p>
-            <ul>
-                <li><b>Y (left axis):</b> Primary parameter</li>
-                <li><b>Y1, Y2, Y3 (right axes):</b> Additional parameters with independent scales</li>
-                <li><b>X axis:</b> Time, Capacity, Energy, or any measured parameter</li>
-            </ul>
-            <p><b>Parameters:</b> Voltage, Current, Power, Load R, Battery R, MOSFET Temp, External Temp, Capacity, Energy</p>
-            <p>Features auto-scaling with SI prefixes, adjustable time windows (30s to All), interactive zoom/pan, and point markers.</p>
-
-            <h3>Status Panel</h3>
-            <p>Displays live readings: voltage, current, power, capacity (mAh), energy (Wh),
-            MOSFET and external temperatures, fan speed, load and battery resistance, and elapsed time.</p>
-
-            <hr class="section-divider">
-
-            <h2>Data Management</h2>
-
-            <h3>Logging</h3>
-            <ul>
-                <li>Toggle with the <b>Log Data</b> switch in the Status Panel</li>
-                <li>Records at 1 Hz to both SQLite database and in-memory buffer (last 48 hours)</li>
-            </ul>
-
-            <h3>Saving &amp; Exporting</h3>
-            <ul>
-                <li><b>Auto-save:</b> Enable in test panels — saves JSON when test completes</li>
-                <li><b>Manual save:</b> Click <b>Save</b> for a custom filename</li>
-                <li><b>Export:</b> CSV and Excel formats available</li>
-                <li><b>Location:</b> See Settings → Database for the data directory</li>
-            </ul>
-
-            <h3>History Panel</h3>
-            <p>Browse and reload saved test data. Click any file to load it into the plot and test panel.
-            Use <b>Show Folder</b> to open the data directory.</p>
-
-            <h3>Database Management</h3>
-            <p>Access via <b>Tools → Database Management</b> to view statistics or purge old data.</p>
-
-            <div class="callout warning">
-                <b>Warning:</b> Database purge is permanent. Exported JSON/CSV files are not affected.
-            </div>
-
-            <hr class="section-divider">
-
-            <h2>Presets</h2>
-            <ul>
-                <li><b>Battery presets:</b> Common batteries with chemistry, voltage, and capacity pre-filled (Canon, Nikon, Sony, Eneloop, etc.)</li>
-                <li><b>Test presets:</b> Pre-configured test parameters for common scenarios</li>
-                <li>Save your own with <b>Save</b>, delete user presets with <b>Delete</b></li>
-                <li>Default presets cannot be deleted</li>
-            </ul>
-
-            <hr class="section-divider">
-
-            <h2>Settings</h2>
-
-            <table>
-                <tr><th>Setting</th><th>Location</th><th>Description</th></tr>
-                <tr><td>Auto-connect</td><td>File → Settings</td><td>Connect to DL24P automatically on startup</td></tr>
-                <tr><td>Backlight</td><td>Device → Settings</td><td>Screen brightness and standby timeout</td></tr>
-                <tr><td>Counter Reset</td><td>Device → Settings</td><td>Clear mAh, Wh, and time counters on device</td></tr>
-                <tr><td>Factory Reset</td><td>Device → Settings</td><td>Restore device to default settings</td></tr>
-                <tr><td>Tooltips</td><td>Help → Show Tooltips</td><td>Toggle hover help throughout the app</td></tr>
-            </table>
-
-            <hr class="section-divider">
-
-            <h2>Battery Chemistry Reference</h2>
-
-            <table>
-                <tr><th>Chemistry</th><th>Nominal V</th><th>Cutoff V</th><th>Full V</th></tr>
-                <tr><td>Li-Ion / LiPo</td><td>3.7V</td><td>2.5–3.0V</td><td>4.2V</td></tr>
-                <tr><td>LiFePO4</td><td>3.2V</td><td>2.5V</td><td>3.65V</td></tr>
-                <tr><td>NiMH</td><td>1.2V</td><td>0.9–1.0V</td><td>1.45V</td></tr>
-                <tr><td>NiCd</td><td>1.2V</td><td>0.9–1.0V</td><td>1.45V</td></tr>
-                <tr><td>Lead Acid</td><td>2.0V/cell</td><td>1.75V/cell</td><td>2.4V/cell</td></tr>
-            </table>
-
-            <hr class="section-divider">
-
-            <h2>Troubleshooting</h2>
-
-            <h3>Device won't connect</h3>
-            <ul>
-                <li>Check USB cable is fully seated — try a different cable or port</li>
-                <li>Verify the DL24P screen is on and showing readings</li>
-                <li>Close any other apps that might be using the device</li>
-                <li>See <b>Help → Connection Troubleshooting</b> for USB-specific issues</li>
-            </ul>
-
-            <h3>Readings stop updating</h3>
-            <ul>
-                <li>macOS may suspend USB devices during sleep — unplug and replug the cable</li>
-                <li>Use <b>Reset</b> button or disconnect/reconnect</li>
-                <li>Keep display sleep disabled during long tests</li>
-            </ul>
-
-            <h3>Test stops prematurely</h3>
-            <ul>
-                <li>Voltage cutoff was reached (check the plot)</li>
-                <li>Time limit expired</li>
-                <li>DL24P overheated (check MOSFET temperature — device has thermal protection)</li>
-            </ul>
-
-            <hr class="section-divider">
-
-            <h2>Technical Specifications</h2>
-
-            <table>
-                <tr><th>Parameter</th><th>Value</th></tr>
-                <tr><td>Voltage range</td><td>0–30V</td></tr>
-                <tr><td>Current range</td><td>0–24A</td></tr>
-                <tr><td>Power (max)</td><td>150W (with active cooling)</td></tr>
-                <tr><td>Modes</td><td>CC, CP, CV, CR</td></tr>
-                <tr><td>Resolution</td><td>10mV, 10mA</td></tr>
-                <tr><td>Connection</td><td>USB HID (no drivers needed)</td></tr>
-                <tr><td>Logging rate</td><td>1 Hz</td></tr>
-                <tr><td>Database</td><td>SQLite 3</td></tr>
-                <tr><td>Export formats</td><td>JSON, CSV, Excel</td></tr>
-            </table>
-
-            <hr class="section-divider">
-
-            <h2>File Locations</h2>
-
-            <table>
-                <tr><th>Content</th><th>Path</th></tr>
-                <tr><td>User data</td><td>See Settings → Database for the data directory</td></tr>
-                <tr><td>Test results</td><td><code>test_data/</code> (within data directory)</td></tr>
-                <tr><td>Database</td><td><code>tests.db</code> (within data directory)</td></tr>
-                <tr><td>Session state</td><td><code>sessions/</code> (within data directory)</td></tr>
-                <tr><td>User presets</td><td><code>presets/</code> (within data directory)</td></tr>
-            </table>
-
-            <hr class="section-divider">
-
-            <p style="text-align: center; color: #94a3b8; font-size: 13px; margin-top: 24px;">
-                Load Test Bench v1.0.0 &nbsp;·&nbsp; Built with PySide6 and pyqtgraph<br>
-                <a href="https://github.com/nevetssf/aTorch-DL24P" style="color: #64748b;">github.com/nevetssf/aTorch-DL24P</a>
-            </p>
-        </body>
-        </html>
-        """
+        help_path = Path(__file__).parent.parent.parent / "resources" / "help" / "help.html"
+        if getattr(sys, "frozen", False):
+            help_path = Path(sys._MEIPASS) / "resources" / "help" / "help.html"
+        url = QUrl.fromLocalFile(str(help_path))
+        if anchor:
+            url.setFragment(anchor)
+        QDesktopServices.openUrl(url)
 
     @Slot(int)
     def _on_tab_changed(self, index: int) -> None:
@@ -2725,6 +2285,7 @@ class MainWindow(QMainWindow):
         else:
             # Update countdown
             self.power_bank_panel.update_start_delay_countdown(self._pb_start_delay_remaining)
+            self.statusbar.showMessage(f"Starting in {self._pb_start_delay_remaining} seconds")
 
     @Slot()
     def _on_automation_pause(self) -> None:
@@ -3257,18 +2818,19 @@ class MainWindow(QMainWindow):
         self._pb_auto_voltage_timer = QTimer(self)
         self._pb_auto_voltage_timer.timeout.connect(self._on_pb_auto_voltage_tick)
         self._pb_auto_voltage_timer.start(1000)
-        self.power_bank_panel.status_label.setText("Auto: reading voltage (5s)...")
+        self.power_bank_panel.status_label.setText("Starting in 5 seconds")
         self.power_bank_panel.status_label.setStyleSheet("color: orange; font-weight: bold;")
+        self.statusbar.showMessage("Auto: Measuring open-circuit voltage — starting in 5 seconds")
 
     def _on_pb_auto_voltage_tick(self) -> None:
         """Handle auto-voltage countdown tick."""
         self._pb_auto_voltage_remaining -= 1
         if self._pb_auto_voltage_remaining > 0:
             self.power_bank_panel.status_label.setText(
-                f"Auto: reading voltage ({self._pb_auto_voltage_remaining}s)..."
+                f"Starting in {self._pb_auto_voltage_remaining} seconds"
             )
             self.statusbar.showMessage(
-                f"Auto: Waiting for voltage to stabilize ({self._pb_auto_voltage_remaining}s)..."
+                f"Auto: Measuring open-circuit voltage — starting in {self._pb_auto_voltage_remaining} seconds"
             )
             return
 
@@ -3284,22 +2846,34 @@ class MainWindow(QMainWindow):
             self.power_bank_panel.ps_voltage_spin.setValue(voltage)
             self.power_bank_panel.ps_voltage_spin.blockSignals(False)
             self._pb_auto_voltage_frozen = True
-            self.statusbar.showMessage(f"Auto: Set voltage to {voltage:.2f} V (no-load). Starting in 5s...")
+            self._pb_auto_detected_voltage = voltage
+        else:
+            self._pb_auto_detected_voltage = None
 
         # Wait another 5 seconds before starting the test
         self._pb_auto_start_remaining = 5
         self._pb_auto_start_timer = QTimer(self)
         self._pb_auto_start_timer.timeout.connect(self._on_pb_auto_start_tick)
         self._pb_auto_start_timer.start(1000)
-        self.power_bank_panel.status_label.setText("Starting test (5s)...")
+        self.power_bank_panel.status_label.setText("Starting in 5 seconds")
+        if self._pb_auto_detected_voltage is not None:
+            self.statusbar.showMessage(f"Auto: Voltage set to {self._pb_auto_detected_voltage:.2f} V — starting in 5 seconds")
+        else:
+            self.statusbar.showMessage("Auto: Starting in 5 seconds")
 
     def _on_pb_auto_start_tick(self) -> None:
         """Handle the second countdown before starting the test."""
         self._pb_auto_start_remaining -= 1
         if self._pb_auto_start_remaining > 0:
             self.power_bank_panel.status_label.setText(
-                f"Starting test ({self._pb_auto_start_remaining}s)..."
+                f"Starting in {self._pb_auto_start_remaining} seconds"
             )
+            if getattr(self, '_pb_auto_detected_voltage', None) is not None:
+                self.statusbar.showMessage(
+                    f"Auto: Voltage set to {self._pb_auto_detected_voltage:.2f} V — starting in {self._pb_auto_start_remaining} seconds"
+                )
+            else:
+                self.statusbar.showMessage(f"Auto: Starting in {self._pb_auto_start_remaining} seconds")
             return
 
         # Timer done - start the test
@@ -3453,8 +3027,7 @@ class MainWindow(QMainWindow):
                 self._pb_start_delay_timer.timeout.connect(self._on_pb_start_delay_tick)
                 self._pb_start_delay_timer.start(1000)
                 self.statusbar.showMessage(
-                    f"Power Bank Capacity test started: {load_type} {value_str} "
-                    f"(load on in {start_delay}s)"
+                    f"Power Bank Capacity test: {load_type} {value_str} — starting in {start_delay} seconds"
                 )
             else:
                 self._toggle_logging(True)

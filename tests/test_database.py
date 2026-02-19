@@ -5,8 +5,8 @@ from datetime import datetime
 from pathlib import Path
 import tempfile
 
-from atorch.data.database import Database
-from atorch.data.models import TestSession, Reading
+from load_test_bench.data.database import Database
+from load_test_bench.data.models import TestSession, Reading
 
 
 def make_reading(**kwargs) -> Reading:

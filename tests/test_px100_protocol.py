@@ -1,7 +1,7 @@
 """Tests for PX100 protocol implementation."""
 
 import pytest
-from atorch.protocol.px100_protocol import PX100Protocol
+from load_test_bench.protocol.px100_protocol import PX100Protocol
 
 
 class TestPX100Protocol:

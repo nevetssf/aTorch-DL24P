@@ -6,8 +6,8 @@ import pytest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from atorch.data.export import export_csv, export_json
-from atorch.data.models import TestSession, Reading
+from load_test_bench.data.export import export_csv, export_json
+from load_test_bench.data.models import TestSession, Reading
 
 
 def make_session_with_readings() -> TestSession:

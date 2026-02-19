@@ -4,10 +4,10 @@
 import sys
 from pathlib import Path
 
-# Add parent directory to path so we can import atorch
+# Add parent directory to path so we can import load_test_bench
 sys.path.insert(0, str(Path(__file__).parent))
 
-from atorch.viewer.main_window import ViewerMainWindow
+from load_test_bench.viewer.main_window import ViewerMainWindow
 from PySide6.QtWidgets import QApplication
 
 

@@ -1,4 +1,4 @@
-# aTorch DL24P Test Bench & Viewer
+# Load Test Bench & Viewer
 
 A cross-platform suite of applications for controlling the aTorch DL24P electronic load and analyzing battery test data with professional visualization.
 
@@ -13,7 +13,7 @@ Both applications are designed for battery testing, characterization, and qualit
 
 ## Features
 
-### Test Bench (`python -m atorch.main`)
+### Test Bench (`python -m load_test_bench.main`)
 
 **Device Control:**
 - USB HID connection (no serial adapter needed)
@@ -48,7 +48,7 @@ Both applications are designed for battery testing, characterization, and qualit
 - Progress tracking with capacity estimation
 - Alert notifications
 
-### Test Viewer (`python -m atorch.viewer`)
+### Test Viewer (`python -m load_test_bench.viewer`)
 
 **Analysis Features:**
 - Multi-file comparison with checkbox selection
@@ -106,7 +106,7 @@ Both applications are designed for battery testing, characterization, and qualit
 
 Run the main application:
 ```bash
-python -m atorch.main
+python -m load_test_bench.main
 ```
 
 **macOS: First-Time Setup After Power Cycle**
@@ -124,8 +124,11 @@ sudo DYLD_LIBRARY_PATH=/opt/homebrew/lib .venv/bin/python usb_prepare.py
 
 This sends the SET_IDLE HID class request and initialization sequence that Windows sends automatically during USB enumeration. You only need to run this once after power-cycling the device — the device retains its initialized state across USB disconnects.
 
+**USB Connection Note (Apple Silicon Macs):**
+The DL24P may not be detected when plugged directly into a Thunderbolt port. Connect it through a **USB hub** or dock's USB-A port instead — the hub handles the USB 2.0 speed negotiation the device requires.
+
 **Quick Start:**
-1. Connect your DL24P via USB
+1. Connect your DL24P via USB (through a hub on Apple Silicon Macs — see note above)
 2. On macOS, run `usb_prepare.py` if the device was power-cycled (see above)
 3. Select "USB HID" connection type and click "Connect"
 3. Choose a test panel (Battery Capacity, Battery Load, etc.)
@@ -152,7 +155,7 @@ This sends the SET_IDLE HID class request and initialization sequence that Windo
 
 Run the viewer:
 ```bash
-python -m atorch.viewer
+python -m load_test_bench.viewer
 ```
 
 **Quick Start:**
@@ -171,13 +174,13 @@ Create standalone executables for distribution:
 ### Windows:
 ```bash
 python build.py
-# Creates: dist/aTorch DL24P.exe
+# Creates: dist/Load Test Bench.exe
 ```
 
 ### macOS:
 ```bash
 python build.py
-# Creates: dist/aTorch DL24P.app
+# Creates: dist/Load Test Bench.app
 ```
 
 The build script automatically:
@@ -188,23 +191,23 @@ The build script automatically:
 
 ## User Data Locations
 
-All user data is stored in `~/.atorch/`:
+All user data is stored in the platform data directory:
 
+- **macOS:** `~/Library/Application Support/Load Test Bench/`
+- **Windows:** `%APPDATA%\Load Test Bench\`
+- **Linux:** `~/.local/share/Load Test Bench/`
+
+Contents:
 - `tests.db` - SQLite database (permanent storage)
 - `test_data/` - Auto-saved JSON test results
-- `battery_capacity_session.json` - Battery Capacity panel state
-- `battery_load_session.json` - Battery Load panel state
-- `battery_presets/` - User-saved battery presets
-- `test_presets/` - User-saved test configuration presets
-- `battery_load_presets/` - Battery Load test presets
-
-On Windows: `C:\Users\<YourName>\.atorch\`
+- `sessions/` - Panel state files (restored on restart)
+- `presets/` - User-saved presets (battery, test, etc.)
 
 ## Project Structure
 
 ```
-atorch/
-├── atorch/
+load-test-bench/
+├── load_test_bench/
 │   ├── protocol/         # Device communication (USB HID, serial)
 │   ├── gui/              # Test Bench GUI panels
 │   ├── viewer/           # Test Viewer application
@@ -217,7 +220,7 @@ atorch/
 │   ├── power_bank/       # Power bank presets
 │   └── icons/            # Application icons
 ├── build.py              # PyInstaller build script
-└── run_atorch.py         # Launcher for frozen builds
+└── run_load_test_bench.py # Launcher for frozen builds
 ```
 
 ## Testing

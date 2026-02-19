@@ -4,7 +4,7 @@ import pytest
 import tempfile
 from pathlib import Path
 
-from atorch.automation.profiles import (
+from load_test_bench.automation.profiles import (
     TestProfile,
     DischargeProfile,
     CycleProfile,

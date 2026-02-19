@@ -1,7 +1,7 @@
 """Tests for alert conditions."""
 
 import pytest
-from atorch.alerts.conditions import (
+from load_test_bench.alerts.conditions import (
     AlertResult,
     VoltageAlert,
     TemperatureAlert,
@@ -10,7 +10,7 @@ from atorch.alerts.conditions import (
     OvervoltageAlert,
     CapacityAlert,
 )
-from atorch.protocol.atorch_protocol import DeviceStatus
+from load_test_bench.protocol.atorch_protocol import DeviceStatus
 
 
 def make_status(**kwargs) -> DeviceStatus:

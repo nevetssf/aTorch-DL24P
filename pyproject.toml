@@ -39,14 +39,14 @@ dev = [
 ]
 
 [project.scripts]
-atorch = "atorch.main:main"
+load-test-bench = "load_test_bench.main:main"
 
 [project.gui-scripts]
-atorch-gui = "atorch.main:main"
+load-test-bench-gui = "load_test_bench.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["atorch*"]
+include = ["load_test_bench*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
