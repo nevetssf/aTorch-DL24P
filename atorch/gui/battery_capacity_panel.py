@@ -622,7 +622,9 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setEnabled(False)
         self.value_spin.setEnabled(False)
         self.cutoff_spin.setEnabled(False)
-        self.time_limit_group.setEnabled(False)
+        self.time_limit_group.setCheckable(False)
+        self.hours_spin.setEnabled(False)
+        self.minutes_spin.setEnabled(False)
         self.start_delay_spin.setEnabled(False)
 
         # Reset voltage readings and summary for new test
@@ -662,7 +664,9 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setEnabled(True)
         self.value_spin.setEnabled(True)
         self.cutoff_spin.setEnabled(True)
-        self.time_limit_group.setEnabled(True)
+        self.time_limit_group.setCheckable(True)
+        self.hours_spin.setEnabled(self.timed_checkbox.isChecked())
+        self.minutes_spin.setEnabled(self.timed_checkbox.isChecked())
         self.start_delay_spin.setEnabled(True)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("")
@@ -677,7 +681,14 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setEnabled(enabled)
         self.value_spin.setEnabled(enabled)
         self.cutoff_spin.setEnabled(enabled)
-        self.time_limit_group.setEnabled(enabled)
+        if enabled:
+            self.time_limit_group.setCheckable(True)
+            self.hours_spin.setEnabled(self.timed_checkbox.isChecked())
+            self.minutes_spin.setEnabled(self.timed_checkbox.isChecked())
+        else:
+            self.time_limit_group.setCheckable(False)
+            self.hours_spin.setEnabled(False)
+            self.minutes_spin.setEnabled(False)
         self.start_delay_spin.setEnabled(enabled)
         self.battery_info_widget.set_inputs_enabled(enabled)
         self.autosave_checkbox.setEnabled(enabled)

@@ -2604,6 +2604,7 @@ class MainWindow(QMainWindow):
         # Auto-connect if DL24 device detected and not connected
         if not self.device or not self.device.is_connected:
             if not self._try_auto_connect():
+                self.battery_capacity_panel._update_ui_stopped()
                 return
 
         # Clear data and previous session before starting new test
@@ -2790,6 +2791,7 @@ class MainWindow(QMainWindow):
         # Auto-connect if DL24 device detected and not connected
         if not self.device or not self.device.is_connected:
             if not self._try_auto_connect():
+                self.battery_load_panel._finish_test("Connection Failed")
                 return
 
         # Clear data and previous session before starting new test
@@ -2945,6 +2947,7 @@ class MainWindow(QMainWindow):
         # Auto-connect if DL24 device detected and not connected
         if not self.device or not self.device.is_connected:
             if not self._try_auto_connect():
+                self.charger_panel._finish_test("Connection Failed")
                 return
 
         # Clear data and previous session before starting new test
@@ -3100,6 +3103,7 @@ class MainWindow(QMainWindow):
         # Auto-connect if DL24 device detected and not connected
         if not self.device or not self.device.is_connected:
             if not self._try_auto_connect():
+                self.battery_charger_panel._abort_test("Connection Failed")
                 return
 
         # Clear accumulated data and reset counters BEFORE test begins
@@ -3238,12 +3242,10 @@ class MainWindow(QMainWindow):
         """Start the auto-voltage detection sequence: turn off load, wait 5s, read voltage, wait 5s, then start test."""
         # Reset frozen state for fresh detection
         self._pb_auto_voltage_frozen = False
-        # Turn off load if it's on
-        if self._prev_load_on:
-            self.device.turn_off()
-            self.statusbar.showMessage("Auto: Turning off load to measure open-circuit voltage...")
-        else:
-            self.statusbar.showMessage("Auto: Measuring open-circuit voltage...")
+        # Always turn off load to ensure we read open-circuit voltage
+        self.device.turn_off()
+        self.control_panel.power_switch.setChecked(False)
+        self.statusbar.showMessage("Auto: Load off, measuring open-circuit voltage...")
 
         # Store pending start parameters
         self._pb_pending_start = (discharge_type, value, voltage_cutoff, duration_s)
@@ -3331,6 +3333,8 @@ class MainWindow(QMainWindow):
                 self._pb_auto_start_timer = None
             self._pb_pending_start = None
             self._pb_auto_voltage_frozen = False
+            # Re-enable UI controls
+            self._enable_controls_after_test()
             # Cancel start delay timer if active
             if hasattr(self, '_pb_start_delay_timer') and self._pb_start_delay_timer is not None:
                 self._pb_start_delay_timer.stop()
@@ -3368,7 +3372,12 @@ class MainWindow(QMainWindow):
         # Auto-connect if DL24 device detected and not connected
         if not self.device or not self.device.is_connected:
             if not self._try_auto_connect():
+                # Reset panel to stopped state since it already called _update_ui_running
+                self.power_bank_panel._update_ui_stopped()
                 return
+
+        # Lock UI controls immediately when Start is clicked
+        self._disable_controls_during_test()
 
         # If Auto voltage is checked, start the no-load voltage detection sequence
         if self.power_bank_panel.ps_auto_checkbox.isChecked():
@@ -3424,8 +3433,10 @@ class MainWindow(QMainWindow):
         units = {"Current": "A", "Resistance": "\u03a9", "Power": "W"}
         value_str = f"{value}{units.get(load_type, '')}"
 
-        # Get start delay from panel
+        # Get start delay from panel (skip if auto-voltage already handled the delay)
         start_delay = self.power_bank_panel.start_delay_spin.value()
+        if self._pb_auto_voltage_frozen:
+            start_delay = 0  # Auto-voltage already waited with load off
 
         # Start logging
         if not self._logging_enabled:

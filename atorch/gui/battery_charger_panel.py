@@ -1200,10 +1200,14 @@ class BatteryChargerPanel(QWidget):
         self.min_voltage_spin.setEnabled(enabled)
         self.max_voltage_spin.setEnabled(enabled)
         self.num_steps_spin.setEnabled(enabled)
-        self.stage2_group.setEnabled(enabled)
+        if enabled:
+            self.stage2_group.setCheckable(True)
+            self.stage3_group.setCheckable(True)
+        else:
+            self.stage2_group.setCheckable(False)
+            self.stage3_group.setCheckable(False)
         self.stage2_end_spin.setEnabled(enabled)
         self.stage2_steps_spin.setEnabled(enabled)
-        self.stage3_group.setEnabled(enabled)
         self.stage3_end_spin.setEnabled(enabled)
         self.stage3_steps_spin.setEnabled(enabled)
         self.settle_time_spin.setEnabled(enabled)
