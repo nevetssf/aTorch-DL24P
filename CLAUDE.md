@@ -15,6 +15,14 @@ aTorch DL24P Control is a PySide6 GUI application for controlling the aTorch DL2
 - Check both `Device` and `USBHIDDevice` classes as they should have identical APIs
 - When in doubt, search the codebase for existing usage patterns
 
+## Environment
+
+Activate the virtual environment before running anything:
+
+```bash
+source .venv/bin/activate
+```
+
 ## Commands
 
 ```bash

@@ -1172,7 +1172,9 @@ class USBHIDDevice:
                 else:
                     self._consecutive_no_response = 0
 
-                time.sleep(self.POLL_INTERVAL)
+                # Skip sleep when device isn't responding — no point waiting
+                if self._consecutive_no_response == 0:
+                    time.sleep(self.POLL_INTERVAL)
 
             except Exception as e:
                 if self._running:

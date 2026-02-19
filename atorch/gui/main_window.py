@@ -126,6 +126,7 @@ class MainWindow(QMainWindow):
         self._prev_load_on = False  # Track previous load state for cutoff detection
         self._pb_auto_voltage_frozen = False  # Stop live voltage updates once auto-detected
         self._load_off_count = 0  # Consecutive polls with load off during logging
+        self._usb_prepare_done = False  # Prevents re-triggering USB prepare after success
         self._load_off_abort_threshold = 3  # Abort after N consecutive load-off polls
         self._last_autosave_time: Optional[datetime] = None  # Track last periodic auto-save
         self._autosave_interval = 30  # Auto-save every 30 seconds during test
@@ -819,6 +820,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _disconnect_device(self) -> None:
         """Disconnect from the device."""
+        self._usb_prepare_done = False  # Allow USB prepare on next connect
         # Turn off the load first
         if self.device and self.device.is_connected:
             self.device.turn_off()
@@ -3765,6 +3767,12 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # If USB prepare already succeeded this session, just try reconnecting
+        if self._usb_prepare_done:
+            self.statusbar.showMessage("Device not responding — attempting reconnect...")
+            self._reconnect_after_prepare()
+            return
+
         self.statusbar.showMessage("No response from device — USB initialization needed")
 
         # Locate usb_prepare.py
@@ -3847,19 +3855,9 @@ class MainWindow(QMainWindow):
                 capture_output=True, text=True, timeout=self.USB_PREPARE_TIMEOUT
             )
             if result.returncode == 0:
-                self.statusbar.showMessage("USB device initialized — waiting for driver to reattach...")
-
-                # Show success dialog that auto-dismisses after 3 seconds
-                success = QMessageBox(self)
-                success.setIcon(QMessageBox.Information)
-                success.setWindowTitle("USB Initialization Complete")
-                success.setText("Device initialized successfully.")
-                success.setInformativeText("Reconnecting automatically...")
-                success.setStandardButtons(QMessageBox.NoButton)
-                success.show()
-                QTimer.singleShot(3000, success.accept)
-
-                QTimer.singleShot(1500, self._reconnect_after_prepare)
+                self._usb_prepare_done = True
+                self.statusbar.showMessage("USB device initialized — waiting for device to re-enumerate...")
+                self._reconnect_after_prepare()
             else:
                 stderr = result.stderr.strip()
                 if 'User canceled' in stderr or 'canceled' in stderr.lower():
@@ -3896,15 +3894,57 @@ class MainWindow(QMainWindow):
         dlg.setStandardButtons(QMessageBox.Ok)
         dlg.exec()
 
+    # Retry parameters for reconnect after USB prepare
+    RECONNECT_POLL_INTERVAL_MS = 500  # Check for device every 500ms
+    RECONNECT_MAX_ATTEMPTS = 10  # Up to 5 seconds of polling
+
     def _reconnect_after_prepare(self) -> None:
-        """Reconnect to device after USB prepare completed successfully."""
+        """Reconnect to device after USB prepare, polling for HID re-enumeration."""
+        self._reconnect_attempts = 0
+        self._reconnect_poll_timer = QTimer(self)
+        self._reconnect_poll_timer.timeout.connect(self._try_reconnect)
+        self._reconnect_poll_timer.start(self.RECONNECT_POLL_INTERVAL_MS)
+
+    def _try_reconnect(self) -> None:
+        """Single reconnect attempt — called by polling timer."""
+        self._reconnect_attempts += 1
+
+        # Check if device has re-enumerated on the USB bus
         try:
-            self.statusbar.showMessage("Scanning for device...")
-            self.control_panel._refresh_ports()
-            self.statusbar.showMessage("Reconnecting to device...")
-            self._connect_device()
-        except Exception as e:
-            self.statusbar.showMessage(f"Reconnect failed: {e}")
+            import hid as hid_mod
+            devices = hid_mod.enumerate(0x0483, 0x5750)
+        except Exception:
+            devices = []
+
+        if devices:
+            self._reconnect_poll_timer.stop()
+            self.statusbar.showMessage("Device found — reconnecting...")
+            try:
+                self.control_panel._refresh_ports()
+                self._connect_device()
+            except Exception as e:
+                self.statusbar.showMessage(f"Reconnect failed: {e}")
+                self._show_reconnect_failed_dialog()
+            return
+
+        if self._reconnect_attempts >= self.RECONNECT_MAX_ATTEMPTS:
+            self._reconnect_poll_timer.stop()
+            self.statusbar.showMessage("Device did not re-enumerate — reconnect failed")
+            self._show_reconnect_failed_dialog()
+            return
+
+        self.statusbar.showMessage(
+            f"Waiting for device to re-enumerate... "
+            f"({self._reconnect_attempts}/{self.RECONNECT_MAX_ATTEMPTS})"
+        )
+
+    def _show_reconnect_failed_dialog(self) -> None:
+        """Show a simple failure dialog after reconnect attempts are exhausted."""
+        QMessageBox.warning(
+            self, "Reconnect Failed",
+            "The device did not reappear after USB initialization.\n\n"
+            "Click Connect to try again manually."
+        )
 
     @Slot(str)
     def _show_error_message(self, message: str) -> None:
