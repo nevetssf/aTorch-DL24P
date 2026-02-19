@@ -129,8 +129,8 @@ class BatteryCapacityPanel(QWidget):
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel("Discharge Type"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["CC", "CR"])
-        self.type_combo.setToolTip("CC = Constant Current\nCR = Constant Resistance")
+        self.type_combo.addItems(["Current", "Resistance"])
+        self.type_combo.setToolTip("Current = Constant Current (CC)\nResistance = Constant Resistance (CR)")
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
         self.type_combo.currentIndexChanged.connect(self._on_filename_field_changed)
         type_layout.addWidget(self.type_combo)
@@ -145,9 +145,10 @@ class BatteryCapacityPanel(QWidget):
         self.value_spin.setDecimals(3)
         self.value_spin.setSingleStep(0.1)
         self.value_spin.setValue(0.5)
+        self.value_spin.setSuffix(" A")
         self.value_spin.setToolTip("Discharge value (current/resistance depending on type)")
         self.value_spin.valueChanged.connect(self._on_filename_field_changed)
-        self.value_label = QLabel("Current (A)")
+        self.value_label = QLabel("Current")
         self.value_label.setMinimumWidth(85)  # Fixed width to prevent layout jumping
         self.params_form.addRow(self.value_label, self.value_spin)
 
@@ -161,29 +162,39 @@ class BatteryCapacityPanel(QWidget):
         self.cutoff_spin.valueChanged.connect(self._on_filename_field_changed)
         self.params_form.addRow("V Cutoff", self.cutoff_spin)
 
-        # Time Limit (optional duration limit)
-        time_limit_layout = QHBoxLayout()
+        params_panel_layout.addLayout(self.params_form)
+
+        # Apply button
+        self.apply_btn = QPushButton("Apply")
+        self.apply_btn.setToolTip("Apply test settings to device without starting test")
+        self.apply_btn.clicked.connect(self._on_apply_clicked)
+        params_panel_layout.addWidget(self.apply_btn)
+
+        # Time Limit group box with checkbox in header
+        self.time_limit_group = QGroupBox("Time Limit")
+        self.time_limit_group.setCheckable(True)
+        self.time_limit_group.setChecked(False)
+        self.time_limit_group.toggled.connect(self._on_timed_toggled)
+        time_limit_inner = QHBoxLayout(self.time_limit_group)
+        time_limit_inner.setContentsMargins(6, 6, 6, 6)
+
+        # Keep timed_checkbox as a hidden proxy for compatibility
         self.timed_checkbox = QCheckBox()
-        self.timed_checkbox.setChecked(False)
-        self.timed_checkbox.setToolTip("Enable time limit for test")
-        self.timed_checkbox.toggled.connect(self._on_timed_toggled)
-        time_limit_layout.addWidget(self.timed_checkbox)
+        self.timed_checkbox.setVisible(False)
 
         self.hours_spin = QSpinBox()
         self.hours_spin.setRange(0, 99)
         self.hours_spin.setValue(1)
         self.hours_spin.setSuffix("h")
-        self.hours_spin.setEnabled(False)
         self.hours_spin.setToolTip("Maximum test duration in hours")
-        time_limit_layout.addWidget(self.hours_spin)
+        time_limit_inner.addWidget(self.hours_spin)
 
         self.minutes_spin = QSpinBox()
         self.minutes_spin.setRange(0, 59)
         self.minutes_spin.setValue(0)
         self.minutes_spin.setSuffix("m")
-        self.minutes_spin.setEnabled(False)
         self.minutes_spin.setToolTip("Maximum test duration in minutes")
-        time_limit_layout.addWidget(self.minutes_spin)
+        time_limit_inner.addWidget(self.minutes_spin)
 
         # Keep duration_spin for backwards compatibility with existing code
         self.duration_spin = QSpinBox()
@@ -192,24 +203,16 @@ class BatteryCapacityPanel(QWidget):
         self.duration_spin.setVisible(False)  # Hidden, calculated from hours/minutes
 
         # Start Delay (captures unloaded voltage before turning on load)
-        time_limit_layout.addSpacing(10)
-        time_limit_layout.addWidget(QLabel("Delay"))
+        time_limit_inner.addSpacing(10)
+        time_limit_inner.addWidget(QLabel("Delay"))
         self.start_delay_spin = QSpinBox()
         self.start_delay_spin.setRange(0, 60)
         self.start_delay_spin.setValue(5)
         self.start_delay_spin.setSuffix("s")
         self.start_delay_spin.setToolTip("Delay before turning on load (captures unloaded voltage)")
-        time_limit_layout.addWidget(self.start_delay_spin)
+        time_limit_inner.addWidget(self.start_delay_spin)
 
-        self.params_form.addRow("Time Limit", time_limit_layout)
-
-        params_panel_layout.addLayout(self.params_form)
-
-        # Apply button
-        self.apply_btn = QPushButton("Apply")
-        self.apply_btn.setToolTip("Apply test settings to device without starting test")
-        self.apply_btn.clicked.connect(self._on_apply_clicked)
-        params_panel_layout.addWidget(self.apply_btn)
+        params_panel_layout.addWidget(self.time_limit_group)
 
         # Add parameters panel to config layout
         config_layout.addWidget(params_panel)
@@ -357,9 +360,9 @@ class BatteryCapacityPanel(QWidget):
 
     @Slot(bool)
     def _on_timed_toggled(self, checked: bool) -> None:
-        """Handle timed checkbox toggle."""
-        self.hours_spin.setEnabled(checked)
-        self.minutes_spin.setEnabled(checked)
+        """Handle time limit group box toggle."""
+        # Sync the hidden timed_checkbox for compatibility
+        self.timed_checkbox.setChecked(checked)
         self._sync_duration()
 
     def _sync_duration(self) -> None:
@@ -430,14 +433,14 @@ class BatteryCapacityPanel(QWidget):
                 self.type_combo.setCurrentIndex(test_config["discharge_type_index"])
             elif "discharge_type" in test_config:
                 # Handle string type names
-                type_map = {"CC": 0, "CR": 1}  # combo indices
+                type_map = {"CC": 0, "CR": 1, "Current": 0, "Resistance": 1}  # combo indices
                 self.type_combo.setCurrentIndex(type_map.get(test_config["discharge_type"], 0))
             if "value" in test_config:
                 self.value_spin.setValue(test_config["value"])
             if "voltage_cutoff" in test_config:
                 self.cutoff_spin.setValue(test_config["voltage_cutoff"])
             if "timed" in test_config:
-                self.timed_checkbox.setChecked(test_config["timed"])
+                self.time_limit_group.setChecked(test_config["timed"])
             if "duration_seconds" in test_config:
                 self.duration_spin.setValue(test_config["duration_seconds"])
                 self._sync_hours_minutes()
@@ -507,14 +510,16 @@ class BatteryCapacityPanel(QWidget):
     def _on_type_changed(self, index: int) -> None:
         """Handle discharge type selection change."""
         if index == 0:  # CC - Constant Current
-            self.value_label.setText("Current (A):")
+            self.value_label.setText("Current")
+            self.value_spin.setSuffix(" A")
             self.value_spin.setToolTip("Discharge current in Amps")
             self.value_spin.setRange(0.0, 24.0)
             self.value_spin.setDecimals(3)
             self.value_spin.setSingleStep(0.1)
             self.value_spin.setValue(0.5)
         elif index == 1:  # CR - Constant Resistance
-            self.value_label.setText("Resistance (Ω):")
+            self.value_label.setText("Resistance")
+            self.value_spin.setSuffix(" \u03a9")
             self.value_spin.setToolTip("Load resistance in Ohms")
             self.value_spin.setRange(0.1, 9999.0)
             self.value_spin.setDecimals(1)
@@ -617,9 +622,7 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setEnabled(False)
         self.value_spin.setEnabled(False)
         self.cutoff_spin.setEnabled(False)
-        self.timed_checkbox.setEnabled(False)
-        self.hours_spin.setEnabled(False)
-        self.minutes_spin.setEnabled(False)
+        self.time_limit_group.setEnabled(False)
         self.start_delay_spin.setEnabled(False)
 
         # Reset voltage readings and summary for new test
@@ -659,9 +662,7 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setEnabled(True)
         self.value_spin.setEnabled(True)
         self.cutoff_spin.setEnabled(True)
-        self.timed_checkbox.setEnabled(True)
-        self.hours_spin.setEnabled(self.timed_checkbox.isChecked())
-        self.minutes_spin.setEnabled(self.timed_checkbox.isChecked())
+        self.time_limit_group.setEnabled(True)
         self.start_delay_spin.setEnabled(True)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("")
@@ -676,9 +677,7 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setEnabled(enabled)
         self.value_spin.setEnabled(enabled)
         self.cutoff_spin.setEnabled(enabled)
-        self.timed_checkbox.setEnabled(enabled)
-        self.hours_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
-        self.minutes_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
+        self.time_limit_group.setEnabled(enabled)
         self.start_delay_spin.setEnabled(enabled)
         self.battery_info_widget.set_inputs_enabled(enabled)
         self.autosave_checkbox.setEnabled(enabled)
@@ -1126,7 +1125,7 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setCurrentIndex(data.get("discharge_type", 0))
         self.value_spin.setValue(data.get("value", 0.5))
         self.cutoff_spin.setValue(data.get("voltage_cutoff", 3.0))
-        self.timed_checkbox.setChecked(data.get("timed", False))
+        self.time_limit_group.setChecked(data.get("timed", False))
         self.duration_spin.setValue(data.get("duration", 3600))
         self._sync_hours_minutes()
 
@@ -1134,7 +1133,7 @@ class BatteryCapacityPanel(QWidget):
     def _save_test_preset(self) -> None:
         """Save current test configuration as a preset."""
         # Build default name from current settings
-        type_names = ["CC", "CR"]
+        type_names = ["Current", "Resistance"]
         type_units = ["A", "ohm"]
         discharge_type = self.type_combo.currentIndex()
         value = self.value_spin.value()
@@ -1214,7 +1213,7 @@ class BatteryCapacityPanel(QWidget):
         Returns:
             Dictionary with discharge_type, value, voltage_cutoff, timed, duration
         """
-        type_names = ["CC", "CR"]
+        type_names = ["Current", "Resistance"]
         type_units = ["A", "ohm"]
         discharge_type = self.type_combo.currentIndex()
 
@@ -1249,7 +1248,7 @@ class BatteryCapacityPanel(QWidget):
         battery_info = self.battery_info_widget.get_battery_info()
         manufacturer = battery_info.get("manufacturer", "").strip() or "Unknown"
         battery_name = battery_info.get("name", "").strip() or "Unknown"
-        type_names = ["CC", "CR"]
+        type_names = ["Current", "Resistance"]
         type_units = ["A", "ohm"]
         discharge_type = self.type_combo.currentIndex()
         value = self.value_spin.value()
@@ -1284,7 +1283,7 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.value_spin.valueChanged.connect(self._on_settings_changed)
         self.cutoff_spin.valueChanged.connect(self._on_settings_changed)
-        self.timed_checkbox.toggled.connect(self._on_settings_changed)
+        self.time_limit_group.toggled.connect(self._on_settings_changed)
         self.hours_spin.valueChanged.connect(self._sync_duration)
         self.minutes_spin.valueChanged.connect(self._sync_duration)
         self.hours_spin.valueChanged.connect(self._on_settings_changed)
@@ -1325,10 +1324,11 @@ class BatteryCapacityPanel(QWidget):
         }
 
         try:
+            self._last_session_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self._last_session_file, 'w') as f:
                 json.dump(settings, f, indent=2)
-        except Exception:
-            pass  # Silently fail - not critical
+        except Exception as e:
+            print(f"ERROR saving battery capacity session: {e}")
 
     def _load_last_session(self) -> None:
         """Load settings from file on startup."""
@@ -1353,7 +1353,7 @@ class BatteryCapacityPanel(QWidget):
             if "voltage_cutoff" in test_config:
                 self.cutoff_spin.setValue(test_config["voltage_cutoff"])
             if "timed" in test_config:
-                self.timed_checkbox.setChecked(test_config["timed"])
+                self.time_limit_group.setChecked(test_config["timed"])
             if "duration" in test_config:
                 self.duration_spin.setValue(test_config["duration"])
                 self._sync_hours_minutes()
@@ -1362,7 +1362,9 @@ class BatteryCapacityPanel(QWidget):
             if "preset" in test_config and test_config["preset"]:
                 index = self.test_presets_combo.findText(test_config["preset"])
                 if index >= 0:
+                    self.test_presets_combo.blockSignals(True)
                     self.test_presets_combo.setCurrentIndex(index)
+                    self.test_presets_combo.blockSignals(False)
 
             # Load Battery Info
             battery_info = settings.get("battery_info", {})
@@ -1370,7 +1372,9 @@ class BatteryCapacityPanel(QWidget):
             if "preset" in battery_info and battery_info["preset"]:
                 index = self.battery_info_widget.presets_combo.findText(battery_info["preset"])
                 if index >= 0:
+                    self.battery_info_widget.presets_combo.blockSignals(True)
                     self.battery_info_widget.presets_combo.setCurrentIndex(index)
+                    self.battery_info_widget.presets_combo.blockSignals(False)
 
             # Load Auto Save setting
             if "autosave" in settings:

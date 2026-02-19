@@ -27,6 +27,9 @@ class ChargerPanel(QWidget):
         # Load default charger presets from resources
         self._default_charger_presets = self._load_presets_file("charger/presets_chargers.json")
 
+        # Load default power bank presets (for load testing power banks)
+        self._default_power_bank_presets = self._load_presets_file("power_bank/presets_power_banks.json")
+
         # Load default test presets
         self._default_test_presets = self._load_presets_file("charger/presets_test.json")
 
@@ -87,16 +90,16 @@ class ChargerPanel(QWidget):
         presets_layout.addWidget(self.delete_test_preset_btn)
         conditions_layout.addLayout(presets_layout)
 
-        # Test parameters
-        params_group = QGroupBox()
-        params_layout = QFormLayout(params_group)
-        params_layout.setContentsMargins(6, 6, 6, 6)
+        # Load settings panel
+        load_group = QGroupBox()
+        load_layout = QFormLayout(load_group)
+        load_layout.setContentsMargins(6, 6, 6, 6)
 
         # Load Type dropdown
         self.load_type_combo = QComboBox()
         self.load_type_combo.addItems(["Current", "Power", "Resistance"])
         self.load_type_combo.currentTextChanged.connect(self._on_load_type_changed)
-        params_layout.addRow("Load Type", self.load_type_combo)
+        load_layout.addRow("Load Type", self.load_type_combo)
 
         # Start, End, Steps on one row
         range_layout = QHBoxLayout()
@@ -123,20 +126,22 @@ class ChargerPanel(QWidget):
         self.num_steps_spin = QSpinBox()
         self.num_steps_spin.setRange(1, 999)
         self.num_steps_spin.setValue(10)
+        self.num_steps_spin.setMaximumWidth(60)
         range_layout.addWidget(self.num_steps_spin)
 
-        params_layout.addRow(range_layout)
+        load_layout.addRow(range_layout)
 
-        # Dwell time and V Cutoff on one row
-        dwell_cutoff_layout = QHBoxLayout()
+        conditions_layout.addWidget(load_group)
+
+        # Dwell time and V Cutoff panel
+        timing_group = QGroupBox()
+        timing_layout = QFormLayout(timing_group)
+        timing_layout.setContentsMargins(6, 6, 6, 6)
 
         self.dwell_time_spin = QSpinBox()
         self.dwell_time_spin.setRange(0, 3600)
         self.dwell_time_spin.setValue(5)
         self.dwell_time_spin.setSuffix(" s")
-        dwell_cutoff_layout.addWidget(self.dwell_time_spin)
-
-        dwell_cutoff_layout.addWidget(QLabel("V Cutoff"))
 
         self.v_cutoff_spin = QDoubleSpinBox()
         self.v_cutoff_spin.setRange(0.0, 60.0)
@@ -144,11 +149,15 @@ class ChargerPanel(QWidget):
         self.v_cutoff_spin.setValue(3.0)
         self.v_cutoff_spin.setSuffix(" V")
         self.v_cutoff_spin.setToolTip("Stop test when voltage drops below this value (0 = disabled)")
+
+        dwell_cutoff_layout = QHBoxLayout()
+        dwell_cutoff_layout.addWidget(self.dwell_time_spin)
+        dwell_cutoff_layout.addWidget(QLabel("V Cutoff"))
         dwell_cutoff_layout.addWidget(self.v_cutoff_spin)
+        timing_layout.addRow("Dwell Time", dwell_cutoff_layout)
 
-        params_layout.addRow("Dwell Time", dwell_cutoff_layout)
+        conditions_layout.addWidget(timing_group)
 
-        conditions_layout.addWidget(params_group)
         conditions_layout.addStretch()
 
         layout.addWidget(conditions_group)
@@ -194,46 +203,50 @@ class ChargerPanel(QWidget):
         self.charger_model_edit.setPlaceholderText("e.g., A2322")
         charger_form_layout.addRow("Model", self.charger_model_edit)
 
-        # Rated Output (W)
+        charger_info_layout.addWidget(charger_form_group)
+
+        # Rated panel
+        rated_group = QGroupBox("Rated")
+        rated_layout = QFormLayout(rated_group)
+        rated_layout.setContentsMargins(6, 6, 6, 6)
+
         self.rated_output_spin = QDoubleSpinBox()
         self.rated_output_spin.setRange(0.0, 1000.0)
         self.rated_output_spin.setDecimals(1)
         self.rated_output_spin.setSuffix(" W")
-        charger_form_layout.addRow("Rated Output", self.rated_output_spin)
 
-        # Rated Voltage (V)
         self.rated_voltage_spin = QDoubleSpinBox()
         self.rated_voltage_spin.setRange(0.0, 60.0)
         self.rated_voltage_spin.setDecimals(1)
         self.rated_voltage_spin.setSuffix(" V")
-        charger_form_layout.addRow("Rated Voltage", self.rated_voltage_spin)
 
-        # Rated Current (A)
         self.rated_current_spin = QDoubleSpinBox()
         self.rated_current_spin.setRange(0.0, 100.0)
         self.rated_current_spin.setDecimals(2)
         self.rated_current_spin.setSuffix(" A")
-        charger_form_layout.addRow("Rated Current", self.rated_current_spin)
 
-        # USB Ports
-        self.usb_ports_edit = QLineEdit()
-        self.usb_ports_edit.setPlaceholderText("e.g., 2x USB-C, 1x USB-A")
-        charger_form_layout.addRow("USB Ports", self.usb_ports_edit)
+        rated_row = QHBoxLayout()
+        rated_row.addWidget(self.rated_output_spin)
+        rated_row.addWidget(self.rated_voltage_spin)
+        rated_row.addWidget(self.rated_current_spin)
+        rated_layout.addRow("Output", rated_row)
 
-        # USB-PD checkbox
-        self.usb_pd_checkbox = QCheckBox()
-        charger_form_layout.addRow("USB-PD", self.usb_pd_checkbox)
+        charger_info_layout.addWidget(rated_group)
 
-        # GaN Technology checkbox
-        self.gan_checkbox = QCheckBox()
-        charger_form_layout.addRow("GaN", self.gan_checkbox)
+        # Sub-panel for Serial Number and Notes
+        instance_group = QGroupBox()
+        instance_layout = QFormLayout(instance_group)
+        instance_layout.setContentsMargins(6, 6, 6, 6)
 
-        # Notes
+        self.charger_serial_edit = QLineEdit()
+        self.charger_serial_edit.setPlaceholderText("Serial #")
+        instance_layout.addRow("SN", self.charger_serial_edit)
+
         self.charger_notes_edit = QLineEdit()
-        self.charger_notes_edit.setPlaceholderText("Additional notes...")
-        charger_form_layout.addRow("Notes", self.charger_notes_edit)
+        self.charger_notes_edit.setPlaceholderText("Notes...")
+        instance_layout.addRow(self.charger_notes_edit)
 
-        charger_info_layout.addWidget(charger_form_group)
+        charger_info_layout.addWidget(instance_group)
         charger_info_layout.addStretch()
 
         layout.addWidget(charger_info_group)
@@ -409,11 +422,18 @@ class ChargerPanel(QWidget):
         combo.clear()
         combo.addItem("")  # Empty option
 
-        # Add Default Presets section
+        # Add Wall Charger Defaults section
         if self._default_charger_presets:
-            combo.addItem("─── Default Chargers ───")
-            combo.model().item(combo.count() - 1).setEnabled(False)  # Make separator unselectable
+            combo.addItem("─── Wall Charger Defaults ───")
+            combo.model().item(combo.count() - 1).setEnabled(False)
             for name in sorted(self._default_charger_presets.keys()):
+                combo.addItem(name)
+
+        # Add Power Bank Defaults section
+        if self._default_power_bank_presets:
+            combo.addItem("─── Power Bank Defaults ───")
+            combo.model().item(combo.count() - 1).setEnabled(False)
+            for name in sorted(self._default_power_bank_presets.keys()):
                 combo.addItem(name)
 
         # Add User Presets section
@@ -423,7 +443,7 @@ class ChargerPanel(QWidget):
                 user_presets.append(preset_file.stem)
 
         if user_presets:
-            combo.addItem("─── My Chargers ───")
+            combo.addItem("─── My Wall Chargers ───")
             combo.model().item(combo.count() - 1).setEnabled(False)
             for name in user_presets:
                 combo.addItem(name)
@@ -450,6 +470,18 @@ class ChargerPanel(QWidget):
         preset_data = None
         if preset_name in self._default_charger_presets:
             preset_data = self._default_charger_presets[preset_name]
+        elif preset_name in self._default_power_bank_presets:
+            # Map power bank fields to charger info fields
+            pb = self._default_power_bank_presets[preset_name]
+            preset_data = {
+                "name": pb.get("name", ""),
+                "manufacturer": pb.get("manufacturer", ""),
+                "model": pb.get("model", ""),
+                "rated_output_w": pb.get("max_output_power_w", 0.0),
+                "rated_voltage_v": pb.get("rated_voltage_v", 0.0),
+                "rated_current_a": pb.get("rated_current_a", 0.0),
+                "notes": pb.get("notes", ""),
+            }
         elif preset_file.exists():
             try:
                 with open(preset_file, 'r') as f:
@@ -875,12 +907,10 @@ class ChargerPanel(QWidget):
         self.charger_name_edit.setEnabled(enabled)
         self.charger_manufacturer_edit.setEnabled(enabled)
         self.charger_model_edit.setEnabled(enabled)
+        self.charger_serial_edit.setEnabled(enabled)
         self.rated_output_spin.setEnabled(enabled)
         self.rated_voltage_spin.setEnabled(enabled)
         self.rated_current_spin.setEnabled(enabled)
-        self.usb_ports_edit.setEnabled(enabled)
-        self.usb_pd_checkbox.setEnabled(enabled)
-        self.gan_checkbox.setEnabled(enabled)
         self.charger_notes_edit.setEnabled(enabled)
         self.autosave_checkbox.setEnabled(enabled)
         self.filename_edit.setEnabled(enabled)
@@ -1062,12 +1092,10 @@ class ChargerPanel(QWidget):
         self.charger_name_edit.textChanged.connect(self._on_settings_changed)
         self.charger_manufacturer_edit.textChanged.connect(self._on_settings_changed)
         self.charger_model_edit.textChanged.connect(self._on_settings_changed)
+        self.charger_serial_edit.textChanged.connect(self._on_settings_changed)
         self.rated_output_spin.valueChanged.connect(self._on_settings_changed)
         self.rated_voltage_spin.valueChanged.connect(self._on_settings_changed)
         self.rated_current_spin.valueChanged.connect(self._on_settings_changed)
-        self.usb_ports_edit.textChanged.connect(self._on_settings_changed)
-        self.usb_pd_checkbox.toggled.connect(self._on_settings_changed)
-        self.gan_checkbox.toggled.connect(self._on_settings_changed)
         self.charger_notes_edit.textChanged.connect(self._on_settings_changed)
         self.charger_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
@@ -1103,10 +1131,11 @@ class ChargerPanel(QWidget):
         }
 
         try:
+            self._session_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self._session_file, 'w') as f:
                 json.dump(settings, f, indent=2)
-        except Exception:
-            pass  # Silently fail - not critical
+        except Exception as e:
+            print(f"ERROR saving charger session: {e}")
 
     def _load_session(self):
         """Load settings from file on startup."""
@@ -1196,12 +1225,10 @@ class ChargerPanel(QWidget):
             "name": self.charger_name_edit.text(),
             "manufacturer": self.charger_manufacturer_edit.text(),
             "model": self.charger_model_edit.text(),
+            "serial_number": self.charger_serial_edit.text(),
             "rated_output_w": self.rated_output_spin.value(),
             "rated_voltage_v": self.rated_voltage_spin.value(),
             "rated_current_a": self.rated_current_spin.value(),
-            "usb_ports": self.usb_ports_edit.text(),
-            "usb_pd": self.usb_pd_checkbox.isChecked(),
-            "gan_technology": self.gan_checkbox.isChecked(),
             "notes": self.charger_notes_edit.text(),
         }
 
@@ -1210,10 +1237,8 @@ class ChargerPanel(QWidget):
         self.charger_name_edit.setText(data.get("name", ""))
         self.charger_manufacturer_edit.setText(data.get("manufacturer", ""))
         self.charger_model_edit.setText(data.get("model", ""))
+        self.charger_serial_edit.setText(data.get("serial_number", ""))
         self.rated_output_spin.setValue(data.get("rated_output_w", 0.0))
         self.rated_voltage_spin.setValue(data.get("rated_voltage_v", 0.0))
         self.rated_current_spin.setValue(data.get("rated_current_a", 0.0))
-        self.usb_ports_edit.setText(data.get("usb_ports", ""))
-        self.usb_pd_checkbox.setChecked(data.get("usb_pd", False))
-        self.gan_checkbox.setChecked(data.get("gan_technology", False))
         self.charger_notes_edit.setText(data.get("notes", ""))

@@ -321,7 +321,7 @@ class BatteryChargerPanel(QWidget):
 
         # Rated Voltage and Current on same row
         rated_layout = QHBoxLayout()
-        rated_layout.addWidget(QLabel("Voltage"))
+        rated_layout.addWidget(QLabel("Rated Voltage"))
         self.charger_rated_voltage_spin = QDoubleSpinBox()
         self.charger_rated_voltage_spin.setRange(0.0, 60.0)
         self.charger_rated_voltage_spin.setDecimals(2)
@@ -341,14 +341,20 @@ class BatteryChargerPanel(QWidget):
 
         charger_info_layout.addWidget(charger_form)
 
-        # Notes panel - entire panel is a text box
-        notes_group = QGroupBox("Notes")
-        notes_layout = QVBoxLayout(notes_group)
-        notes_layout.setContentsMargins(0, 0, 0, 0)
+        # Sub-panel for Serial Number and Notes
+        instance_group = QGroupBox()
+        instance_layout = QFormLayout(instance_group)
+        instance_layout.setContentsMargins(6, 6, 6, 6)
+
+        self.charger_serial_edit = QLineEdit()
+        self.charger_serial_edit.setPlaceholderText("Serial #")
+        instance_layout.addRow("SN", self.charger_serial_edit)
+
         self.charger_notes_edit = QTextEdit()
-        self.charger_notes_edit.setPlaceholderText("Additional notes...")
-        notes_layout.addWidget(self.charger_notes_edit)
-        charger_info_layout.addWidget(notes_group)
+        self.charger_notes_edit.setPlaceholderText("Notes...")
+        instance_layout.addRow(self.charger_notes_edit)
+
+        charger_info_layout.addWidget(instance_group)
         charger_info_layout.addStretch()
 
         layout.addWidget(charger_info_group)
@@ -517,6 +523,7 @@ class BatteryChargerPanel(QWidget):
             self.charger_name_edit.setText(data.get("name", ""))
             self.charger_manufacturer_edit.setText(data.get("manufacturer", ""))
             self.charger_model_edit.setText(data.get("model", ""))
+            self.charger_serial_edit.setText(data.get("serial_number", ""))
             if "chemistry" in data:
                 self.charger_chemistry_combo.setCurrentText(data["chemistry"])
             self.charger_rated_current_spin.setValue(data.get("rated_current", data.get("rated_output_current_a", 0.0)))
@@ -531,6 +538,7 @@ class BatteryChargerPanel(QWidget):
             "name": self.charger_name_edit.text().strip(),
             "manufacturer": self.charger_manufacturer_edit.text().strip(),
             "model": self.charger_model_edit.text().strip(),
+            "serial_number": self.charger_serial_edit.text().strip(),
             "chemistry": self.charger_chemistry_combo.currentText(),
             "rated_current": self.charger_rated_current_spin.value(),
             "rated_voltage": self.charger_rated_voltage_spin.value(),
@@ -1209,6 +1217,7 @@ class BatteryChargerPanel(QWidget):
         self.charger_name_edit.setEnabled(enabled)
         self.charger_manufacturer_edit.setEnabled(enabled)
         self.charger_model_edit.setEnabled(enabled)
+        self.charger_serial_edit.setEnabled(enabled)
         self.charger_chemistry_combo.setEnabled(enabled)
         self.charger_rated_current_spin.setEnabled(enabled)
         self.charger_rated_voltage_spin.setEnabled(enabled)
@@ -1356,6 +1365,7 @@ class BatteryChargerPanel(QWidget):
         self.charger_name_edit.textChanged.connect(self._on_settings_changed)
         self.charger_manufacturer_edit.textChanged.connect(self._on_settings_changed)
         self.charger_model_edit.textChanged.connect(self._on_settings_changed)
+        self.charger_serial_edit.textChanged.connect(self._on_settings_changed)
         self.charger_chemistry_combo.currentIndexChanged.connect(self._on_settings_changed)
         self.charger_rated_current_spin.valueChanged.connect(self._on_settings_changed)
         self.charger_rated_voltage_spin.valueChanged.connect(self._on_settings_changed)
@@ -1400,10 +1410,11 @@ class BatteryChargerPanel(QWidget):
         }
 
         try:
+            self._session_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self._session_file, 'w') as f:
                 json.dump(settings, f, indent=2)
-        except Exception:
-            pass  # Silently fail - not critical
+        except Exception as e:
+            print(f"ERROR saving battery charger session: {e}")
 
     def _load_session(self):
         """Load settings from file on startup."""
@@ -1458,7 +1469,9 @@ class BatteryChargerPanel(QWidget):
             if "preset" in test_config and test_config["preset"]:
                 index = self.test_presets_combo.findText(test_config["preset"])
                 if index >= 0:
+                    self.test_presets_combo.blockSignals(True)
                     self.test_presets_combo.setCurrentIndex(index)
+                    self.test_presets_combo.blockSignals(False)
 
             # Load Charger Info
             charger_info = settings.get("charger_info", {})

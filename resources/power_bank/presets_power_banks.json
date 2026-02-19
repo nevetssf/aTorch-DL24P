@@ -6,10 +6,10 @@
     "manufactured": null,
     "rated_capacity_mah": 10000,
     "rated_energy_wh": 36.0,
-    "max_output_current_a": 3.0,
-    "usb_ports": 2,
-    "usb_pd": true,
-    "quick_charge": false,
+    "max_output_power_w": 30.0,
+    "rated_voltage_v": 20.0,
+    "rated_current_a": 1.5,
+    "pd": true,
     "notes": "30W USB-C PD with built-in cable"
   },
   "Anker Nano Power Bank 10K 45W": {
@@ -19,10 +19,10 @@
     "manufactured": null,
     "rated_capacity_mah": 10000,
     "rated_energy_wh": 36.0,
-    "max_output_current_a": 3.0,
-    "usb_ports": 2,
-    "usb_pd": true,
-    "quick_charge": false,
+    "max_output_power_w": 45.0,
+    "rated_voltage_v": 20.0,
+    "rated_current_a": 2.25,
+    "pd": true,
     "notes": "45W max, retractable USB-C cable, smart display"
   },
   "Anker MagGo Power Bank 10K": {
@@ -32,10 +32,10 @@
     "manufactured": null,
     "rated_capacity_mah": 10000,
     "rated_energy_wh": 37.0,
-    "max_output_current_a": 3.0,
-    "usb_ports": 1,
-    "usb_pd": true,
-    "quick_charge": false,
+    "max_output_power_w": 30.0,
+    "rated_voltage_v": 9.0,
+    "rated_current_a": 3.0,
+    "pd": true,
     "notes": "Qi2 certified 15W wireless, foldable stand, smart display"
   },
   "Anker MagGo Power Bank 10K Slim": {
@@ -45,10 +45,10 @@
     "manufactured": null,
     "rated_capacity_mah": 10000,
     "rated_energy_wh": 37.0,
-    "max_output_current_a": 3.0,
-    "usb_ports": 1,
-    "usb_pd": true,
-    "quick_charge": false,
+    "max_output_power_w": 30.0,
+    "rated_voltage_v": 20.0,
+    "rated_current_a": 1.5,
+    "pd": true,
     "notes": "Ultra-slim 0.58 inch, Qi2 15W wireless MagSafe"
   },
   "Anker MagGo Power Bank 10K Apple Watch": {
@@ -58,10 +58,10 @@
     "manufactured": null,
     "rated_capacity_mah": 10000,
     "rated_energy_wh": 37.0,
-    "max_output_current_a": 3.0,
-    "usb_ports": 1,
-    "usb_pd": true,
-    "quick_charge": false,
+    "max_output_power_w": 35.0,
+    "rated_voltage_v": 20.0,
+    "rated_current_a": 1.5,
+    "pd": true,
     "notes": "35W output, certified Apple Watch charging"
   },
   "Anker Prime Power Bank 20K": {
@@ -71,10 +71,10 @@
     "manufactured": null,
     "rated_capacity_mah": 20000,
     "rated_energy_wh": 74.0,
-    "max_output_current_a": 4.0,
-    "usb_ports": 2,
-    "usb_pd": true,
-    "quick_charge": false,
+    "max_output_power_w": 100.0,
+    "rated_voltage_v": 20.0,
+    "rated_current_a": 5.0,
+    "pd": true,
     "notes": "100W USB-C PD, dual ports, smart display"
   },
   "Anker Prime Power Bank 26K": {
@@ -84,11 +84,11 @@
     "manufactured": null,
     "rated_capacity_mah": 26250,
     "rated_energy_wh": 99.75,
-    "max_output_current_a": 5.0,
-    "usb_ports": 3,
-    "usb_pd": true,
-    "quick_charge": false,
-    "notes": "300W total output, airline-safe 99.75Wh"
+    "max_output_power_w": 250.0,
+    "rated_voltage_v": 28.0,
+    "rated_current_a": 5.0,
+    "pd": true,
+    "notes": "PD 3.1 250W total output, airline-safe 99.75Wh"
   },
   "Anker PowerCore 10000": {
     "name": "PowerCore 10000",
@@ -97,10 +97,10 @@
     "manufactured": null,
     "rated_capacity_mah": 10000,
     "rated_energy_wh": 37.0,
-    "max_output_current_a": 2.4,
-    "usb_ports": 1,
-    "usb_pd": false,
-    "quick_charge": false,
+    "max_output_power_w": 12.0,
+    "rated_voltage_v": 5.0,
+    "rated_current_a": 2.4,
+    "pd": false,
     "notes": "Compact 10,000mAh power bank with PowerIQ"
   },
   "Anker PowerCore 20100": {
@@ -110,10 +110,10 @@
     "manufactured": null,
     "rated_capacity_mah": 20100,
     "rated_energy_wh": 74.37,
-    "max_output_current_a": 4.8,
-    "usb_ports": 2,
-    "usb_pd": false,
-    "quick_charge": false,
+    "max_output_power_w": 24.0,
+    "rated_voltage_v": 5.0,
+    "rated_current_a": 2.4,
+    "pd": false,
     "notes": "High-capacity dual-port power bank"
   },
   "Anker PowerCore III Elite 25600 87W": {
@@ -123,10 +123,10 @@
     "manufactured": null,
     "rated_capacity_mah": 25600,
     "rated_energy_wh": 94.72,
-    "max_output_current_a": 4.35,
-    "usb_ports": 2,
-    "usb_pd": true,
-    "quick_charge": false,
+    "max_output_power_w": 87.0,
+    "rated_voltage_v": 20.0,
+    "rated_current_a": 4.35,
+    "pd": true,
     "notes": "USB-C PD 87W output for laptops"
   },
   "RAVPower 26800 PD": {
@@ -136,10 +136,10 @@
     "manufactured": null,
     "rated_capacity_mah": 26800,
     "rated_energy_wh": 99.16,
-    "max_output_current_a": 3.0,
-    "usb_ports": 3,
-    "usb_pd": true,
-    "quick_charge": true,
+    "max_output_power_w": 30.0,
+    "rated_voltage_v": 20.0,
+    "rated_current_a": 1.5,
+    "pd": true,
     "notes": "Triple-port with 30W USB-C PD and QC 3.0"
   },
   "Xiaomi Mi Power Bank 3 20000mAh": {
@@ -149,10 +149,10 @@
     "manufactured": null,
     "rated_capacity_mah": 20000,
     "rated_energy_wh": 74.0,
-    "max_output_current_a": 3.0,
-    "usb_ports": 2,
-    "usb_pd": false,
-    "quick_charge": true,
+    "max_output_power_w": 18.0,
+    "rated_voltage_v": 12.0,
+    "rated_current_a": 1.5,
+    "pd": true,
     "notes": "Two-way QC 3.0 fast charging"
   },
   "Aukey 20000mAh USB-C": {
@@ -162,10 +162,10 @@
     "manufactured": null,
     "rated_capacity_mah": 20000,
     "rated_energy_wh": 74.0,
-    "max_output_current_a": 3.0,
-    "usb_ports": 2,
-    "usb_pd": true,
-    "quick_charge": true,
+    "max_output_power_w": 18.0,
+    "rated_voltage_v": 9.0,
+    "rated_current_a": 2.0,
+    "pd": true,
     "notes": "18W PD and QC 3.0 support"
   },
   "Zendure SuperMini 10000": {
@@ -175,10 +175,10 @@
     "manufactured": null,
     "rated_capacity_mah": 10000,
     "rated_energy_wh": 37.0,
-    "max_output_current_a": 3.0,
-    "usb_ports": 2,
-    "usb_pd": true,
-    "quick_charge": false,
+    "max_output_power_w": 20.0,
+    "rated_voltage_v": 9.0,
+    "rated_current_a": 2.0,
+    "pd": true,
     "notes": "Ultra-compact with 20W USB-C PD"
   },
   "Mophie Powerstation XXL": {
@@ -188,10 +188,10 @@
     "manufactured": null,
     "rated_capacity_mah": 20000,
     "rated_energy_wh": 74.0,
-    "max_output_current_a": 2.1,
-    "usb_ports": 2,
-    "usb_pd": false,
-    "quick_charge": false,
+    "max_output_power_w": 10.5,
+    "rated_voltage_v": 5.0,
+    "rated_current_a": 2.1,
+    "pd": false,
     "notes": "Premium build with fabric finish"
   }
 }

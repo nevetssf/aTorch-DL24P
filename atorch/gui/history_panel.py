@@ -1,9 +1,10 @@
 """Historical data browser panel."""
 
 import json
+import shutil
 from typing import Optional
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -15,8 +16,11 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QMessageBox,
     QLabel,
+    QComboBox,
+    QDateEdit,
+    QCheckBox,
 )
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot, QDate
 from PySide6.QtGui import QFont, QCursor
 
 from ..data.database import Database
@@ -37,13 +41,27 @@ class HistoryPanel(QWidget):
         "power_bank": "Power Bank Capacity",
     }
 
+    # Column indices
+    COL_CHECK = 0
+    COL_DATE = 1
+    COL_FILENAME = 2
+    COL_NAME = 3
+    COL_TEST_TYPE = 4
+    COL_CONDITIONS = 5
+    COL_DURATION = 6
+    COL_SUMMARY = 7
+    COL_VIEW = 8
+    NUM_COLS = 9
+
     def __init__(self, database: Database):
         super().__init__()
 
         self.database = database
-        self._test_files: list[dict] = []  # List of test file info dicts
+        self._test_files: list[dict] = []  # All test file info dicts
+        self._visible_files: list[dict] = []  # Filtered subset shown in table
         from ..config import get_data_dir
         self._test_data_dir = get_data_dir() / "test_data"
+        self._trash_dir = self._test_data_dir / ".trash"
 
         self._create_ui()
         self.refresh()
@@ -53,61 +71,106 @@ class HistoryPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Top bar with refresh button
+        # Top bar: buttons and filters
         top_layout = QHBoxLayout()
-        top_layout.addWidget(QLabel("Test History (JSON Files)"))
-        top_layout.addStretch()
 
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh)
         top_layout.addWidget(self.refresh_btn)
 
+        self.open_folder_btn = QPushButton("Show Folder")
+        self.open_folder_btn.clicked.connect(self._on_show_folder)
+        top_layout.addWidget(self.open_folder_btn)
+
+        top_layout.addSpacing(20)
+
+        self.delete_btn = QPushButton("Trash Selected")
+        self.delete_btn.clicked.connect(self._on_delete)
+        top_layout.addWidget(self.delete_btn)
+
+        self.empty_trash_btn = QPushButton("Empty Trash...")
+        self.empty_trash_btn.clicked.connect(self._on_empty_trash)
+        top_layout.addWidget(self.empty_trash_btn)
+
+        self.restore_btn = QPushButton("Restore...")
+        self.restore_btn.clicked.connect(self._on_restore)
+        top_layout.addWidget(self.restore_btn)
+
+        top_layout.addStretch()
+
+        # Test type filter
+        top_layout.addWidget(QLabel("Test Type:"))
+        self.type_filter_combo = QComboBox()
+        self.type_filter_combo.addItem("All", "")
+        for key, name in self.PANEL_TYPE_NAMES.items():
+            self.type_filter_combo.addItem(name, key)
+        self.type_filter_combo.setMinimumWidth(140)
+        self.type_filter_combo.currentIndexChanged.connect(self._apply_filters)
+        top_layout.addWidget(self.type_filter_combo)
+
+        # Date range filter
+        top_layout.addWidget(QLabel("From:"))
+        self.date_from = QDateEdit()
+        self.date_from.setCalendarPopup(True)
+        self.date_from.setDisplayFormat("yyyy-MM-dd")
+        self.date_from.setDate(QDate.currentDate().addMonths(-1))
+        self.date_from.dateChanged.connect(self._apply_filters)
+        top_layout.addWidget(self.date_from)
+
+        top_layout.addWidget(QLabel("To:"))
+        self.date_to = QDateEdit()
+        self.date_to.setCalendarPopup(True)
+        self.date_to.setDisplayFormat("yyyy-MM-dd")
+        self.date_to.setDate(QDate.currentDate())
+        self.date_to.dateChanged.connect(self._apply_filters)
+        top_layout.addWidget(self.date_to)
+
+        self.clear_filters_btn = QPushButton("Clear Filters")
+        self.clear_filters_btn.clicked.connect(self._clear_filters)
+        top_layout.addWidget(self.clear_filters_btn)
+
         layout.addLayout(top_layout)
 
         # Test files table
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(self.NUM_COLS)
         self.table.setHorizontalHeaderLabels([
+            "",           # Checkbox
             "Date",
             "Name of File",
+            "Name",
             "Test Type",
             "Conditions",
-            "Duration",
+            "Run Time",
             "Summary",
+            "",           # View button
         ])
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSortingEnabled(True)  # Enable sorting by clicking column headers
+        self.table.setSortingEnabled(True)
 
         # Configure column widths
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Date
-        header.setSectionResizeMode(1, QHeaderView.Stretch)           # Name of File
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Test Type
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Conditions
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Duration
-        header.setSectionResizeMode(5, QHeaderView.Stretch)           # Summary
+        header.setSectionResizeMode(self.COL_CHECK, QHeaderView.Fixed)
+        self.table.setColumnWidth(self.COL_CHECK, 30)
+        header.setSectionResizeMode(self.COL_DATE, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_FILENAME, QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_NAME, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_TEST_TYPE, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_CONDITIONS, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_DURATION, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_SUMMARY, QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_VIEW, QHeaderView.Fixed)
+        self.table.setColumnWidth(self.COL_VIEW, 50)
 
         self.table.cellClicked.connect(self._on_cell_clicked)
 
+        # Override table key press to toggle checkboxes on spacebar
+        self.table.keyPressEvent = self._table_key_press
+
         layout.addWidget(self.table)
-
-        # Action buttons
-        action_layout = QHBoxLayout()
-
-        self.delete_btn = QPushButton("Delete Selected")
-        self.delete_btn.clicked.connect(self._on_delete)
-        action_layout.addWidget(self.delete_btn)
-
-        self.open_folder_btn = QPushButton("Show Folder")
-        self.open_folder_btn.clicked.connect(self._on_show_folder)
-        action_layout.addWidget(self.open_folder_btn)
-
-        action_layout.addStretch()
-
-        layout.addLayout(action_layout)
 
     @Slot()
     def refresh(self) -> None:
@@ -120,7 +183,6 @@ class HistoryPanel(QWidget):
             return
 
         json_files = sorted(self._test_data_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        print(f"DEBUG: Found {len(json_files)} JSON files in {self._test_data_dir}")
 
         for json_file in json_files:
             try:
@@ -135,10 +197,12 @@ class HistoryPanel(QWidget):
 
                 # Parse date from filename or start_time
                 start_time_str = summary_data.get("start_time", "")
+                start_date = None
                 try:
                     start_time = datetime.fromisoformat(start_time_str)
                     date_str = start_time.strftime("%Y-%m-%d %H:%M")
-                except:
+                    start_date = start_time.date()
+                except Exception:
                     date_str = "Unknown"
 
                 # Test type - use panel type with friendly name
@@ -170,8 +234,16 @@ class HistoryPanel(QWidget):
 
                     conditions_str = ", ".join(conditions_parts) if conditions_parts else "N/A"
 
-                # Duration
-                duration_sec = int(summary_data.get("total_runtime_seconds", 0))
+                # Run time from summary end_time - start_time
+                end_time_str = summary_data.get("end_time", "")
+                duration_sec = 0
+                try:
+                    if start_time_str and end_time_str:
+                        st = datetime.fromisoformat(start_time_str)
+                        et = datetime.fromisoformat(end_time_str)
+                        duration_sec = abs(int((et - st).total_seconds()))
+                except Exception:
+                    pass
                 h = duration_sec // 3600
                 m = (duration_sec % 3600) // 60
                 s = duration_sec % 60
@@ -221,6 +293,8 @@ class HistoryPanel(QWidget):
                     "path": str(json_file),
                     "filename": json_file.name,
                     "date": date_str,
+                    "start_date": start_date,
+                    "device_name": full_name,
                     "test_type": test_type_display,
                     "test_panel_type": test_panel_type,
                     "conditions": conditions_str,
@@ -235,14 +309,53 @@ class HistoryPanel(QWidget):
                 traceback.print_exc()
                 continue
 
-        # Populate table
-        # Temporarily disable sorting while populating to avoid issues
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(len(self._test_files))
+        # Auto-expand date range to cover all data
+        dates = [f["start_date"] for f in self._test_files if f.get("start_date")]
+        if dates:
+            earliest = min(dates)
+            latest = max(dates)
+            self.date_from.blockSignals(True)
+            self.date_to.blockSignals(True)
+            self.date_from.setDate(QDate(earliest.year, earliest.month, earliest.day))
+            self.date_to.setDate(QDate(latest.year, latest.month, latest.day))
+            self.date_from.blockSignals(False)
+            self.date_to.blockSignals(False)
 
-        for row, file_info in enumerate(self._test_files):
+        self._apply_filters()
+
+    @Slot()
+    def _apply_filters(self) -> None:
+        """Filter and display test files based on current filter settings."""
+        type_filter = self.type_filter_combo.currentData()
+        date_from = self.date_from.date().toPython()  # datetime.date
+        date_to = self.date_to.date().toPython()
+
+        filtered = []
+        for f in self._test_files:
+            # Test type filter
+            if type_filter and f["test_panel_type"] != type_filter:
+                continue
+            # Date range filter
+            if f.get("start_date"):
+                if f["start_date"] < date_from or f["start_date"] > date_to:
+                    continue
+            filtered.append(f)
+
+        self._visible_files = filtered
+
+        # Populate table
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(filtered))
+
+        for row, file_info in enumerate(filtered):
+            # Checkbox
+            check_item = QTableWidgetItem()
+            check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            check_item.setCheckState(Qt.Unchecked)
+            self.table.setItem(row, self.COL_CHECK, check_item)
+
             # Date
-            self.table.setItem(row, 0, QTableWidgetItem(file_info["date"]))
+            self.table.setItem(row, self.COL_DATE, QTableWidgetItem(file_info["date"]))
 
             # Name of File (clickable, underlined, blue)
             filename_item = QTableWidgetItem(file_info["filename"])
@@ -251,25 +364,68 @@ class HistoryPanel(QWidget):
             filename_item.setFont(font)
             filename_item.setForeground(Qt.blue)
             filename_item.setData(Qt.UserRole, file_info["path"])  # Store full path
-            self.table.setItem(row, 1, filename_item)
+            self.table.setItem(row, self.COL_FILENAME, filename_item)
+
+            # Device Name
+            self.table.setItem(row, self.COL_NAME, QTableWidgetItem(file_info["device_name"]))
 
             # Test Type
-            self.table.setItem(row, 2, QTableWidgetItem(file_info["test_type"]))
+            self.table.setItem(row, self.COL_TEST_TYPE, QTableWidgetItem(file_info["test_type"]))
 
             # Conditions
-            self.table.setItem(row, 3, QTableWidgetItem(file_info["conditions"]))
+            self.table.setItem(row, self.COL_CONDITIONS, QTableWidgetItem(file_info["conditions"]))
 
             # Duration
-            self.table.setItem(row, 4, QTableWidgetItem(file_info["duration"]))
+            self.table.setItem(row, self.COL_DURATION, QTableWidgetItem(file_info["duration"]))
 
             # Summary
-            self.table.setItem(row, 5, QTableWidgetItem(file_info["summary"]))
+            self.table.setItem(row, self.COL_SUMMARY, QTableWidgetItem(file_info["summary"]))
 
-        # Re-enable sorting after populating
+            # View button
+            view_item = QTableWidgetItem("View")
+            view_font = QFont()
+            view_font.setUnderline(True)
+            view_item.setFont(view_font)
+            view_item.setForeground(Qt.blue)
+            view_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, self.COL_VIEW, view_item)
+
         self.table.setSortingEnabled(True)
-
-        # Set cursor to pointing hand for filename column
         self.table.viewport().setCursor(QCursor(Qt.ArrowCursor))
+
+        # Update trash button label
+        self._update_trash_button()
+
+    def _update_trash_button(self) -> None:
+        """Update the Empty Trash button label with count."""
+        trash_files = list(self._trash_dir.glob("*.json")) if self._trash_dir.exists() else []
+        if trash_files:
+            self.empty_trash_btn.setText(f"Empty Trash ({len(trash_files)})...")
+            self.empty_trash_btn.setEnabled(True)
+        else:
+            self.empty_trash_btn.setText("Empty Trash...")
+            self.empty_trash_btn.setEnabled(False)
+
+    def _table_key_press(self, event) -> None:
+        """Handle key press in table — spacebar toggles checkboxes for selected rows."""
+        if event.key() == Qt.Key_Space:
+            selected_rows = sorted(set(index.row() for index in self.table.selectedIndexes()))
+            for row in selected_rows:
+                item = self.table.item(row, self.COL_CHECK)
+                if item:
+                    if item.checkState() == Qt.Checked:
+                        item.setCheckState(Qt.Unchecked)
+                    else:
+                        item.setCheckState(Qt.Checked)
+        else:
+            QTableWidget.keyPressEvent(self.table, event)
+
+    @Slot()
+    def _clear_filters(self) -> None:
+        """Reset all filters to defaults."""
+        self.type_filter_combo.setCurrentIndex(0)
+        self.date_from.setDate(QDate.currentDate().addMonths(-1))
+        self.date_to.setDate(QDate.currentDate())
 
     def _format_charger_conditions(self, test_config: dict) -> str:
         """Format conditions for battery charger tests showing overall voltage range."""
@@ -305,62 +461,203 @@ class HistoryPanel(QWidget):
 
     @Slot(int, int)
     def _on_cell_clicked(self, row: int, column: int) -> None:
-        """Handle cell click - if Name of File column, emit signal to load."""
-        if column == 1:  # Name of File column
-            if 0 <= row < len(self._test_files):
-                file_info = self._test_files[row]
+        """Handle cell click."""
+        if column == self.COL_FILENAME:
+            # Load test data
+            if 0 <= row < len(self._visible_files):
+                file_info = self._visible_files[row]
                 file_path = file_info["path"]
                 test_panel_type = file_info["test_panel_type"]
                 self.json_file_selected.emit(file_path, test_panel_type)
+        elif column == self.COL_VIEW:
+            # Open JSON file in system text viewer
+            if 0 <= row < len(self._visible_files):
+                self._open_in_viewer(self._visible_files[row]["path"])
+
+    def _open_in_viewer(self, file_path: str) -> None:
+        """Open a JSON file in the system's default text editor."""
+        import subprocess
+        import platform
+
+        try:
+            system = platform.system()
+            if system == "Darwin":
+                subprocess.Popen(["open", "-t", file_path])
+            elif system == "Windows":
+                subprocess.Popen(["notepad", file_path])
+            else:
+                subprocess.Popen(["xdg-open", file_path])
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to open file: {e}")
+
+    def _get_checked_rows(self) -> list[int]:
+        """Get list of row indices that have their checkbox checked."""
+        checked = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, self.COL_CHECK)
+            if item and item.checkState() == Qt.Checked:
+                checked.append(row)
+        return checked
 
     @Slot()
     def _on_delete(self) -> None:
-        """Delete the selected test file(s)."""
-        # Get all selected rows
-        selected_rows = sorted(set(index.row() for index in self.table.selectedIndexes()))
+        """Move checked test file(s) to .trash."""
+        rows_to_delete = self._get_checked_rows()
 
-        if not selected_rows:
-            QMessageBox.information(self, "Delete", "Please select test file(s) to delete.")
+        if not rows_to_delete:
+            QMessageBox.information(self, "Delete", "Please check the files you want to delete.")
             return
 
         # Get file info for selected rows
         files_to_delete = []
-        for row in selected_rows:
-            if 0 <= row < len(self._test_files):
-                files_to_delete.append(self._test_files[row])
+        for row in rows_to_delete:
+            if 0 <= row < len(self._visible_files):
+                files_to_delete.append(self._visible_files[row])
 
         if not files_to_delete:
             return
 
-        # Confirm deletion
-        if len(files_to_delete) == 1:
-            message = f"Are you sure you want to delete '{files_to_delete[0]['filename']}'?\nThis cannot be undone."
-        else:
-            message = f"Are you sure you want to delete {len(files_to_delete)} test files?\nThis cannot be undone."
+        # Move to trash without confirmation
+        self._trash_dir.mkdir(parents=True, exist_ok=True)
 
-        reply = QMessageBox.question(
+        failed_files = []
+        for file_info in files_to_delete:
+            try:
+                src = Path(file_info["path"])
+                dst = self._trash_dir / src.name
+                # Handle name collision in trash
+                if dst.exists():
+                    stem = dst.stem
+                    suffix = dst.suffix
+                    counter = 1
+                    while dst.exists():
+                        dst = self._trash_dir / f"{stem}_{counter}{suffix}"
+                        counter += 1
+                shutil.move(str(src), str(dst))
+            except Exception as e:
+                failed_files.append(f"{file_info['filename']}: {e}")
+
+        self.refresh()
+
+        if failed_files:
+            QMessageBox.warning(
+                self,
+                "Delete Error",
+                f"Failed to move some files:\n" + "\n".join(failed_files)
+            )
+
+    @Slot()
+    def _on_empty_trash(self) -> None:
+        """Empty the trash folder after confirmation."""
+        if not self._trash_dir.exists():
+            return
+
+        trash_files = sorted(self._trash_dir.glob("*.json"))
+        if not trash_files:
+            QMessageBox.information(self, "Empty Trash", "Trash is already empty.")
+            return
+
+        # Get date range of trashed files
+        dates = []
+        for f in trash_files:
+            try:
+                with open(f, 'r') as fh:
+                    data = json.load(fh)
+                start_time_str = data.get("summary", {}).get("start_time", "")
+                if start_time_str:
+                    dt = datetime.fromisoformat(start_time_str)
+                    dates.append(dt)
+            except Exception:
+                pass
+
+        date_range_str = ""
+        if dates:
+            earliest = min(dates).strftime("%Y-%m-%d")
+            latest = max(dates).strftime("%Y-%m-%d")
+            if earliest == latest:
+                date_range_str = f"\nDate: {earliest}"
+            else:
+                date_range_str = f"\nDate range: {earliest} to {latest}"
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Empty Trash")
+        msg_box.setText(f"Permanently delete {len(trash_files)} file(s) from trash?{date_range_str}\n\nThis cannot be undone.")
+        msg_box.setIcon(QMessageBox.Question)
+        empty_btn = msg_box.addButton("Empty Trash", QMessageBox.DestructiveRole)
+        open_btn = msg_box.addButton("Open Folder", QMessageBox.ActionRole)
+        msg_box.addButton(QMessageBox.Cancel)
+        msg_box.setDefaultButton(QMessageBox.Cancel)
+        msg_box.exec()
+
+        if msg_box.clickedButton() == open_btn:
+            self._open_trash_folder()
+        elif msg_box.clickedButton() == empty_btn:
+            for f in trash_files:
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+            self._update_trash_button()
+
+    @Slot()
+    def _on_restore(self) -> None:
+        """Restore files from trash back to the test_data folder."""
+        if not self._trash_dir.exists():
+            QMessageBox.information(self, "Restore", "Trash folder is empty.")
+            return
+
+        from PySide6.QtWidgets import QFileDialog
+        files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Delete Test File(s)",
-            message,
-            QMessageBox.Yes | QMessageBox.No,
+            "Select Files to Restore",
+            str(self._trash_dir),
+            "JSON Files (*.json)",
         )
 
-        if reply == QMessageBox.Yes:
-            failed_files = []
-            for file_info in files_to_delete:
-                try:
-                    Path(file_info["path"]).unlink()
-                except Exception as e:
-                    failed_files.append(f"{file_info['filename']}: {e}")
+        if not files:
+            return
 
-            self.refresh()
+        failed = []
+        for file_path in files:
+            try:
+                src = Path(file_path)
+                dst = self._test_data_dir / src.name
+                if dst.exists():
+                    stem = dst.stem
+                    suffix = dst.suffix
+                    counter = 1
+                    while dst.exists():
+                        dst = self._test_data_dir / f"{stem}_{counter}{suffix}"
+                        counter += 1
+                shutil.move(str(src), str(dst))
+            except Exception as e:
+                failed.append(f"{Path(file_path).name}: {e}")
 
-            if failed_files:
-                QMessageBox.warning(
-                    self,
-                    "Delete Error",
-                    f"Failed to delete some files:\n" + "\n".join(failed_files)
-                )
+        self.refresh()
+
+        if failed:
+            QMessageBox.warning(
+                self,
+                "Restore Error",
+                f"Failed to restore some files:\n" + "\n".join(failed),
+            )
+
+    def _open_trash_folder(self) -> None:
+        """Open the .trash folder in the system file manager."""
+        import subprocess
+        import platform
+
+        self._trash_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            system = platform.system()
+            if system == "Darwin":
+                subprocess.run(["open", str(self._trash_dir)])
+            elif system == "Windows":
+                subprocess.run(["explorer", str(self._trash_dir)])
+            else:
+                subprocess.run(["xdg-open", str(self._trash_dir)])
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to open folder: {e}")
 
     @Slot()
     def _on_show_folder(self) -> None:
@@ -375,8 +672,8 @@ class HistoryPanel(QWidget):
         selected_file = None
         if len(selected_rows) == 1:
             row = selected_rows[0]
-            if 0 <= row < len(self._test_files):
-                selected_file = self._test_files[row]["path"]
+            if 0 <= row < len(self._visible_files):
+                selected_file = self._visible_files[row]["path"]
 
         try:
             system = platform.system()

@@ -229,19 +229,19 @@ class BatteryInfoWidget(QGroupBox):
         self.manufactured_date_edit.setMaximumDate(QDate.currentDate())
         self.manufactured_date_edit.setDate(QDate(2000, 1, 1))  # Start with minimum date (unset)
 
-        # Manufactured date and Serial Number on same row
-        manuf_sn_layout = QHBoxLayout()
-        manuf_sn_layout.addWidget(self.manufactured_date_edit)
-        manuf_sn_layout.addWidget(QLabel("SN"))
+        # Serial Number and Manufactured date on same row
+        sn_manuf_layout = QHBoxLayout()
         self.serial_number_edit = QLineEdit()
         self.serial_number_edit.setPlaceholderText("Serial #")
-        manuf_sn_layout.addWidget(self.serial_number_edit)
-        instance_layout.addRow("Manuf", manuf_sn_layout)
+        sn_manuf_layout.addWidget(self.serial_number_edit)
+        sn_manuf_layout.addWidget(QLabel("Manuf"))
+        sn_manuf_layout.addWidget(self.manufactured_date_edit)
+        instance_layout.addRow("SN", sn_manuf_layout)
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setMaximumHeight(50)
-        self.notes_edit.setPlaceholderText("Test notes...")
-        instance_layout.addRow("Notes", self.notes_edit)
+        self.notes_edit.setPlaceholderText("Notes...")
+        instance_layout.addRow(self.notes_edit)
 
         info_main_layout.addWidget(instance_group)
 

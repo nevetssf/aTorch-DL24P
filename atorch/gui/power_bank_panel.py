@@ -112,33 +112,33 @@ class PowerBankPanel(QWidget):
         test_presets_layout.addWidget(self.delete_test_preset_btn)
         config_layout.addLayout(test_presets_layout)
 
-        # Parameters panel (contains test settings and apply button)
-        params_panel = QGroupBox()
-        params_panel_layout = QVBoxLayout(params_panel)
-        params_panel_layout.setContentsMargins(6, 6, 6, 6)
+        # Load settings panel
+        load_group = QGroupBox()
+        load_layout = QFormLayout(load_group)
+        load_layout.setContentsMargins(6, 6, 6, 6)
 
-        # Parameters form
-        self.params_form = QFormLayout()
+        # Load type selection (CC, CR, CP)
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["Current", "Resistance", "Power"])
+        self.type_combo.setToolTip("CC = Constant Current\nCR = Constant Resistance\nCP = Constant Power")
+        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
+        self.type_combo.currentIndexChanged.connect(self._on_filename_field_changed)
+        load_layout.addRow("Load Type", self.type_combo)
 
-        # Output voltage selection (USB voltages)
-        self.output_voltage_combo = QComboBox()
-        self.output_voltage_combo.addItems(["5V (USB)", "9V (QC/PD)", "12V (PD)", "20V (PD)"])
-        self.output_voltage_combo.setToolTip("USB output voltage to test at")
-        self.output_voltage_combo.currentIndexChanged.connect(self._on_filename_field_changed)
-        self.params_form.addRow("Output Voltage", self.output_voltage_combo)
+        # Test value (current/resistance/power depending on type)
+        self.value_spin = QDoubleSpinBox()
+        self.value_spin.setRange(0.0, 24.0)
+        self.value_spin.setDecimals(3)
+        self.value_spin.setSingleStep(0.1)
+        self.value_spin.setValue(1.0)
+        self.value_spin.setSuffix(" A")
+        self.value_spin.setToolTip("Discharge value (current/resistance/power depending on type)")
+        self.value_spin.valueChanged.connect(self._on_filename_field_changed)
+        self.value_label = QLabel("Current")
+        self.value_label.setMinimumWidth(85)
+        load_layout.addRow(self.value_label, self.value_spin)
 
-        # Test current (typically 1A, 2A, or 3A for USB)
-        self.current_spin = QDoubleSpinBox()
-        self.current_spin.setRange(0.1, 5.0)
-        self.current_spin.setDecimals(2)
-        self.current_spin.setSingleStep(0.1)
-        self.current_spin.setValue(1.0)
-        self.current_spin.setSuffix(" A")
-        self.current_spin.setToolTip("Discharge current (USB typically 1A, 2A, or 3A)")
-        self.current_spin.valueChanged.connect(self._on_filename_field_changed)
-        self.params_form.addRow("Test Current", self.current_spin)
-
-        # Voltage cutoff (power banks have built-in protection, but we can set a safety limit)
+        # Voltage cutoff
         self.cutoff_spin = QDoubleSpinBox()
         self.cutoff_spin.setRange(2.5, 20.0)
         self.cutoff_spin.setDecimals(2)
@@ -146,29 +146,35 @@ class PowerBankPanel(QWidget):
         self.cutoff_spin.setValue(4.0)
         self.cutoff_spin.setSuffix(" V")
         self.cutoff_spin.setToolTip("Safety cutoff voltage (power bank will shut down automatically)")
-        self.params_form.addRow("V Cutoff", self.cutoff_spin)
+        load_layout.addRow("V Cutoff", self.cutoff_spin)
 
-        # Time Limit (optional duration limit)
-        time_limit_layout = QHBoxLayout()
+        config_layout.addWidget(load_group)
+
+        # Time Limit panel
+        time_limit_group = QGroupBox()
+        time_limit_layout = QFormLayout(time_limit_group)
+        time_limit_layout.setContentsMargins(6, 6, 6, 6)
+
+        time_row = QHBoxLayout()
         self.timed_checkbox = QCheckBox()
         self.timed_checkbox.setChecked(False)
         self.timed_checkbox.setToolTip("Enable time limit for test")
         self.timed_checkbox.toggled.connect(self._on_timed_toggled)
-        time_limit_layout.addWidget(self.timed_checkbox)
+        time_row.addWidget(self.timed_checkbox)
 
         self.hours_spin = QSpinBox()
         self.hours_spin.setRange(0, 99)
         self.hours_spin.setValue(4)
         self.hours_spin.setSuffix("h")
         self.hours_spin.setEnabled(False)
-        time_limit_layout.addWidget(self.hours_spin)
+        time_row.addWidget(self.hours_spin)
 
         self.minutes_spin = QSpinBox()
         self.minutes_spin.setRange(0, 59)
         self.minutes_spin.setValue(0)
         self.minutes_spin.setSuffix("m")
         self.minutes_spin.setEnabled(False)
-        time_limit_layout.addWidget(self.minutes_spin)
+        time_row.addWidget(self.minutes_spin)
 
         # Keep duration_spin for backwards compatibility
         self.duration_spin = QSpinBox()
@@ -176,17 +182,64 @@ class PowerBankPanel(QWidget):
         self.duration_spin.setValue(14400)  # 4 hours default
         self.duration_spin.setVisible(False)
 
-        self.params_form.addRow("Time Limit", time_limit_layout)
+        # Start Delay
+        time_row.addSpacing(10)
+        time_row.addWidget(QLabel("Delay"))
+        self.start_delay_spin = QSpinBox()
+        self.start_delay_spin.setRange(0, 60)
+        self.start_delay_spin.setValue(5)
+        self.start_delay_spin.setSuffix("s")
+        self.start_delay_spin.setToolTip("Delay before turning on load (captures unloaded voltage)")
+        time_row.addWidget(self.start_delay_spin)
 
-        params_panel_layout.addLayout(self.params_form)
+        time_limit_layout.addRow("Time Limit", time_row)
+
+        config_layout.addWidget(time_limit_group)
 
         # Apply button
         self.apply_btn = QPushButton("Apply")
         self.apply_btn.clicked.connect(self._on_apply_clicked)
-        params_panel_layout.addWidget(self.apply_btn)
+        config_layout.addWidget(self.apply_btn)
 
-        config_layout.addWidget(params_panel)
+        # Keep params_form reference for compatibility
+        self.params_form = load_layout
         self._load_test_presets_list()
+
+        # Power Supply Setting
+        ps_group = QGroupBox("Power Supply Setting")
+        ps_layout = QFormLayout(ps_group)
+        ps_layout.setContentsMargins(6, 6, 6, 6)
+
+        self.ps_voltage_spin = QDoubleSpinBox()
+        self.ps_voltage_spin.setRange(0.0, 60.0)
+        self.ps_voltage_spin.setDecimals(2)
+        self.ps_voltage_spin.setSingleStep(0.1)
+        self.ps_voltage_spin.setValue(5.0)
+        self.ps_voltage_spin.setSuffix(" V")
+
+        self.ps_voltage_preset_combo = QComboBox()
+        self.ps_voltage_preset_combo.addItems(["5V", "9V", "12V", "15V", "20V"])
+        self.ps_voltage_preset_combo.currentTextChanged.connect(
+            lambda text: self.ps_voltage_spin.setValue(float(text.replace("V", "")))
+        )
+
+        self.ps_auto_checkbox = QCheckBox("Auto")
+        self.ps_auto_checkbox.setChecked(True)
+        self.ps_auto_checkbox.setToolTip("Auto-detect voltage from device at test start")
+        self.ps_auto_checkbox.toggled.connect(self._on_ps_auto_toggled)
+
+        ps_voltage_row = QHBoxLayout()
+        ps_voltage_row.addWidget(self.ps_voltage_spin)
+        ps_voltage_row.addWidget(self.ps_voltage_preset_combo)
+        ps_voltage_row.addWidget(self.ps_auto_checkbox)
+        ps_layout.addRow("Set Voltage", ps_voltage_row)
+
+        # Start with fields disabled since Auto is checked by default
+        self.ps_voltage_spin.setEnabled(False)
+        self.ps_voltage_preset_combo.setEnabled(False)
+
+        config_layout.addWidget(ps_group)
+        config_layout.addStretch()
 
         layout.addWidget(config_group)
 
@@ -226,11 +279,25 @@ class PowerBankPanel(QWidget):
         self.manufacturer_edit.setPlaceholderText("e.g., Anker, RAVPower, Aukey")
         info_layout.addRow("Manufacturer", self.manufacturer_edit)
 
+        model_pd_layout = QHBoxLayout()
         self.model_edit = QLineEdit()
         self.model_edit.setPlaceholderText("e.g., A1271")
-        info_layout.addRow("Model", self.model_edit)
+        model_pd_layout.addWidget(self.model_edit)
 
-        # Rated capacity (what's printed on the power bank, at 3.7V)
+        self.pd_checkbox = QCheckBox("PD")
+        self.pd_checkbox.setToolTip("USB Power Delivery device")
+        model_pd_layout.addWidget(self.pd_checkbox)
+
+        info_layout.addRow("Model", model_pd_layout)
+
+        info_main_layout.addWidget(specs_group)
+
+        # Rated Specs panel
+        self.rated_group = QGroupBox("Rated")
+        rated_layout = QFormLayout(self.rated_group)
+        rated_layout.setContentsMargins(6, 6, 6, 6)
+
+        # Rated capacity
         capacity_layout = QHBoxLayout()
         self.rated_capacity_spin = QSpinBox()
         self.rated_capacity_spin.setRange(0, 100000)
@@ -246,39 +313,38 @@ class PowerBankPanel(QWidget):
         self.rated_energy_spin.setSuffix(" Wh")
         self.rated_energy_spin.setToolTip("Rated energy (capacity × 3.7V)")
         capacity_layout.addWidget(self.rated_energy_spin)
-        info_layout.addRow("Rated Capacity", capacity_layout)
+        rated_layout.addRow("Capacity", capacity_layout)
 
-        # USB output capabilities
-        outputs_layout = QHBoxLayout()
-        self.max_output_current_spin = QDoubleSpinBox()
-        self.max_output_current_spin.setRange(0.0, 10.0)
-        self.max_output_current_spin.setDecimals(2)
-        self.max_output_current_spin.setValue(3.0)
-        self.max_output_current_spin.setSuffix(" A")
-        self.max_output_current_spin.setToolTip("Maximum output current per port")
-        outputs_layout.addWidget(self.max_output_current_spin)
+        # Rated output: Power, Voltage, Current
+        rated_output_layout = QHBoxLayout()
 
-        self.usb_ports_spin = QSpinBox()
-        self.usb_ports_spin.setRange(1, 10)
-        self.usb_ports_spin.setValue(2)
-        self.usb_ports_spin.setSuffix(" ports")
-        self.usb_ports_spin.setToolTip("Number of USB output ports")
-        outputs_layout.addWidget(self.usb_ports_spin)
-        info_layout.addRow("USB Output", outputs_layout)
+        self.max_output_power_spin = QDoubleSpinBox()
+        self.max_output_power_spin.setRange(0.0, 500.0)
+        self.max_output_power_spin.setDecimals(1)
+        self.max_output_power_spin.setValue(30.0)
+        self.max_output_power_spin.setSuffix(" W")
+        self.max_output_power_spin.setToolTip("Rated output power")
+        rated_output_layout.addWidget(self.max_output_power_spin)
 
-        # USB-PD support
-        pd_layout = QHBoxLayout()
-        self.usb_pd_checkbox = QCheckBox("USB-PD")
-        self.usb_pd_checkbox.setToolTip("Supports USB Power Delivery")
-        pd_layout.addWidget(self.usb_pd_checkbox)
+        self.rated_voltage_spin = QDoubleSpinBox()
+        self.rated_voltage_spin.setRange(0.0, 100.0)
+        self.rated_voltage_spin.setDecimals(1)
+        self.rated_voltage_spin.setValue(5.0)
+        self.rated_voltage_spin.setSuffix(" V")
+        self.rated_voltage_spin.setToolTip("Rated output voltage")
+        rated_output_layout.addWidget(self.rated_voltage_spin)
 
-        self.quick_charge_checkbox = QCheckBox("Quick Charge")
-        self.quick_charge_checkbox.setToolTip("Supports Qualcomm Quick Charge")
-        pd_layout.addWidget(self.quick_charge_checkbox)
-        pd_layout.addStretch()
-        info_layout.addRow("Fast Charging", pd_layout)
+        self.rated_current_spin = QDoubleSpinBox()
+        self.rated_current_spin.setRange(0.0, 20.0)
+        self.rated_current_spin.setDecimals(1)
+        self.rated_current_spin.setValue(3.0)
+        self.rated_current_spin.setSuffix(" A")
+        self.rated_current_spin.setToolTip("Rated output current")
+        rated_output_layout.addWidget(self.rated_current_spin)
 
-        info_main_layout.addWidget(specs_group)
+        rated_layout.addRow("Output", rated_output_layout)
+
+        info_main_layout.addWidget(self.rated_group)
 
         # Sub-panel for Serial Number and Notes (outlined, no label)
         instance_group = QGroupBox()
@@ -287,12 +353,12 @@ class PowerBankPanel(QWidget):
 
         self.serial_number_edit = QLineEdit()
         self.serial_number_edit.setPlaceholderText("e.g., SN123456")
-        instance_layout.addRow("Serial Number", self.serial_number_edit)
+        instance_layout.addRow("SN", self.serial_number_edit)
 
         self.notes_edit = QTextEdit()
-        self.notes_edit.setMaximumHeight(50)
-        self.notes_edit.setPlaceholderText("Test notes...")
-        instance_layout.addRow("Notes", self.notes_edit)
+        self.notes_edit.setMaximumHeight(34)
+        self.notes_edit.setPlaceholderText("Notes...")
+        instance_layout.addRow(self.notes_edit)
 
         info_main_layout.addWidget(instance_group)
         layout.addWidget(info_group)
@@ -343,16 +409,16 @@ class PowerBankPanel(QWidget):
         summary_layout = QVBoxLayout(summary_group)
         summary_layout.setContentsMargins(6, 0, 6, 6)
 
-        self.summary_table = QTableWidget(2, 2)
-        self.summary_table.setHorizontalHeaderLabels(["Capacity", "Energy"])
-        self.summary_table.setVerticalHeaderLabels(["Output", "Efficiency"])
+        self.summary_table = QTableWidget(2, 4)
+        self.summary_table.setHorizontalHeaderLabels(["Capacity", "Energy", "Avg V", "Avg I"])
+        self.summary_table.setVerticalHeaderLabels(["Output", "Output vs Rated"])
         self.summary_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.summary_table.setSelectionMode(QTableWidget.NoSelection)
         self.summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.summary_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         # Set columns to stretch equally
-        for col in range(2):
+        for col in range(4):
             self.summary_table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Stretch)
 
         # Make rows taller
@@ -362,18 +428,30 @@ class PowerBankPanel(QWidget):
         # Create value items
         self.summary_capacity_item = QTableWidgetItem("--")
         self.summary_energy_item = QTableWidgetItem("--")
+        self.summary_avg_voltage_item = QTableWidgetItem("--")
+        self.summary_avg_current_item = QTableWidgetItem("--")
         self.summary_efficiency_capacity_item = QTableWidgetItem("--")
         self.summary_efficiency_energy_item = QTableWidgetItem("--")
 
         # Center align all values
         for item in [self.summary_capacity_item, self.summary_energy_item,
+                     self.summary_avg_voltage_item, self.summary_avg_current_item,
                      self.summary_efficiency_capacity_item, self.summary_efficiency_energy_item]:
             item.setTextAlignment(Qt.AlignCenter)
 
         self.summary_table.setItem(0, 0, self.summary_capacity_item)
         self.summary_table.setItem(0, 1, self.summary_energy_item)
+        self.summary_table.setItem(0, 2, self.summary_avg_voltage_item)
+        self.summary_table.setItem(0, 3, self.summary_avg_current_item)
         self.summary_table.setItem(1, 0, self.summary_efficiency_capacity_item)
         self.summary_table.setItem(1, 1, self.summary_efficiency_energy_item)
+        # Row 1, cols 2-3: Avg V % vs Set Voltage, Avg I % vs set current
+        self.summary_avg_voltage_pct_item = QTableWidgetItem("--")
+        self.summary_avg_voltage_pct_item.setTextAlignment(Qt.AlignCenter)
+        self.summary_table.setItem(1, 2, self.summary_avg_voltage_pct_item)
+        self.summary_avg_current_pct_item = QTableWidgetItem("--")
+        self.summary_avg_current_pct_item.setTextAlignment(Qt.AlignCenter)
+        self.summary_table.setItem(1, 3, self.summary_avg_current_pct_item)
 
         # Set fixed height
         table_height = (self.summary_table.horizontalHeader().height() +
@@ -487,10 +565,12 @@ class PowerBankPanel(QWidget):
         try:
             # Load test configuration
             test_config = data.get("test_config", {})
-            if "output_voltage_index" in test_config:
-                self.output_voltage_combo.setCurrentIndex(test_config["output_voltage_index"])
-            if "current" in test_config:
-                self.current_spin.setValue(test_config["current"])
+            if "load_type_index" in test_config:
+                self.type_combo.setCurrentIndex(test_config["load_type_index"])
+            if "value" in test_config:
+                self.value_spin.setValue(test_config["value"])
+            elif "current" in test_config:
+                self.value_spin.setValue(test_config["current"])
             if "voltage_cutoff" in test_config:
                 self.cutoff_spin.setValue(test_config["voltage_cutoff"])
             if "timed" in test_config:
@@ -498,6 +578,8 @@ class PowerBankPanel(QWidget):
             if "duration_seconds" in test_config:
                 self.duration_spin.setValue(test_config["duration_seconds"])
                 self._sync_hours_minutes()
+            if "start_delay" in test_config:
+                self.start_delay_spin.setValue(test_config["start_delay"])
 
             # Load power bank info
             power_bank_info = data.get("power_bank_info", {})
@@ -513,14 +595,14 @@ class PowerBankPanel(QWidget):
                 self.rated_capacity_spin.setValue(power_bank_info["rated_capacity_mah"])
             if "rated_energy_wh" in power_bank_info:
                 self.rated_energy_spin.setValue(power_bank_info["rated_energy_wh"])
-            if "max_output_current_a" in power_bank_info:
-                self.max_output_current_spin.setValue(power_bank_info["max_output_current_a"])
-            if "usb_ports" in power_bank_info:
-                self.usb_ports_spin.setValue(power_bank_info["usb_ports"])
-            if "usb_pd" in power_bank_info:
-                self.usb_pd_checkbox.setChecked(power_bank_info["usb_pd"])
-            if "quick_charge" in power_bank_info:
-                self.quick_charge_checkbox.setChecked(power_bank_info["quick_charge"])
+            if "max_output_power_w" in power_bank_info:
+                self.max_output_power_spin.setValue(power_bank_info["max_output_power_w"])
+            if "rated_voltage_v" in power_bank_info:
+                self.rated_voltage_spin.setValue(power_bank_info["rated_voltage_v"])
+            if "rated_current_a" in power_bank_info:
+                self.rated_current_spin.setValue(power_bank_info["rated_current_a"])
+            if "pd" in power_bank_info:
+                self.pd_checkbox.setChecked(power_bank_info["pd"])
             if "notes" in power_bank_info:
                 self.notes_edit.setPlainText(power_bank_info["notes"])
 
@@ -568,6 +650,38 @@ class PowerBankPanel(QWidget):
         """Handle changes to fields that affect the filename."""
         self._update_filename()
 
+    def _on_ps_auto_toggled(self, checked: bool) -> None:
+        """Enable/disable PS voltage fields based on Auto checkbox."""
+        self.ps_voltage_spin.setEnabled(not checked)
+        self.ps_voltage_preset_combo.setEnabled(not checked)
+
+    def _on_type_changed(self, index: int) -> None:
+        """Handle load type selection change."""
+        if index == 0:  # CC - Constant Current
+            self.value_label.setText("Current")
+            self.value_spin.setSuffix(" A")
+            self.value_spin.setToolTip("Discharge current in Amps")
+            self.value_spin.setRange(0.0, 24.0)
+            self.value_spin.setDecimals(3)
+            self.value_spin.setSingleStep(0.1)
+            self.value_spin.setValue(1.0)
+        elif index == 1:  # CR - Constant Resistance
+            self.value_label.setText("Resistance")
+            self.value_spin.setSuffix(" \u03a9")
+            self.value_spin.setToolTip("Load resistance in Ohms")
+            self.value_spin.setRange(0.1, 9999.0)
+            self.value_spin.setDecimals(1)
+            self.value_spin.setSingleStep(1.0)
+            self.value_spin.setValue(10.0)
+        elif index == 2:  # CP - Constant Power
+            self.value_label.setText("Power")
+            self.value_spin.setSuffix(" W")
+            self.value_spin.setToolTip("Discharge power in Watts")
+            self.value_spin.setRange(0.0, 200.0)
+            self.value_spin.setDecimals(1)
+            self.value_spin.setSingleStep(1.0)
+            self.value_spin.setValue(5.0)
+
     @Slot()
     def _on_start_clicked(self) -> None:
         """Handle start/abort button click."""
@@ -576,40 +690,19 @@ class PowerBankPanel(QWidget):
             self.start_test_requested.emit(0, 0, 0, 0)
             self.test_stopped.emit()
         else:
-            # Check if device is connected, try to auto-connect if not
-            if not self._device or not self._device.is_connected:
-                # Try to find and connect to main window for auto-connect
-                main_window = self.window()
-                if hasattr(main_window, '_try_auto_connect'):
-                    if not main_window._try_auto_connect():
-                        # Auto-connect failed
-                        QMessageBox.warning(
-                            self,
-                            "Not Connected",
-                            "Please select a device from the dropdown and click Connect before starting the test."
-                        )
-                        return
-                    # Auto-connect succeeded, update device reference
-                    self._device = main_window.device
-                else:
-                    # Can't auto-connect, show warning
-                    QMessageBox.warning(
-                        self,
-                        "Not Connected",
-                        "Please connect to a device before starting the test."
-                    )
-                    return
-
-            # Power banks are tested in CC mode
-            discharge_type = 0  # CC
-            value = self.current_spin.value()
+            # Map combo index to discharge type: 0=CC, 1=CR, 2=CP
+            type_map = [0, 2, 1]  # combo index 0→CC(0), 1→CR(2), 2→CP(1)
+            discharge_type = type_map[self.type_combo.currentIndex()]
+            value = self.value_spin.value()
             cutoff = self.cutoff_spin.value()
             duration = self.duration_spin.value() if self.timed_checkbox.isChecked() else 0
 
+            # Refresh filename if autosave is enabled
             if self.autosave_checkbox.isChecked():
                 new_filename = self.generate_test_filename()
                 self.filename_edit.setText(new_filename)
 
+            # Apply settings first, then start test (connection check in main_window)
             self.apply_settings_requested.emit(discharge_type, value, cutoff, duration)
             self.start_test_requested.emit(discharge_type, value, cutoff, duration)
             self._update_ui_running()
@@ -617,33 +710,10 @@ class PowerBankPanel(QWidget):
 
     @Slot()
     def _on_apply_clicked(self) -> None:
-        """Handle Apply button click."""
-        # Check if device is connected, try to auto-connect if not
-        if not self._device or not self._device.is_connected:
-            # Try to find and connect to main window for auto-connect
-            main_window = self.window()
-            if hasattr(main_window, '_try_auto_connect'):
-                if not main_window._try_auto_connect():
-                    # Auto-connect failed
-                    QMessageBox.warning(
-                        self,
-                        "Not Connected",
-                        "Please select a device from the dropdown and click Connect before applying settings."
-                    )
-                    return
-                # Auto-connect succeeded, update device reference
-                self._device = main_window.device
-            else:
-                # Can't auto-connect, show warning
-                QMessageBox.warning(
-                    self,
-                    "Not Connected",
-                    "Please connect to a device before applying settings."
-                )
-                return
-
-        discharge_type = 0  # CC mode for power banks
-        value = self.current_spin.value()
+        """Handle Apply button click - sends settings to device."""
+        type_map = [0, 2, 1]  # combo index 0→CC(0), 1→CR(2), 2→CP(1)
+        discharge_type = type_map[self.type_combo.currentIndex()]
+        value = self.value_spin.value()
         cutoff = self.cutoff_spin.value()
         duration = self.duration_spin.value() if self.timed_checkbox.isChecked() else 0
 
@@ -667,23 +737,39 @@ class PowerBankPanel(QWidget):
         ):
             self._update_ui_stopped()
 
+    def update_start_delay_countdown(self, remaining: int) -> None:
+        """Update status label with start delay countdown.
+
+        Args:
+            remaining: Seconds remaining in start delay
+        """
+        self.status_label.setText(f"Start Delay: {remaining}s")
+        self.status_label.setStyleSheet("color: blue; font-weight: bold;")
+
     def _update_ui_running(self) -> None:
         """Update UI for running state."""
         self.start_btn.setText("Abort")
         self.status_label.setText("Running")
         self.status_label.setStyleSheet("color: orange; font-weight: bold;")
-        self.output_voltage_combo.setEnabled(False)
-        self.current_spin.setEnabled(False)
+        self.type_combo.setEnabled(False)
+        self.value_spin.setEnabled(False)
         self.cutoff_spin.setEnabled(False)
         self.timed_checkbox.setEnabled(False)
         self.hours_spin.setEnabled(False)
         self.minutes_spin.setEnabled(False)
+        self.start_delay_spin.setEnabled(False)
 
-        # Reset summary for new test
+        # Reset tracking lists and summary for new test
+        self._voltage_readings = []
+        self._current_readings = []
         self.summary_capacity_item.setText("--")
         self.summary_energy_item.setText("--")
+        self.summary_avg_voltage_item.setText("--")
+        self.summary_avg_current_item.setText("--")
         self.summary_efficiency_capacity_item.setText("--")
         self.summary_efficiency_energy_item.setText("--")
+        self.summary_avg_voltage_pct_item.setText("--")
+        self.summary_avg_current_pct_item.setText("--")
 
     def _update_ui_stopped(self) -> None:
         """Update UI for stopped state."""
@@ -696,12 +782,13 @@ class PowerBankPanel(QWidget):
             self.status_label.setText("Not Connected")
             self.status_label.setStyleSheet("color: red; font-weight: bold;")
             self.start_btn.setEnabled(True)  # Allow auto-connect
-        self.output_voltage_combo.setEnabled(True)
-        self.current_spin.setEnabled(True)
+        self.type_combo.setEnabled(True)
+        self.value_spin.setEnabled(True)
         self.cutoff_spin.setEnabled(True)
         self.timed_checkbox.setEnabled(True)
         self.hours_spin.setEnabled(self.timed_checkbox.isChecked())
         self.minutes_spin.setEnabled(self.timed_checkbox.isChecked())
+        self.start_delay_spin.setEnabled(True)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("")
         self.elapsed_label.setText("0h 0m 0s")
@@ -712,12 +799,15 @@ class PowerBankPanel(QWidget):
         self.test_presets_combo.setEnabled(enabled)
         self.save_test_preset_btn.setEnabled(enabled)
         self.delete_test_preset_btn.setEnabled(enabled)
-        self.output_voltage_combo.setEnabled(enabled)
-        self.current_spin.setEnabled(enabled)
+        self.type_combo.setEnabled(enabled)
+        self.value_spin.setEnabled(enabled)
         self.cutoff_spin.setEnabled(enabled)
+        self.ps_voltage_spin.setEnabled(enabled and not self.ps_auto_checkbox.isChecked())
+        self.ps_voltage_preset_combo.setEnabled(enabled and not self.ps_auto_checkbox.isChecked())
         self.timed_checkbox.setEnabled(enabled)
         self.hours_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
         self.minutes_spin.setEnabled(enabled and self.timed_checkbox.isChecked())
+        self.start_delay_spin.setEnabled(enabled)
         self.presets_combo.setEnabled(enabled)
         self.save_preset_btn.setEnabled(enabled)
         self.delete_preset_btn.setEnabled(enabled)
@@ -725,10 +815,8 @@ class PowerBankPanel(QWidget):
         self.manufacturer_edit.setEnabled(enabled)
         self.model_edit.setEnabled(enabled)
         self.rated_capacity_spin.setEnabled(enabled)
-        self.rated_energy_spin.setEnabled(enabled)
-        self.usb_ports_spin.setEnabled(enabled)
-        self.usb_pd_checkbox.setEnabled(enabled)
-        self.quick_charge_checkbox.setEnabled(enabled)
+        self.rated_group.setEnabled(enabled)
+        self.pd_checkbox.setEnabled(enabled)
         self.serial_number_edit.setEnabled(enabled)
         self.notes_edit.setEnabled(enabled)
         self.autosave_checkbox.setEnabled(enabled)
@@ -746,7 +834,7 @@ class PowerBankPanel(QWidget):
                 self.status_label.setStyleSheet("color: red; font-weight: bold;")
                 self.start_btn.setEnabled(True)  # Allow auto-connect
 
-    def update_test_progress(self, elapsed_seconds: float, capacity_mah: float, voltage: float = 0.0, energy_wh: float = 0.0) -> None:
+    def update_test_progress(self, elapsed_seconds: float, capacity_mah: float, voltage: float = 0.0, energy_wh: float = 0.0, current_a: float = 0.0) -> None:
         """Update progress and summary during test."""
         if self.start_btn.text() != "Abort":
             return
@@ -755,6 +843,16 @@ class PowerBankPanel(QWidget):
         m = (int(elapsed_seconds) % 3600) // 60
         s = int(elapsed_seconds) % 60
         self.elapsed_label.setText(f"{h}h {m}m {s}s")
+
+        # Track voltage and current readings for averages
+        if voltage > 0:
+            if not hasattr(self, '_voltage_readings'):
+                self._voltage_readings = []
+            self._voltage_readings.append(voltage)
+        if current_a > 0:
+            if not hasattr(self, '_current_readings'):
+                self._current_readings = []
+            self._current_readings.append(current_a)
 
         self._update_test_summary(elapsed_seconds, capacity_mah, energy_wh)
 
@@ -793,7 +891,7 @@ class PowerBankPanel(QWidget):
         self.remaining_label.setText("")
 
     def _update_test_summary(self, elapsed_seconds: float, capacity_mah: float, energy_wh: float) -> None:
-        """Update test summary with output capacity and efficiency."""
+        """Update test summary with output capacity, efficiency, and averages."""
         # Output capacity with auto-scaling
         if capacity_mah >= 1000:
             self.summary_capacity_item.setText(f"{capacity_mah/1000:.3f} Ah")
@@ -802,6 +900,16 @@ class PowerBankPanel(QWidget):
 
         # Output energy
         self.summary_energy_item.setText(f"{energy_wh:.2f} Wh")
+
+        # Average voltage and current
+        voltage_readings = getattr(self, '_voltage_readings', [])
+        current_readings = getattr(self, '_current_readings', [])
+        if voltage_readings:
+            avg_v = sum(voltage_readings) / len(voltage_readings)
+            self.summary_avg_voltage_item.setText(f"{avg_v:.3f} V")
+        if current_readings:
+            avg_i = sum(current_readings) / len(current_readings)
+            self.summary_avg_current_item.setText(f"{avg_i:.3f} A")
 
         # Calculate efficiency (output vs rated)
         rated_capacity = self.rated_capacity_spin.value()
@@ -818,6 +926,27 @@ class PowerBankPanel(QWidget):
             self.summary_efficiency_energy_item.setText(f"{efficiency:.1f}%")
         else:
             self.summary_efficiency_energy_item.setText("--")
+
+        # Avg V % vs Set Voltage
+        set_voltage = self.ps_voltage_spin.value()
+        if voltage_readings and set_voltage > 0:
+            avg_v = sum(voltage_readings) / len(voltage_readings)
+            pct = (avg_v / set_voltage) * 100
+            self.summary_avg_voltage_pct_item.setText(f"{pct:.1f}%")
+        else:
+            self.summary_avg_voltage_pct_item.setText("--")
+
+        # Avg I % vs set current (only meaningful for CC mode)
+        if current_readings and self.type_combo.currentIndex() == 0:
+            set_current = self.value_spin.value()
+            if set_current > 0:
+                avg_i = sum(current_readings) / len(current_readings)
+                pct = (avg_i / set_current) * 100
+                self.summary_avg_current_pct_item.setText(f"{pct:.1f}%")
+            else:
+                self.summary_avg_current_pct_item.setText("--")
+        else:
+            self.summary_avg_current_pct_item.setText("--")
 
     def _update_summary_from_readings(self, readings: list) -> None:
         """Update test summary from loaded readings."""
@@ -836,6 +965,16 @@ class PowerBankPanel(QWidget):
 
         self.summary_energy_item.setText(f"{final_energy:.2f} Wh")
 
+        # Compute average voltage and current from readings
+        voltages = [r.get("voltage_v", 0) for r in readings if r.get("voltage_v", 0) > 0]
+        currents = [r.get("current_a", 0) for r in readings if r.get("current_a", 0) > 0]
+        if voltages:
+            avg_v = sum(voltages) / len(voltages)
+            self.summary_avg_voltage_item.setText(f"{avg_v:.3f} V")
+        if currents:
+            avg_i = sum(currents) / len(currents)
+            self.summary_avg_current_item.setText(f"{avg_i:.3f} A")
+
         # Calculate efficiency
         rated_capacity = self.rated_capacity_spin.value()
         rated_energy = self.rated_energy_spin.value()
@@ -847,6 +986,21 @@ class PowerBankPanel(QWidget):
         if rated_energy > 0:
             efficiency = (final_energy / rated_energy) * 100
             self.summary_efficiency_energy_item.setText(f"{efficiency:.1f}%")
+
+        # Avg V % vs Set Voltage
+        set_voltage = self.ps_voltage_spin.value()
+        if voltages and set_voltage > 0:
+            avg_v = sum(voltages) / len(voltages)
+            pct = (avg_v / set_voltage) * 100
+            self.summary_avg_voltage_pct_item.setText(f"{pct:.1f}%")
+
+        # Avg I % vs set current (only meaningful for CC mode)
+        if currents and self.type_combo.currentIndex() == 0:
+            set_current = self.value_spin.value()
+            if set_current > 0:
+                avg_i = sum(currents) / len(currents)
+                pct = (avg_i / set_current) * 100
+                self.summary_avg_current_pct_item.setText(f"{pct:.1f}%")
 
     # Preset methods
 
@@ -910,10 +1064,10 @@ class PowerBankPanel(QWidget):
         self.serial_number_edit.setText(data.get("serial_number", ""))
         self.rated_capacity_spin.setValue(data.get("rated_capacity_mah", 20000))
         self.rated_energy_spin.setValue(data.get("rated_energy_wh", 74.0))
-        self.max_output_current_spin.setValue(data.get("max_output_current_a", 3.0))
-        self.usb_ports_spin.setValue(data.get("usb_ports", 2))
-        self.usb_pd_checkbox.setChecked(data.get("usb_pd", False))
-        self.quick_charge_checkbox.setChecked(data.get("quick_charge", False))
+        self.max_output_power_spin.setValue(data.get("max_output_power_w", 30.0))
+        self.rated_voltage_spin.setValue(data.get("rated_voltage_v", 5.0))
+        self.rated_current_spin.setValue(data.get("rated_current_a", 3.0))
+        self.pd_checkbox.setChecked(data.get("pd", False))
         self.notes_edit.setPlainText(data.get("notes", ""))
 
     @Slot()
@@ -949,10 +1103,10 @@ class PowerBankPanel(QWidget):
             "serial_number": self.serial_number_edit.text(),
             "rated_capacity_mah": self.rated_capacity_spin.value(),
             "rated_energy_wh": self.rated_energy_spin.value(),
-            "max_output_current_a": self.max_output_current_spin.value(),
-            "usb_ports": self.usb_ports_spin.value(),
-            "usb_pd": self.usb_pd_checkbox.isChecked(),
-            "quick_charge": self.quick_charge_checkbox.isChecked(),
+            "max_output_power_w": self.max_output_power_spin.value(),
+            "rated_voltage_v": self.rated_voltage_spin.value(),
+            "rated_current_a": self.rated_current_spin.value(),
+            "pd": self.pd_checkbox.isChecked(),
             "notes": self.notes_edit.toPlainText(),
         }
 
@@ -1053,10 +1207,12 @@ class PowerBankPanel(QWidget):
                 return
 
         # Apply test preset
-        if "output_voltage_index" in data:
-            self.output_voltage_combo.setCurrentIndex(data["output_voltage_index"])
-        if "current" in data:
-            self.current_spin.setValue(data["current"])
+        if "load_type_index" in data:
+            self.type_combo.setCurrentIndex(data["load_type_index"])
+        if "value" in data:
+            self.value_spin.setValue(data["value"])
+        elif "current" in data:
+            self.value_spin.setValue(data["current"])
         if "voltage_cutoff" in data:
             self.cutoff_spin.setValue(data["voltage_cutoff"])
         if "timed" in data:
@@ -1068,9 +1224,10 @@ class PowerBankPanel(QWidget):
     @Slot()
     def _save_test_preset(self) -> None:
         """Save test configuration as preset."""
-        voltage_text = self.output_voltage_combo.currentText().split()[0]  # "5V", "9V", etc.
-        current = self.current_spin.value()
-        default_name = f"{voltage_text} {current}A"
+        load_type = self.type_combo.currentText()
+        value = self.value_spin.value()
+        units = {"Current": "A", "Resistance": "\u03a9", "Power": "W"}
+        default_name = f"{load_type} {value}{units.get(load_type, '')}"
 
         name, ok = QInputDialog.getText(
             self, "Save Test Preset", "Preset name:",
@@ -1085,8 +1242,8 @@ class PowerBankPanel(QWidget):
             return
 
         data = {
-            "output_voltage_index": self.output_voltage_combo.currentIndex(),
-            "current": self.current_spin.value(),
+            "load_type_index": self.type_combo.currentIndex(),
+            "value": self.value_spin.value(),
             "voltage_cutoff": self.cutoff_spin.value(),
             "timed": self.timed_checkbox.isChecked(),
             "duration": self.duration_spin.value(),
@@ -1137,17 +1294,18 @@ class PowerBankPanel(QWidget):
 
     def get_test_config(self) -> dict:
         """Get test configuration."""
-        voltages = ["5V", "9V", "12V", "20V"]
-        voltage_index = self.output_voltage_combo.currentIndex()
+        load_types = ["Current", "Resistance", "Power"]
+        load_type_index = self.type_combo.currentIndex()
 
         return {
             "test_type": "power_bank",
-            "output_voltage": voltages[voltage_index],
-            "output_voltage_index": voltage_index,
-            "current": self.current_spin.value(),
+            "load_type": load_types[load_type_index],
+            "load_type_index": load_type_index,
+            "value": self.value_spin.value(),
             "voltage_cutoff": self.cutoff_spin.value(),
             "timed": self.timed_checkbox.isChecked(),
             "duration_seconds": self.duration_spin.value() if self.timed_checkbox.isChecked() else 0,
+            "start_delay": self.start_delay_spin.value(),
         }
 
     def get_power_bank_info(self) -> dict:
@@ -1159,10 +1317,10 @@ class PowerBankPanel(QWidget):
             "serial_number": self.serial_number_edit.text(),
             "rated_capacity_mah": self.rated_capacity_spin.value(),
             "rated_energy_wh": self.rated_energy_spin.value(),
-            "max_output_current_a": self.max_output_current_spin.value(),
-            "usb_ports": self.usb_ports_spin.value(),
-            "usb_pd": self.usb_pd_checkbox.isChecked(),
-            "quick_charge": self.quick_charge_checkbox.isChecked(),
+            "max_output_power_w": self.max_output_power_spin.value(),
+            "rated_voltage_v": self.rated_voltage_spin.value(),
+            "rated_current_a": self.rated_current_spin.value(),
+            "pd": self.pd_checkbox.isChecked(),
             "notes": self.notes_edit.toPlainText(),
         }
 
@@ -1179,8 +1337,9 @@ class PowerBankPanel(QWidget):
         # Sanitize power bank name
         safe_name = "".join(c if c.isalnum() or c in "-" else "-" for c in name).strip("-")
 
-        voltage_text = self.output_voltage_combo.currentText().split()[0]  # "5V", "9V", etc.
-        current = self.current_spin.value()
+        load_type = self.type_combo.currentText()
+        value = self.value_spin.value()
+        units = {"Current": "A", "Resistance": "ohm", "Power": "W"}
         cutoff = self.cutoff_spin.value()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -1188,8 +1347,7 @@ class PowerBankPanel(QWidget):
             "PowerBank",
             safe_manufacturer,
             safe_name,
-            voltage_text,
-            f"{current}A",
+            f"{value}{units.get(load_type, '')}",
             f"{cutoff}V-cutoff",
             timestamp,
         ]
@@ -1200,14 +1358,17 @@ class PowerBankPanel(QWidget):
 
     def _connect_save_signals(self) -> None:
         """Connect signals for auto-save."""
-        self.output_voltage_combo.currentIndexChanged.connect(self._on_settings_changed)
-        self.current_spin.valueChanged.connect(self._on_settings_changed)
+        self.type_combo.currentIndexChanged.connect(self._on_settings_changed)
+        self.value_spin.valueChanged.connect(self._on_settings_changed)
         self.cutoff_spin.valueChanged.connect(self._on_settings_changed)
+        self.ps_voltage_spin.valueChanged.connect(self._on_settings_changed)
+        self.ps_auto_checkbox.toggled.connect(self._on_settings_changed)
         self.timed_checkbox.toggled.connect(self._on_settings_changed)
         self.hours_spin.valueChanged.connect(self._sync_duration)
         self.minutes_spin.valueChanged.connect(self._sync_duration)
         self.hours_spin.valueChanged.connect(self._on_settings_changed)
         self.minutes_spin.valueChanged.connect(self._on_settings_changed)
+        self.start_delay_spin.valueChanged.connect(self._on_settings_changed)
         self.test_presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
         self.power_bank_name_edit.textChanged.connect(self._on_settings_changed)
@@ -1216,10 +1377,10 @@ class PowerBankPanel(QWidget):
         self.serial_number_edit.textChanged.connect(self._on_settings_changed)
         self.rated_capacity_spin.valueChanged.connect(self._on_settings_changed)
         self.rated_energy_spin.valueChanged.connect(self._on_settings_changed)
-        self.max_output_current_spin.valueChanged.connect(self._on_settings_changed)
-        self.usb_ports_spin.valueChanged.connect(self._on_settings_changed)
-        self.usb_pd_checkbox.toggled.connect(self._on_settings_changed)
-        self.quick_charge_checkbox.toggled.connect(self._on_settings_changed)
+        self.max_output_power_spin.valueChanged.connect(self._on_settings_changed)
+        self.rated_voltage_spin.valueChanged.connect(self._on_settings_changed)
+        self.rated_current_spin.valueChanged.connect(self._on_settings_changed)
+        self.pd_checkbox.toggled.connect(self._on_settings_changed)
         self.notes_edit.textChanged.connect(self._on_settings_changed)
         self.presets_combo.currentIndexChanged.connect(self._on_settings_changed)
 
@@ -1238,13 +1399,16 @@ class PowerBankPanel(QWidget):
         """Save session to file."""
         settings = {
             "test_config": {
-                "output_voltage_index": self.output_voltage_combo.currentIndex(),
-                "current": self.current_spin.value(),
+                "load_type_index": self.type_combo.currentIndex(),
+                "value": self.value_spin.value(),
                 "voltage_cutoff": self.cutoff_spin.value(),
                 "timed": self.timed_checkbox.isChecked(),
                 "duration": self.duration_spin.value(),
+                "start_delay": self.start_delay_spin.value(),
                 "preset": self.test_presets_combo.currentText(),
             },
+            "ps_voltage": self.ps_voltage_spin.value(),
+            "ps_auto": self.ps_auto_checkbox.isChecked(),
             "power_bank_info": {
                 "name": self.power_bank_name_edit.text(),
                 "manufacturer": self.manufacturer_edit.text(),
@@ -1252,10 +1416,10 @@ class PowerBankPanel(QWidget):
                 "serial_number": self.serial_number_edit.text(),
                 "rated_capacity_mah": self.rated_capacity_spin.value(),
                 "rated_energy_wh": self.rated_energy_spin.value(),
-                "max_output_current_a": self.max_output_current_spin.value(),
-                "usb_ports": self.usb_ports_spin.value(),
-                "usb_pd": self.usb_pd_checkbox.isChecked(),
-                "quick_charge": self.quick_charge_checkbox.isChecked(),
+                "max_output_power_w": self.max_output_power_spin.value(),
+                "rated_voltage_v": self.rated_voltage_spin.value(),
+                "rated_current_a": self.rated_current_spin.value(),
+                "pd": self.pd_checkbox.isChecked(),
                 "notes": self.notes_edit.toPlainText(),
                 "preset": self.presets_combo.currentText(),
             },
@@ -1263,10 +1427,11 @@ class PowerBankPanel(QWidget):
         }
 
         try:
+            self._last_session_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self._last_session_file, 'w') as f:
                 json.dump(settings, f, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"ERROR saving power bank session: {e}")
 
     def _load_last_session(self) -> None:
         """Load session from file."""
@@ -1283,10 +1448,12 @@ class PowerBankPanel(QWidget):
 
         try:
             test_config = settings.get("test_config", {})
-            if "output_voltage_index" in test_config:
-                self.output_voltage_combo.setCurrentIndex(test_config["output_voltage_index"])
-            if "current" in test_config:
-                self.current_spin.setValue(test_config["current"])
+            if "load_type_index" in test_config:
+                self.type_combo.setCurrentIndex(test_config["load_type_index"])
+            if "value" in test_config:
+                self.value_spin.setValue(test_config["value"])
+            elif "current" in test_config:
+                self.value_spin.setValue(test_config["current"])
             if "voltage_cutoff" in test_config:
                 self.cutoff_spin.setValue(test_config["voltage_cutoff"])
             if "timed" in test_config:
@@ -1294,10 +1461,20 @@ class PowerBankPanel(QWidget):
             if "duration" in test_config:
                 self.duration_spin.setValue(test_config["duration"])
                 self._sync_hours_minutes()
+            if "start_delay" in test_config:
+                self.start_delay_spin.setValue(test_config["start_delay"])
             if "preset" in test_config and test_config["preset"]:
                 index = self.test_presets_combo.findText(test_config["preset"])
                 if index >= 0:
+                    self.test_presets_combo.blockSignals(True)
                     self.test_presets_combo.setCurrentIndex(index)
+                    self.test_presets_combo.blockSignals(False)
+
+            # Power Supply Setting
+            if "ps_voltage" in settings:
+                self.ps_voltage_spin.setValue(settings["ps_voltage"])
+            if "ps_auto" in settings:
+                self.ps_auto_checkbox.setChecked(settings["ps_auto"])
 
             power_bank_info = settings.get("power_bank_info", {})
             if "name" in power_bank_info:
@@ -1312,20 +1489,22 @@ class PowerBankPanel(QWidget):
                 self.rated_capacity_spin.setValue(power_bank_info["rated_capacity_mah"])
             if "rated_energy_wh" in power_bank_info:
                 self.rated_energy_spin.setValue(power_bank_info["rated_energy_wh"])
-            if "max_output_current_a" in power_bank_info:
-                self.max_output_current_spin.setValue(power_bank_info["max_output_current_a"])
-            if "usb_ports" in power_bank_info:
-                self.usb_ports_spin.setValue(power_bank_info["usb_ports"])
-            if "usb_pd" in power_bank_info:
-                self.usb_pd_checkbox.setChecked(power_bank_info["usb_pd"])
-            if "quick_charge" in power_bank_info:
-                self.quick_charge_checkbox.setChecked(power_bank_info["quick_charge"])
+            if "max_output_power_w" in power_bank_info:
+                self.max_output_power_spin.setValue(power_bank_info["max_output_power_w"])
+            if "rated_voltage_v" in power_bank_info:
+                self.rated_voltage_spin.setValue(power_bank_info["rated_voltage_v"])
+            if "rated_current_a" in power_bank_info:
+                self.rated_current_spin.setValue(power_bank_info["rated_current_a"])
+            if "pd" in power_bank_info:
+                self.pd_checkbox.setChecked(power_bank_info["pd"])
             if "notes" in power_bank_info:
                 self.notes_edit.setPlainText(power_bank_info["notes"])
             if "preset" in power_bank_info and power_bank_info["preset"]:
                 index = self.presets_combo.findText(power_bank_info["preset"])
                 if index >= 0:
+                    self.presets_combo.blockSignals(True)
                     self.presets_combo.setCurrentIndex(index)
+                    self.presets_combo.blockSignals(False)
 
             if "autosave" in settings:
                 self.autosave_checkbox.setChecked(settings["autosave"])

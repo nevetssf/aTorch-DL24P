@@ -222,7 +222,7 @@ class StatusPanel(QWidget):
         layout.addWidget(self.readings_group)
 
         # Data Logging group
-        self.log_group = QGroupBox("Data Logging")
+        self.log_group = QGroupBox("Manual Data Logging")
         log_layout = QVBoxLayout(self.log_group)
 
         # Logging toggle switch

@@ -995,10 +995,11 @@ class BatteryLoadPanel(QWidget):
         }
 
         try:
+            self._session_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self._session_file, 'w') as f:
                 json.dump(settings, f, indent=2)
-        except Exception:
-            pass  # Silently fail - not critical
+        except Exception as e:
+            print(f"ERROR saving battery load session: {e}")
 
     def _load_session(self):
         """Load settings from file on startup."""
