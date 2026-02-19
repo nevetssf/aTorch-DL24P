@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         from collections import deque
         self._accumulated_readings: deque = deque(maxlen=172800)  # Bounded to 48 hours
         self._prev_load_on = False  # Track previous load state for cutoff detection
+        self._pb_auto_voltage_frozen = False  # Stop live voltage updates once auto-detected
         self._load_off_count = 0  # Consecutive polls with load off during logging
         self._load_off_abort_threshold = 3  # Abort after N consecutive load-off polls
         self._last_autosave_time: Optional[datetime] = None  # Track last periodic auto-save
@@ -3233,14 +3234,79 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage("Failed to save test data")
         return result
 
-    def _auto_set_ps_voltage(self, panel) -> None:
-        """If panel's Auto checkbox is checked, read voltage from device and set as PS voltage."""
-        if not panel.ps_auto_checkbox.isChecked():
+    def _pb_auto_voltage_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
+        """Start the auto-voltage detection sequence: turn off load, wait 5s, read voltage, wait 5s, then start test."""
+        # Reset frozen state for fresh detection
+        self._pb_auto_voltage_frozen = False
+        # Turn off load if it's on
+        if self._prev_load_on:
+            self.device.turn_off()
+            self.statusbar.showMessage("Auto: Turning off load to measure open-circuit voltage...")
+        else:
+            self.statusbar.showMessage("Auto: Measuring open-circuit voltage...")
+
+        # Store pending start parameters
+        self._pb_pending_start = (discharge_type, value, voltage_cutoff, duration_s)
+        self._pb_auto_voltage_remaining = 5
+
+        # Start 1s countdown timer
+        self._pb_auto_voltage_timer = QTimer(self)
+        self._pb_auto_voltage_timer.timeout.connect(self._on_pb_auto_voltage_tick)
+        self._pb_auto_voltage_timer.start(1000)
+        self.power_bank_panel.status_label.setText("Auto: reading voltage (5s)...")
+        self.power_bank_panel.status_label.setStyleSheet("color: orange; font-weight: bold;")
+
+    def _on_pb_auto_voltage_tick(self) -> None:
+        """Handle auto-voltage countdown tick."""
+        self._pb_auto_voltage_remaining -= 1
+        if self._pb_auto_voltage_remaining > 0:
+            self.power_bank_panel.status_label.setText(
+                f"Auto: reading voltage ({self._pb_auto_voltage_remaining}s)..."
+            )
+            self.statusbar.showMessage(
+                f"Auto: Waiting for voltage to stabilize ({self._pb_auto_voltage_remaining}s)..."
+            )
             return
+
+        # Timer done - read voltage
+        self._pb_auto_voltage_timer.stop()
+        self._pb_auto_voltage_timer.deleteLater()
+        self._pb_auto_voltage_timer = None
+
+        # Read the no-load voltage and freeze it
         if self._last_device_voltage is not None and self._last_device_voltage > 0:
             voltage = round(self._last_device_voltage, 2)
-            panel.ps_voltage_spin.setValue(voltage)
-            self.statusbar.showMessage(f"Auto: Set voltage to {voltage:.2f} V")
+            self.power_bank_panel.ps_voltage_spin.blockSignals(True)
+            self.power_bank_panel.ps_voltage_spin.setValue(voltage)
+            self.power_bank_panel.ps_voltage_spin.blockSignals(False)
+            self._pb_auto_voltage_frozen = True
+            self.statusbar.showMessage(f"Auto: Set voltage to {voltage:.2f} V (no-load). Starting in 5s...")
+
+        # Wait another 5 seconds before starting the test
+        self._pb_auto_start_remaining = 5
+        self._pb_auto_start_timer = QTimer(self)
+        self._pb_auto_start_timer.timeout.connect(self._on_pb_auto_start_tick)
+        self._pb_auto_start_timer.start(1000)
+        self.power_bank_panel.status_label.setText("Starting test (5s)...")
+
+    def _on_pb_auto_start_tick(self) -> None:
+        """Handle the second countdown before starting the test."""
+        self._pb_auto_start_remaining -= 1
+        if self._pb_auto_start_remaining > 0:
+            self.power_bank_panel.status_label.setText(
+                f"Starting test ({self._pb_auto_start_remaining}s)..."
+            )
+            return
+
+        # Timer done - start the test
+        self._pb_auto_start_timer.stop()
+        self._pb_auto_start_timer.deleteLater()
+        self._pb_auto_start_timer = None
+
+        # Continue with the test start
+        discharge_type, value, voltage_cutoff, duration_s = self._pb_pending_start
+        self._pb_pending_start = None
+        self._pb_continue_start(discharge_type, value, voltage_cutoff, duration_s)
 
     @Slot()
     @Slot(int, float, float, int)
@@ -3254,6 +3320,17 @@ class MainWindow(QMainWindow):
             duration_s: Duration in seconds (0 for no limit)
         """
         if discharge_type == 0 and value == 0 and voltage_cutoff == 0:
+            # Cancel auto-voltage timers if active
+            if hasattr(self, '_pb_auto_voltage_timer') and self._pb_auto_voltage_timer is not None:
+                self._pb_auto_voltage_timer.stop()
+                self._pb_auto_voltage_timer.deleteLater()
+                self._pb_auto_voltage_timer = None
+            if hasattr(self, '_pb_auto_start_timer') and self._pb_auto_start_timer is not None:
+                self._pb_auto_start_timer.stop()
+                self._pb_auto_start_timer.deleteLater()
+                self._pb_auto_start_timer = None
+            self._pb_pending_start = None
+            self._pb_auto_voltage_frozen = False
             # Cancel start delay timer if active
             if hasattr(self, '_pb_start_delay_timer') and self._pb_start_delay_timer is not None:
                 self._pb_start_delay_timer.stop()
@@ -3293,9 +3370,15 @@ class MainWindow(QMainWindow):
             if not self._try_auto_connect():
                 return
 
-        # Auto-detect PS voltage before applying load
-        self._auto_set_ps_voltage(self.power_bank_panel)
+        # If Auto voltage is checked, start the no-load voltage detection sequence
+        if self.power_bank_panel.ps_auto_checkbox.isChecked():
+            self._pb_auto_voltage_start(discharge_type, value, voltage_cutoff, duration_s)
+            return
 
+        self._pb_continue_start(discharge_type, value, voltage_cutoff, duration_s)
+
+    def _pb_continue_start(self, discharge_type: int, value: float, voltage_cutoff: float, duration_s: int) -> None:
+        """Continue the power bank test start after auto-voltage detection (or immediately if not auto)."""
         # Clear data and previous session before starting new test
         self._clear_data()
         self._last_completed_session = None
@@ -3844,7 +3927,8 @@ class MainWindow(QMainWindow):
         self._last_device_voltage = status.voltage_v
 
         # Update live voltage in Auto PS voltage field (Power Bank)
-        if status.voltage_v > 0:
+        # Skip if voltage has been frozen by auto-detect sequence
+        if status.voltage_v > 0 and not self._pb_auto_voltage_frozen:
             if self.power_bank_panel.ps_auto_checkbox.isChecked():
                 self.power_bank_panel.ps_voltage_spin.blockSignals(True)
                 self.power_bank_panel.ps_voltage_spin.setValue(round(status.voltage_v, 2))

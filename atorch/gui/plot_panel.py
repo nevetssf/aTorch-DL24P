@@ -431,7 +431,18 @@ class PlotPanel(QWidget):
                 axis.setPen(pg.mkPen(color, width=1))
                 axis.setTextPen(pg.mkPen(color))
                 # Update curve pen color
-                self._axis_curves[slot].setPen(pg.mkPen(color, width=2))
+                curve = self._axis_curves[slot]
+                if self._show_lines:
+                    curve.setPen(pg.mkPen(color, width=2))
+                else:
+                    curve.setPen(None)
+                # Update curve point markers
+                if self._show_points:
+                    curve.setSymbol('o')
+                    curve.setSymbolSize(5)
+                    curve.setSymbolBrush(color)
+                else:
+                    curve.setSymbol(None)
                 break
 
     def _update_all_axes_appearance(self) -> None:
