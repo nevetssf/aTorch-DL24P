@@ -684,6 +684,15 @@ class BatteryLoadPanel(QWidget):
         self._test_running = True
         self._test_start_time = time.time()
 
+        # Clear test summary
+        self.summary_runtime_item.setText("--")
+        self.summary_loadtype_item.setText(load_type)
+        unit_map = {"Current": "A", "Resistance": "Ω"}
+        unit = unit_map.get(load_type, "")
+        self.summary_loadrange_item.setText(f"{min_val:.3f}-{max_val:.3f} {unit}")
+        self.summary_resistance_item.setText("--")
+        self.summary_rsquared_item.setText("--")
+
         # Start timer for first dwell period
         self._test_timer.start(dwell_time * 1000)  # Convert seconds to milliseconds
 
@@ -746,6 +755,7 @@ class BatteryLoadPanel(QWidget):
         self.progress_bar.setValue(progress)
         self.status_label.setText(f"Step {self._current_step + 1}/{self._total_steps}: {self._current_value:.3f}")
         self._update_test_time()
+        self._update_runtime_summary()
 
         # Start timer for next dwell period
         dwell_time = self.dwell_time_spin.value()
@@ -758,6 +768,14 @@ class BatteryLoadPanel(QWidget):
         minutes = int((elapsed % 3600) // 60)
         seconds = int(elapsed % 60)
         self.time_label.setText(f"{hours}h {minutes}m {seconds}s")
+
+    def _update_runtime_summary(self):
+        """Update the runtime field in the test summary during a running test."""
+        elapsed = time.time() - self._test_start_time
+        hours = int(elapsed // 3600)
+        minutes = int((elapsed % 3600) // 60)
+        seconds = int(elapsed % 60)
+        self.summary_runtime_item.setText(f"{hours}h {minutes}m {seconds}s")
 
     def _finish_test(self, status: str = "Test Complete"):
         """Clean up when test completes."""
@@ -785,6 +803,7 @@ class BatteryLoadPanel(QWidget):
 
         self.progress_bar.setValue(100)
         self._update_test_time()
+        self._update_runtime_summary()
 
     def _restore_normal_status(self):
         """Restore status label to normal state based on connection."""

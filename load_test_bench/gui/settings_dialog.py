@@ -202,6 +202,27 @@ class SettingsDialog(QDialog):
         notif_tab_layout.addStretch()
         tabs.addTab(notif_tab, "Notifications")
 
+        # Testing tab
+        testing_tab = QWidget()
+        testing_layout = QVBoxLayout(testing_tab)
+
+        timing_group = QGroupBox("Timing")
+        timing_layout = QFormLayout(timing_group)
+
+        self.start_delay_spin = QSpinBox()
+        self.start_delay_spin.setRange(0, 60)
+        self.start_delay_spin.setValue(3)
+        self.start_delay_spin.setSuffix(" s")
+        self.start_delay_spin.setToolTip(
+            "Delay between applying test conditions and turning on the load.\n"
+            "Allows capturing unloaded voltage before the test begins."
+        )
+        timing_layout.addRow("Start Delay", self.start_delay_spin)
+
+        testing_layout.addWidget(timing_group)
+        testing_layout.addStretch()
+        tabs.addTab(testing_tab, "Testing")
+
         # Database tab
         if self.database:
             db_tab = QWidget()
@@ -359,6 +380,9 @@ class SettingsDialog(QDialog):
         self.notify_ended_check.setChecked(ns.get("notify_test_ended", True))
         self.notify_aborted_check.setChecked(ns.get("notify_test_aborted", True))
 
+        # Testing settings
+        self.start_delay_spin.setValue(self._notification_settings.get("start_delay", 3))
+
         # Apply initial enabled state
         self._update_ntfy_enabled(self.ntfy_enabled_check.isChecked())
         self._update_pushover_enabled(self.pushover_enabled_check.isChecked())
@@ -397,7 +421,7 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def get_notification_settings(self) -> dict:
-        """Return current notification settings from the UI."""
+        """Return current notification and testing settings from the UI."""
         return {
             "ntfy_enabled": self.ntfy_enabled_check.isChecked(),
             "ntfy_server": self.ntfy_server_edit.text().strip() or "https://ntfy.sh",
@@ -408,6 +432,7 @@ class SettingsDialog(QDialog):
             "notify_test_started": self.notify_started_check.isChecked(),
             "notify_test_ended": self.notify_ended_check.isChecked(),
             "notify_test_aborted": self.notify_aborted_check.isChecked(),
+            "start_delay": self.start_delay_spin.value(),
         }
 
     def _update_events_visible(self, _=None) -> None:

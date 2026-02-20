@@ -188,6 +188,7 @@ class PlotPanel(QWidget):
         self._time_window_seconds = None  # None = Full, otherwise window size in seconds
         self._time_scroll_position = 1.0  # 0.0 = start, 1.0 = end (most recent)
         self._data_exceeded_window = False  # Track if data has exceeded window (for auto-scroll switch)
+        self._visible_time_span_s = 0  # Visible time span in seconds (for unit selection)
 
         # X-axis settings
         self._x_axis_param = "Time"  # Default to Time, can be any parameter name
@@ -509,10 +510,9 @@ class PlotPanel(QWidget):
             if current_x_min is not None and len(self._time_data) > 0:
                 time_array = np.array(self._time_data)
                 # Convert current_x_min back to raw time (undo display scaling)
-                max_time = time_array[-1]
-                if max_time < 120:
+                if self._visible_time_span_s < 120:
                     raw_x_min = current_x_min  # seconds
-                elif max_time < 7200:
+                elif self._visible_time_span_s < 7200:
                     raw_x_min = current_x_min * 60.0  # minutes -> seconds
                 else:
                     raw_x_min = current_x_min * 3600.0  # hours -> seconds
@@ -878,7 +878,7 @@ class PlotPanel(QWidget):
                     curve.setPen(None)
 
     def _update_time_axis_label(self) -> None:
-        """Update the X-axis label with appropriate time units."""
+        """Update the X-axis label with appropriate time units based on visible span."""
         # Only update if using Time as x-axis
         if self._x_axis_param != "Time":
             return
@@ -887,11 +887,11 @@ class PlotPanel(QWidget):
             self.plot_item.setLabel("bottom", "Time (seconds)")
             return
 
-        max_time = max(self._time_data) if self._time_data else 0
+        visible = self._visible_time_span_s
 
-        if max_time < 120:
+        if visible < 120:
             self.plot_item.setLabel("bottom", "Time (seconds)")
-        elif max_time < 7200:
+        elif visible < 7200:
             self.plot_item.setLabel("bottom", "Time (minutes)")
         else:
             self.plot_item.setLabel("bottom", "Time (hours)")
@@ -916,11 +916,18 @@ class PlotPanel(QWidget):
             time_raw = np.array(self._time_data)
             time_masked = time_raw
 
-            # Convert time to appropriate display units
-            max_time_val = time_masked[-1] if len(time_masked) > 0 else 0
-            if max_time_val < 120:
+            # Determine visible time span for unit selection
+            total_duration_s = time_masked[-1] - time_masked[0] if len(time_masked) > 1 else time_masked[-1]
+            if self._time_window_seconds is not None and total_duration_s > self._time_window_seconds:
+                visible_span_s = self._time_window_seconds
+            else:
+                visible_span_s = total_duration_s
+            self._visible_time_span_s = visible_span_s
+
+            # Convert time to appropriate display units based on visible span
+            if visible_span_s < 120:
                 x_display = time_masked  # seconds
-            elif max_time_val < 7200:
+            elif visible_span_s < 7200:
                 x_display = time_masked / 60.0  # minutes
             else:
                 x_display = time_masked / 3600.0  # hours
@@ -1016,13 +1023,12 @@ class PlotPanel(QWidget):
         elif len(x_display) > 0:
             # Time-based x-axis with window controls
             total_duration = x_display[-1] - x_display[0]
-            max_time_val = np.array(self._time_data)[-1] if len(self._time_data) > 0 else 0
 
             if self._time_window_seconds is not None:
-                # Convert window to display units
-                if max_time_val < 120:
+                # Convert window to display units (matching visible span unit choice)
+                if self._visible_time_span_s < 120:
                     window_display = self._time_window_seconds
-                elif max_time_val < 7200:
+                elif self._visible_time_span_s < 7200:
                     window_display = self._time_window_seconds / 60.0
                 else:
                     window_display = self._time_window_seconds / 3600.0

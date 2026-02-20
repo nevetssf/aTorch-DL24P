@@ -35,6 +35,8 @@
                      "rated_voltage": 7.2, "nominal_capacity": 1200, "nominal_energy": 8.7, "technology": "Li-Ion"},
   "Neewer DMW-BLC12": {"name": "DMW-BLC12", "manufacturer": "Neewer", "oem_equivalent": "BP-DC12, DMW-BLC12",
                       "rated_voltage": 7.2, "nominal_capacity": 1500, "nominal_energy": 11.1, "technology": "Li-Ion"},
+  "Pickle Power PP-PAN-BLC12": {"name": "PP-PAN-BLC12", "manufacturer": "Pickle Power", "oem_equivalent": "DMW-BLC12, DMW-BLC12PP, DMW-BLC12E",
+                               "rated_voltage": 7.4, "nominal_capacity": 1440, "nominal_energy": 10.7, "technology": "Li-Ion"},
   "Nikon EN-EL15c": {"name": "EN-EL15c", "manufacturer": "Nikon", "oem_equivalent": "EN-EL15c, EN-EL15b, EN-EL15a, EN-EL15",
                     "rated_voltage": 7.0, "nominal_capacity": 2280, "nominal_energy": 16.0, "technology": "Li-Ion"},
   "Nikon EN-EL25": {"name": "EN-EL25", "manufacturer": "Nikon", "oem_equivalent": "EN-EL25",

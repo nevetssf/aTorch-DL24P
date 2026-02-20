@@ -6,6 +6,13 @@
 - Windows build not yet tested
 - Consider code signing for macOS distribution
 
+### Pre-Test Reset Sequence
+- Before each test starts, turn off the load and wait 5 seconds to ensure a known state
+- Sequence: load off → reset counters (mAh, Wh, time) → wait 5s → then proceed with test start
+- Applies to all test panels (Battery Capacity, Battery Load, Battery Charger, Charger Load, Power Bank)
+- This ensures consistent starting conditions regardless of what the device was doing before
+- Show countdown in status label during the wait (e.g. "Preparing... 5s")
+
 ### Database Schema Overhaul
 - **Issue**: The current database schema and how it's populated are out of sync with how data logging actually works
 - The schema was designed early on and hasn't kept pace with changes to the logging pipeline (bounded deque, commit batching, test panel types, etc.)

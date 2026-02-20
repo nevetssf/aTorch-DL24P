@@ -1533,6 +1533,7 @@ class MainWindow(QMainWindow):
             "notify_test_started": False,
             "notify_test_ended": True,
             "notify_test_aborted": True,
+            "start_delay": 3,
         }
         if not settings_file.exists():
             return defaults
@@ -1656,18 +1657,21 @@ class MainWindow(QMainWindow):
             file_path: Path to the JSON file
             test_panel_type: Type of test panel (battery_capacity, battery_load, etc.)
         """
-        # Map test panel types to tab indices
-        panel_type_to_tab = {
-            "battery_capacity": 0,
-            "battery_load": 1,
-            "battery_charger": 2,
-            "charger": 3,
-            "power_bank": 4,
+        # Map test panel types to their panel widgets
+        panel_type_to_widget = {
+            "battery_capacity": self.battery_capacity_panel,
+            "battery_load": self.battery_load_panel,
+            "battery_charger": self.battery_charger_panel,
+            "charger": self.charger_panel,
+            "power_bank": self.power_bank_panel,
         }
 
-        # Switch to the appropriate tab
-        tab_index = panel_type_to_tab.get(test_panel_type, 0)
-        self.bottom_tabs.setCurrentIndex(tab_index)
+        # Switch to the appropriate tab by widget lookup (not index)
+        widget = panel_type_to_widget.get(test_panel_type)
+        if widget is not None:
+            tab_index = self.bottom_tabs.indexOf(widget)
+            if tab_index >= 0:
+                self.bottom_tabs.setCurrentIndex(tab_index)
 
         # Only load data for battery_capacity, battery_load, battery_charger, charger, and power_bank types (others are placeholders)
         if test_panel_type not in ("battery_capacity", "battery_load", "battery_charger", "charger", "power_bank"):
@@ -2169,6 +2173,11 @@ class MainWindow(QMainWindow):
                 self.battery_capacity_panel._update_ui_stopped()
                 return
 
+        # Turn off load first to ensure known starting state
+        if self.device and self.device.is_connected:
+            self.device.turn_off()
+            self.control_panel.power_switch.setChecked(False)
+
         # Clear data and previous session before starting new test
         self._clear_data()
         self._last_completed_session = None
@@ -2208,8 +2217,8 @@ class MainWindow(QMainWindow):
             self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
             self.plot_panel._axis_checkboxes["Y"].setChecked(True)
 
-        # Get start delay from panel
-        start_delay = self.battery_capacity_panel.start_delay_spin.value()
+        # Get start delay from Settings
+        start_delay = self._notification_settings.get("start_delay", 3)
 
         # Start logging
         if not self._logging_enabled:
@@ -2357,6 +2366,10 @@ class MainWindow(QMainWindow):
                 self.battery_load_panel._finish_test("Connection Failed")
                 return
 
+        # Turn off load first to ensure known starting state
+        self.device.turn_off()
+        self.control_panel.power_switch.setChecked(False)
+
         # Clear data and previous session before starting new test
         self._clear_data()
         self._last_completed_session = None
@@ -2367,6 +2380,32 @@ class MainWindow(QMainWindow):
         # Show point markers by default for Battery Load tests
         self.plot_panel.show_points_checkbox.setChecked(True)
 
+        # Get start delay from Settings
+        start_delay = self._notification_settings.get("start_delay", 3)
+
+        if start_delay > 0:
+            # Start countdown before beginning test
+            self._bl_start_delay_remaining = start_delay
+            self._bl_start_delay_timer = QTimer(self)
+            self._bl_start_delay_timer.timeout.connect(self._on_bl_start_delay_tick)
+            self._bl_start_delay_timer.start(1000)
+            self.statusbar.showMessage(f"Battery Load test — starting in {start_delay} seconds")
+        else:
+            self._battery_load_continue_start()
+
+    def _on_bl_start_delay_tick(self) -> None:
+        """Handle battery load start delay countdown tick."""
+        self._bl_start_delay_remaining -= 1
+        if self._bl_start_delay_remaining <= 0:
+            self._bl_start_delay_timer.stop()
+            self._bl_start_delay_timer.deleteLater()
+            self._bl_start_delay_timer = None
+            self._battery_load_continue_start()
+        else:
+            self.statusbar.showMessage(f"Battery Load test — starting in {self._bl_start_delay_remaining} seconds")
+
+    def _battery_load_continue_start(self) -> None:
+        """Continue battery load test start after delay."""
         # Start logging (which also turns on the load)
         if not self._logging_enabled:
             self.status_panel.log_switch.setChecked(True)
@@ -2385,6 +2424,11 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_battery_load_stop(self) -> None:
         """Handle test stop from battery load panel."""
+        # Cancel start delay timer if active
+        if hasattr(self, '_bl_start_delay_timer') and self._bl_start_delay_timer is not None:
+            self._bl_start_delay_timer.stop()
+            self._bl_start_delay_timer.deleteLater()
+            self._bl_start_delay_timer = None
         num_readings = len(self._accumulated_readings)
         saved_path = None
 
@@ -2513,6 +2557,10 @@ class MainWindow(QMainWindow):
                 self.charger_panel._finish_test("Connection Failed")
                 return
 
+        # Turn off load first to ensure known starting state
+        self.device.turn_off()
+        self.control_panel.power_switch.setChecked(False)
+
         # Clear data and previous session before starting new test
         self._clear_data()
         self._last_completed_session = None
@@ -2523,6 +2571,31 @@ class MainWindow(QMainWindow):
         # Show point markers by default for Charger Load tests
         self.plot_panel.show_points_checkbox.setChecked(True)
 
+        # Get start delay from Settings
+        start_delay = self._notification_settings.get("start_delay", 3)
+
+        if start_delay > 0:
+            self._cl_start_delay_remaining = start_delay
+            self._cl_start_delay_timer = QTimer(self)
+            self._cl_start_delay_timer.timeout.connect(self._on_cl_start_delay_tick)
+            self._cl_start_delay_timer.start(1000)
+            self.statusbar.showMessage(f"Charger Load test — starting in {start_delay} seconds")
+        else:
+            self._charger_load_continue_start()
+
+    def _on_cl_start_delay_tick(self) -> None:
+        """Handle charger load start delay countdown tick."""
+        self._cl_start_delay_remaining -= 1
+        if self._cl_start_delay_remaining <= 0:
+            self._cl_start_delay_timer.stop()
+            self._cl_start_delay_timer.deleteLater()
+            self._cl_start_delay_timer = None
+            self._charger_load_continue_start()
+        else:
+            self.statusbar.showMessage(f"Charger Load test — starting in {self._cl_start_delay_remaining} seconds")
+
+    def _charger_load_continue_start(self) -> None:
+        """Continue charger load test start after delay."""
         # Start logging (which also turns on the load)
         if not self._logging_enabled:
             self.status_panel.log_switch.setChecked(True)
@@ -2541,6 +2614,11 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_charger_stop(self) -> None:
         """Handle test stop from charger panel."""
+        # Cancel start delay timer if active
+        if hasattr(self, '_cl_start_delay_timer') and self._cl_start_delay_timer is not None:
+            self._cl_start_delay_timer.stop()
+            self._cl_start_delay_timer.deleteLater()
+            self._cl_start_delay_timer = None
         num_readings = len(self._accumulated_readings)
         saved_path = None
 
@@ -2669,6 +2747,10 @@ class MainWindow(QMainWindow):
                 self.battery_charger_panel._abort_test("Connection Failed")
                 return
 
+        # Turn off load first to ensure known starting state
+        self.device.turn_off()
+        self.control_panel.power_switch.setChecked(False)
+
         # Clear accumulated data and reset counters BEFORE test begins
         self.plot_panel.clear_data()
         self.status_panel.clear_logging_time()
@@ -2679,6 +2761,37 @@ class MainWindow(QMainWindow):
         self.device.reset_counters()
         # Lock UI controls during test
         self._disable_controls_during_test()
+
+        # Get start delay from Settings
+        start_delay = self._notification_settings.get("start_delay", 3)
+
+        if start_delay > 0:
+            self._bc_start_delay_remaining = start_delay
+            self._bc_start_delay_timer = QTimer(self)
+            self._bc_start_delay_timer.timeout.connect(self._on_bc_start_delay_tick)
+            self._bc_start_delay_timer.start(1000)
+            self.statusbar.showMessage(f"Battery Charger test — starting in {start_delay} seconds")
+        else:
+            self._battery_charger_continue_init()
+
+    def _on_bc_start_delay_tick(self) -> None:
+        """Handle battery charger start delay countdown tick."""
+        self._bc_start_delay_remaining -= 1
+        if self._bc_start_delay_remaining <= 0:
+            self._bc_start_delay_timer.stop()
+            self._bc_start_delay_timer.deleteLater()
+            self._bc_start_delay_timer = None
+            self._battery_charger_continue_init()
+        else:
+            self.statusbar.showMessage(f"Battery Charger test — starting in {self._bc_start_delay_remaining} seconds")
+
+    def _battery_charger_continue_init(self) -> None:
+        """Continue battery charger initialization after delay.
+
+        Signals the panel that initialization is complete so it can proceed
+        with device setup and the settle phase.
+        """
+        self.battery_charger_panel.continue_after_init()
 
     @Slot()
     def _on_battery_charger_start(self) -> None:
@@ -2717,6 +2830,11 @@ class MainWindow(QMainWindow):
         Note: Battery Charger panel manages the load state directly.
         This handler only controls logging, not the load.
         """
+        # Cancel start delay timer if active
+        if hasattr(self, '_bc_start_delay_timer') and self._bc_start_delay_timer is not None:
+            self._bc_start_delay_timer.stop()
+            self._bc_start_delay_timer.deleteLater()
+            self._bc_start_delay_timer = None
         # Check if this is final stop (end of test) or pause between steps
         # If panel is still running, this is a pause; otherwise it's final stop
         is_final_stop = not self.battery_charger_panel._test_running
@@ -2952,6 +3070,10 @@ class MainWindow(QMainWindow):
                 self.power_bank_panel._update_ui_stopped()
                 return
 
+        # Turn off load first to ensure known starting state
+        self.device.turn_off()
+        self.control_panel.power_switch.setChecked(False)
+
         # Lock UI controls immediately when Start is clicked
         self._disable_controls_during_test()
 
@@ -3009,8 +3131,8 @@ class MainWindow(QMainWindow):
         units = {"Current": "A", "Resistance": "\u03a9", "Power": "W"}
         value_str = f"{value}{units.get(load_type, '')}"
 
-        # Get start delay from panel (skip if auto-voltage already handled the delay)
-        start_delay = self.power_bank_panel.start_delay_spin.value()
+        # Get start delay from Settings (skip if auto-voltage already handled the delay)
+        start_delay = self._notification_settings.get("start_delay", 3)
         if self._pb_auto_voltage_frozen:
             start_delay = 0  # Auto-voltage already waited with load off
 

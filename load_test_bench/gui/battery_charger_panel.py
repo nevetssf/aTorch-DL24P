@@ -823,9 +823,25 @@ class BatteryChargerPanel(QWidget):
             QMessageBox.warning(self, "Invalid Parameters", "Steps must be at least 1.")
             return
 
+        # Store parameters for continuation after main_window delay
+        self._pending_min_voltage = min_voltage
+        self._pending_max_voltage = max_voltage
+        self._pending_num_steps = num_steps
+        self._pending_settle_time = settle_time
+        self._pending_dwell_time = dwell_time
+
         # Emit signal that test is being initialized (before any device commands)
-        # This tells main_window to clear accumulated data BEFORE the test begins
+        # Main window will turn off load, wait for start delay, then call continue_after_init()
         self.test_initialized.emit()
+
+    def continue_after_init(self) -> None:
+        """Continue test setup after main_window has completed initialization delay.
+
+        Called by main_window after the start delay countdown completes.
+        """
+        min_voltage = self._pending_min_voltage
+        max_voltage = self._pending_max_voltage
+        num_steps = self._pending_num_steps
 
         # Build flat list of voltage steps across all enabled stages
         voltage_steps = []
