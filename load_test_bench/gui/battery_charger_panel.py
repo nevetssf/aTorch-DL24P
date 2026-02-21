@@ -549,15 +549,20 @@ class BatteryChargerPanel(QWidget):
         """Save current charger info as a preset."""
         from PySide6.QtWidgets import QInputDialog
 
-        name = self.charger_name_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Save Preset", "Please enter a charger name first.")
-            return
+        # Default to selected preset name, fall back to charger name
+        selected = self.charger_presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
+        else:
+            default_name = self.charger_name_edit.text().strip()
+            if not default_name:
+                QMessageBox.warning(self, "Save Preset", "Please enter a charger name first.")
+                return
 
-        # Ask for preset name (default to charger name)
+        # Ask for preset name
         preset_name, ok = QInputDialog.getText(
             self, "Save Charger Preset",
-            "Preset name:", text=name
+            "Preset name:", text=default_name
         )
 
         if not ok or not preset_name:
@@ -695,11 +700,15 @@ class BatteryChargerPanel(QWidget):
         """Save current test configuration as a preset."""
         from PySide6.QtWidgets import QInputDialog
 
-        # Build default name from current settings
-        start = self.min_voltage_spin.value()
-        end = self.max_voltage_spin.value()
-        steps = self.num_steps_spin.value()
-        default_name = f"{start}-{end}V {steps} steps"
+        # Default to selected preset name, fall back to conditions-based name
+        selected = self.test_presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
+        else:
+            start = self.min_voltage_spin.value()
+            end = self.max_voltage_spin.value()
+            steps = self.num_steps_spin.value()
+            default_name = f"{start}-{end}V {steps} steps"
 
         name, ok = QInputDialog.getText(
             self, "Save Test Preset", "Preset name:",
@@ -830,6 +839,10 @@ class BatteryChargerPanel(QWidget):
         self._pending_settle_time = settle_time
         self._pending_dwell_time = dwell_time
 
+        # Switch to Abort immediately so user can cancel during start delay
+        self.start_btn.setText("Abort")
+        self._test_running = True
+
         # Emit signal that test is being initialized (before any device commands)
         # Main window will turn off load, wait for start delay, then call continue_after_init()
         self.test_initialized.emit()
@@ -901,10 +914,8 @@ class BatteryChargerPanel(QWidget):
                 self._plot_panel._axis_dropdowns["Y"].setCurrentText("Current")
                 self._plot_panel._axis_checkboxes["Y"].setChecked(True)
 
-        # Update UI
-        self.start_btn.setText("Abort")
+        # Update UI (button text and _test_running already set in _start_test)
         self.progress_bar.setValue(0)
-        self._test_running = True
         self._test_start_time = time.time()
 
         # Enter "waiting for confirmation" state
@@ -1144,11 +1155,12 @@ class BatteryChargerPanel(QWidget):
         self._test_running = False
 
         # Stop logging if still enabled
-        # Emit test_stopped BEFORE turning off load so main_window can save data
-        # (main_window checks _logging_enabled to decide whether to save)
         if self._logging_enabled:
-            self.test_stopped.emit()  # Triggers auto-save in main_window
             self._logging_enabled = False
+
+        # Always emit test_stopped so main_window can re-enable controls
+        # (even if logging wasn't started, e.g. abort during start delay)
+        self.test_stopped.emit()
 
         # Turn off load AFTER emitting signal (so logging completes first)
         if self._device:

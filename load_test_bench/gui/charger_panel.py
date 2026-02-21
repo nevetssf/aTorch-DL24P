@@ -497,15 +497,20 @@ class ChargerPanel(QWidget):
         """Save current charger info as a preset."""
         from PySide6.QtWidgets import QInputDialog
 
-        name = self.charger_name_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Save Preset", "Please enter a charger name first.")
-            return
+        # Default to selected preset name, fall back to charger name
+        selected = self.charger_presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
+        else:
+            default_name = self.charger_name_edit.text().strip()
+            if not default_name:
+                QMessageBox.warning(self, "Save Preset", "Please enter a charger name first.")
+                return
 
-        # Ask for preset name (default to charger name)
+        # Ask for preset name
         preset_name, ok = QInputDialog.getText(
             self, "Save Charger Preset",
-            "Preset name:", text=name
+            "Preset name:", text=default_name
         )
 
         if not ok or not preset_name:
@@ -618,10 +623,21 @@ class ChargerPanel(QWidget):
         """Save current test conditions as a preset."""
         from PySide6.QtWidgets import QInputDialog
 
+        # Default to selected preset name, fall back to conditions-based name
+        selected = self.test_presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
+        else:
+            load_type = self.load_type_combo.currentText()
+            units = {"Current": "A", "Resistance": "\u03a9", "Power": "W"}
+            min_val = self.min_spin.value()
+            max_val = self.max_spin.value()
+            default_name = f"{load_type} {min_val}-{max_val}{units.get(load_type, '')}"
+
         # Ask for preset name
         preset_name, ok = QInputDialog.getText(
             self, "Save Test Preset",
-            "Preset name:"
+            "Preset name:", text=default_name
         )
 
         if not ok or not preset_name:

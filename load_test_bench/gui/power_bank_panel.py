@@ -1080,16 +1080,21 @@ class PowerBankPanel(QWidget):
     @Slot()
     def _save_power_bank_preset(self) -> None:
         """Save current power bank info as preset."""
-        manufacturer = self.manufacturer_edit.text().strip()
-        name = self.power_bank_name_edit.text().strip()
-        if manufacturer and name:
-            default_name = f"{manufacturer} {name}"
-        elif manufacturer:
-            default_name = manufacturer
-        elif name:
-            default_name = name
+        # Default to selected preset name, fall back to manufacturer + name
+        selected = self.presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
         else:
-            default_name = "New Preset"
+            manufacturer = self.manufacturer_edit.text().strip()
+            pb_name = self.power_bank_name_edit.text().strip()
+            if manufacturer and pb_name:
+                default_name = f"{manufacturer} {pb_name}"
+            elif manufacturer:
+                default_name = manufacturer
+            elif pb_name:
+                default_name = pb_name
+            else:
+                default_name = "New Preset"
 
         name, ok = QInputDialog.getText(
             self, "Save Preset", "Preset name:",
@@ -1231,10 +1236,15 @@ class PowerBankPanel(QWidget):
     @Slot()
     def _save_test_preset(self) -> None:
         """Save test configuration as preset."""
-        load_type = self.type_combo.currentText()
-        value = self.value_spin.value()
-        units = {"Current": "A", "Resistance": "\u03a9", "Power": "W"}
-        default_name = f"{load_type} {value}{units.get(load_type, '')}"
+        # Default to selected preset name, fall back to conditions-based name
+        selected = self.test_presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
+        else:
+            load_type = self.type_combo.currentText()
+            value = self.value_spin.value()
+            units = {"Current": "A", "Resistance": "\u03a9", "Power": "W"}
+            default_name = f"{load_type} {value}{units.get(load_type, '')}"
 
         name, ok = QInputDialog.getText(
             self, "Save Test Preset", "Preset name:",

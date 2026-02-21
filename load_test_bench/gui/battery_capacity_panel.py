@@ -983,17 +983,21 @@ class BatteryCapacityPanel(QWidget):
         # Get current battery info
         battery_info = self.battery_info_widget.get_battery_info()
 
-        # Build default name from manufacturer and battery name
-        manufacturer = battery_info.get("manufacturer", "").strip()
-        battery_name = battery_info.get("name", "").strip()
-        if manufacturer and battery_name:
-            default_name = f"{manufacturer} {battery_name}"
-        elif manufacturer:
-            default_name = manufacturer
-        elif battery_name:
-            default_name = battery_name
+        # Default to selected preset name, fall back to manufacturer + battery name
+        selected = self.battery_info_widget.presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
         else:
-            default_name = "New Preset"
+            manufacturer = battery_info.get("manufacturer", "").strip()
+            battery_name = battery_info.get("name", "").strip()
+            if manufacturer and battery_name:
+                default_name = f"{manufacturer} {battery_name}"
+            elif manufacturer:
+                default_name = manufacturer
+            elif battery_name:
+                default_name = battery_name
+            else:
+                default_name = "New Preset"
 
         # Get preset name from user
         name, ok = QInputDialog.getText(
@@ -1147,13 +1151,17 @@ class BatteryCapacityPanel(QWidget):
     @Slot()
     def _save_test_preset(self) -> None:
         """Save current test configuration as a preset."""
-        # Build default name from current settings
-        type_names = ["Current", "Resistance"]
-        type_units = ["A", "ohm"]
-        discharge_type = self.type_combo.currentIndex()
-        value = self.value_spin.value()
-        cutoff = self.cutoff_spin.value()
-        default_name = f"{type_names[discharge_type]} {value}{type_units[discharge_type]} {cutoff}V"
+        # Default to selected preset name, fall back to conditions-based name
+        selected = self.test_presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
+        else:
+            type_names = ["Current", "Resistance"]
+            type_units = ["A", "ohm"]
+            discharge_type = self.type_combo.currentIndex()
+            value = self.value_spin.value()
+            cutoff = self.cutoff_spin.value()
+            default_name = f"{type_names[discharge_type]} {value}{type_units[discharge_type]} {cutoff}V"
 
         # Get preset name from user
         name, ok = QInputDialog.getText(
@@ -1367,8 +1375,8 @@ class BatteryCapacityPanel(QWidget):
                 self.value_spin.setValue(test_config["value"])
             if "voltage_cutoff" in test_config:
                 self.cutoff_spin.setValue(test_config["voltage_cutoff"])
-            if "timed" in test_config:
-                self.time_limit_group.setChecked(test_config["timed"])
+            # Time limit always defaults to off on startup
+            self.time_limit_group.setChecked(False)
             if "duration" in test_config:
                 self.duration_spin.setValue(test_config["duration"])
                 self._sync_hours_minutes()

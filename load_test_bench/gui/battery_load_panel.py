@@ -395,15 +395,20 @@ class BatteryLoadPanel(QWidget):
         """Save current battery info as a preset."""
         from PySide6.QtWidgets import QInputDialog
 
-        name = self.battery_info_widget.battery_name_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Save Preset", "Please enter a battery name first.")
-            return
+        # Default to selected preset name, fall back to battery name
+        selected = self.battery_info_widget.presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
+        else:
+            default_name = self.battery_info_widget.battery_name_edit.text().strip()
+            if not default_name:
+                QMessageBox.warning(self, "Save Preset", "Please enter a battery name first.")
+                return
 
-        # Ask for preset name (default to battery name)
+        # Ask for preset name
         preset_name, ok = QInputDialog.getText(
             self, "Save Battery Preset",
-            "Preset name:", text=name
+            "Preset name:", text=default_name
         )
 
         if not ok or not preset_name:
@@ -519,10 +524,21 @@ class BatteryLoadPanel(QWidget):
         """Save current test conditions as a preset."""
         from PySide6.QtWidgets import QInputDialog
 
+        # Default to selected preset name, fall back to conditions-based name
+        selected = self.test_presets_combo.currentText()
+        if selected and "───" not in selected:
+            default_name = selected
+        else:
+            load_type = self.load_type_combo.currentText()
+            units = {"Current": "A", "Resistance": "\u03a9"}
+            min_val = self.min_spin.value()
+            max_val = self.max_spin.value()
+            default_name = f"{load_type} {min_val}-{max_val}{units.get(load_type, '')}"
+
         # Ask for preset name
         preset_name, ok = QInputDialog.getText(
             self, "Save Test Preset",
-            "Preset name:"
+            "Preset name:", text=default_name
         )
 
         if not ok or not preset_name:
@@ -589,31 +605,13 @@ class BatteryLoadPanel(QWidget):
             self._start_test()
 
     def _start_test(self):
-        """Start the stepped load test."""
-        # Check if device is connected, try to auto-connect if not
-        if not self._device or not self._device.is_connected:
-            # Try to find and connect to main window for auto-connect
-            main_window = self.window()
-            if hasattr(main_window, '_try_auto_connect'):
-                if not main_window._try_auto_connect():
-                    # Auto-connect failed
-                    QMessageBox.warning(
-                        self,
-                        "Not Connected",
-                        "Please select a device from the dropdown and click Connect before starting the test."
-                    )
-                    return
-                # Auto-connect succeeded, update device reference
-                self._device = main_window.device
-            else:
-                # Can't auto-connect, show warning
-                QMessageBox.warning(
-                    self,
-                    "Not Connected",
-                    "Please connect to a device before starting the test."
-                )
-                return
+        """Start the stepped load test.
 
+        Validates parameters, stores them, then emits test_started so
+        main_window can auto-connect, clear data, and run the start delay.
+        Device configuration happens in continue_after_init(), called by
+        main_window when it's ready.
+        """
         # Update filename if autosave is enabled
         if self.autosave_checkbox.isChecked():
             self._update_filename()
@@ -634,8 +632,32 @@ class BatteryLoadPanel(QWidget):
             QMessageBox.warning(self, "Invalid Parameters", "Divisions must be at least 1.")
             return
 
-        # Emit signal that test is starting (triggers logging in main window)
+        # Store parameters for continuation after main_window delay
+        self._pending_load_type = load_type
+        self._pending_min_val = min_val
+        self._pending_max_val = max_val
+        self._pending_num_divisions = num_divisions
+        self._pending_dwell_time = dwell_time
+        self._pending_v_cutoff = v_cutoff
+
+        # Switch to Abort immediately so user can cancel during start delay
+        self.start_btn.setText("Abort")
+        self._test_running = True
+
+        # Emit signal — main_window handles auto-connect, clear, delay
         self.test_started.emit()
+
+    def continue_after_init(self) -> None:
+        """Continue test setup after main_window has completed initialization.
+
+        Called by main_window after auto-connect and start delay complete.
+        """
+        load_type = self._pending_load_type
+        min_val = self._pending_min_val
+        max_val = self._pending_max_val
+        num_divisions = self._pending_num_divisions
+        dwell_time = self._pending_dwell_time
+        v_cutoff = self._pending_v_cutoff
 
         # Calculate actual number of steps (divisions + 1)
         self._total_steps = num_divisions + 1
@@ -665,6 +687,7 @@ class BatteryLoadPanel(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "Device Error", f"Failed to configure device: {e}")
+            self._finish_test("Device Error")
             return
 
         # Switch plot to show Load Type vs Voltage
@@ -677,11 +700,9 @@ class BatteryLoadPanel(QWidget):
                 self._plot_panel._axis_checkboxes["Y"].setChecked(True)
 
         # Update UI
-        self.start_btn.setText("Abort")
         self.status_label.setText(f"Step 1/{self._total_steps}: {min_val:.3f}")
         self.status_label.setStyleSheet("color: orange; font-weight: bold;")
         self.progress_bar.setValue(0)
-        self._test_running = True
         self._test_start_time = time.time()
 
         # Clear test summary

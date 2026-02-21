@@ -112,7 +112,8 @@ class MainWindow(QMainWindow):
         # Current session for manual logging
         self._current_session: Optional[TestSession] = None
         self._last_completed_session: Optional[TestSession] = None  # Keep last session for export
-        self._logging_enabled = False
+        self._manual_logging = False   # Controlled by log switch (user-only)
+        self._test_logging = False     # Controlled by test start/stop handlers
         self._logging_start_time: Optional[datetime] = None  # Track when logging started
         self._start_delay_timer: Optional[QTimer] = None  # Timer for start delay countdown
         self._pb_start_delay_timer: Optional[QTimer] = None  # Timer for power bank start delay
@@ -180,7 +181,9 @@ class MainWindow(QMainWindow):
             logging_active: True if test/logging is active, False otherwise
         """
         alert = self.notifier.get_condition(TestCompleteAlert)
-        if alert and hasattr(alert, 'set_logging_active'):
+        if alert:
+            if logging_active:
+                alert.reset()  # Clear stale _was_on state so load-off during start delay doesn't trigger
             alert.set_logging_active(logging_active)
 
     def _disable_controls_during_test(self) -> None:
@@ -214,8 +217,7 @@ class MainWindow(QMainWindow):
             if widget:
                 widget.setEnabled(False)
 
-        # Disable data logging controls (except the load switch is handled by status panel)
-        self.status_panel.log_switch.setEnabled(False)
+        # Disable sample time control during test (log switch stays user-controllable)
         self.status_panel.sample_time_combo.setEnabled(False)
 
 
@@ -249,8 +251,7 @@ class MainWindow(QMainWindow):
             # Re-enable mode-specific inputs based on current mode
             self.control_panel._update_mode_controls()
 
-            # Re-enable data logging controls
-            self.status_panel.log_switch.setEnabled(True)
+            # Re-enable sample time control
             self.status_panel.sample_time_combo.setEnabled(True)
 
 
@@ -281,7 +282,14 @@ class MainWindow(QMainWindow):
         """
         import threading
 
-        # Always send macOS desktop notification (local, lightweight)
+        ns = self._notification_settings
+
+        # Check if this event type is enabled for notifications
+        event_key = f"notify_test_{event}"
+        if not ns.get(event_key, True):
+            return f"Notifications disabled for {event}"
+
+        # Send macOS desktop notification (local, lightweight)
         try:
             subprocess.Popen([
                 "osascript", "-e",
@@ -289,13 +297,6 @@ class MainWindow(QMainWindow):
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
-
-        ns = self._notification_settings
-
-        # Check if this event type is enabled for push notifications
-        event_key = f"notify_test_{event}"
-        if not ns.get(event_key, True):
-            return f"Push disabled for {event}"
 
         push_targets = []
 
@@ -814,7 +815,9 @@ class MainWindow(QMainWindow):
             self.control_panel._update_power_labels(False)
 
         # Stop logging if active
-        if self._logging_enabled:
+        if self._test_logging:
+            self._stop_test_logging()
+        if self._manual_logging:
             self.status_panel.log_switch.setChecked(False)
             self._toggle_logging(False)
 
@@ -917,16 +920,109 @@ class MainWindow(QMainWindow):
         self._sample_interval = float(seconds)
         self._last_log_time = None  # Reset to force immediate log on next update
 
+    @property
+    def _logging_active(self) -> bool:
+        """True if either manual or test logging is active."""
+        return self._manual_logging or self._test_logging
+
     @Slot(bool)
-    def _toggle_logging(self, enabled: bool, turn_on_load: bool = True) -> None:
-        """Toggle manual data logging.
+    def _toggle_logging(self, enabled: bool) -> None:
+        """Toggle manual data logging (user log switch only).
+
+        Tests never call this — they use _start_test_logging/_stop_test_logging.
 
         Args:
-            enabled: Whether to enable or disable logging
-            turn_on_load: Whether to turn on the load when enabling (False for start delay)
+            enabled: Whether to enable or disable manual logging
         """
-        if enabled and not self._current_session:
-            # Start new session
+        if enabled:
+            self._manual_logging = True
+            if not self._test_logging and not self._current_session:
+                # Start new manual session (only if no test owns the session)
+                self._logging_start_time = datetime.now()
+                self._current_session = TestSession(
+                    name=f"Manual Log {self._logging_start_time.strftime('%Y-%m-%d %H:%M')}",
+                    start_time=self._logging_start_time,
+                    test_type="manual",
+                )
+                self.database.create_session(self._current_session)
+                self._update_test_complete_alert_state(True)
+                self._last_log_time = None
+                self._last_autosave_time = None
+                self._last_db_commit_time = None
+                self._load_off_count = 0
+                import time as _time
+                self._logging_started_at = _time.time()
+                self.statusbar.showMessage("Logging started")
+        else:
+            self._manual_logging = False
+            if not self._test_logging and self._current_session:
+                # End manual session (only if no test owns the session)
+                self.database.commit()
+                self._current_session.end_time = datetime.now()
+                self.database.update_session(self._current_session)
+                num_readings = len(self._accumulated_readings)
+                self.statusbar.showMessage(
+                    f"Logged {num_readings} readings - click 'Save Data...' to export"
+                )
+                self._last_completed_session = self._current_session
+                self._current_session = None
+                self._update_test_complete_alert_state(False)
+                self._logging_start_time = None
+
+    def _start_test_logging(self, test_type: str, name: str) -> None:
+        """Start logging for an automated test.
+
+        If manual logging is active, its session is closed first so the test
+        owns the session.  The manual flag stays set so a new manual session
+        is created automatically when the test ends.
+
+        Args:
+            test_type: Session test_type string (e.g. "battery_capacity")
+            name: Human-readable session name
+        """
+        # Close any existing manual session (test takes over)
+        if self._current_session:
+            self.database.commit()
+            self._current_session.end_time = datetime.now()
+            self.database.update_session(self._current_session)
+            self._last_completed_session = self._current_session
+            self._current_session = None
+
+        self._test_logging = True
+        self._logging_start_time = datetime.now()
+        self._current_session = TestSession(
+            name=name,
+            start_time=self._logging_start_time,
+            test_type=test_type,
+        )
+        self.database.create_session(self._current_session)
+        self._update_test_complete_alert_state(True)
+        self._last_log_time = None
+        self._last_autosave_time = None
+        self._last_db_commit_time = None
+        self._load_off_count = 0
+        import time as _time
+        self._logging_started_at = _time.time()
+
+    def _stop_test_logging(self) -> None:
+        """Stop logging for an automated test.
+
+        Commits the database, ends the test session, and clears _test_logging.
+        If _manual_logging is still True, a new manual session is created
+        automatically so the user's log switch continues working.
+        """
+        self._test_logging = False
+        if self._current_session:
+            self.database.commit()
+            self._current_session.end_time = datetime.now()
+            self.database.update_session(self._current_session)
+            self._last_completed_session = self._current_session
+            self._current_session = None
+        self._update_test_complete_alert_state(False)
+        self._logging_start_time = None
+
+        # If manual logging was left on, start a fresh manual session
+        if self._manual_logging:
             self._logging_start_time = datetime.now()
             self._current_session = TestSession(
                 name=f"Manual Log {self._logging_start_time.strftime('%Y-%m-%d %H:%M')}",
@@ -934,40 +1030,11 @@ class MainWindow(QMainWindow):
                 test_type="manual",
             )
             self.database.create_session(self._current_session)
-            self._logging_enabled = True
-            self._update_test_complete_alert_state(True)  # Notify alert that test started
-            self._disable_controls_during_test()  # Lock UI controls during test
-            self._last_log_time = None  # Reset sample timer for new test
-            self._last_autosave_time = None  # Reset autosave timer for new test
-            self._last_db_commit_time = None  # Reset db commit timer for new test
-            self._load_off_count = 0  # Reset load-off counter for new test
-            import time as _time
-            self._logging_started_at = _time.time()  # Grace period for load-off detection
-            # Turn on the load when logging starts (unless delayed)
-            if turn_on_load and self.device and self.device.is_connected:
-                self.device.turn_on()
-                self.control_panel.power_switch.setChecked(True)
-            self.statusbar.showMessage("Logging started")
-        elif not enabled and self._current_session:
-            # End session - commit any pending data first
-            self.database.commit()
-            self._current_session.end_time = datetime.now()
-            self.database.update_session(self._current_session)
-            num_readings = len(self._accumulated_readings)
-            self.statusbar.showMessage(
-                f"Logged {num_readings} readings - click 'Save Data...' to export"
-            )
-            # Keep reference to last session for export
-            self._last_completed_session = self._current_session
-            self._current_session = None
-            self._logging_enabled = False
-            self._update_test_complete_alert_state(False)  # Notify alert that test stopped
-            self._enable_controls_after_test()  # Unlock UI controls after test
-            self._logging_start_time = None
-            # Turn off the load when logging stops
-            if self.device and self.device.is_connected:
-                self.device.turn_off()
-                self.control_panel.power_switch.setChecked(False)
+            self._update_test_complete_alert_state(True)
+            self._last_log_time = None
+            self._last_autosave_time = None
+            self._last_db_commit_time = None
+            self._load_off_count = 0
 
     @Slot(bool)
     def _toggle_show_points(self, show: bool) -> None:
@@ -1015,7 +1082,7 @@ class MainWindow(QMainWindow):
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_name = f"session_{timestamp}.json"
+        default_name = f"manual_log_{timestamp}.json"
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Session As", default_name, "JSON (*.json)"
@@ -1076,7 +1143,7 @@ class MainWindow(QMainWindow):
         if battery_name:
             default_name = f"{battery_name}_{timestamp}"
         else:
-            default_name = f"discharge_{timestamp}"
+            default_name = f"manual_log_{timestamp}"
 
         path, filter = QFileDialog.getSaveFileName(
             self,
@@ -2140,12 +2207,12 @@ class MainWindow(QMainWindow):
             # Stop request - save data and turn off logging
             num_readings = len(self._accumulated_readings)
             saved_path = None
-            if self._logging_enabled:
+            if self._test_logging:
                 # Save test data to JSON if auto-save is enabled
                 if self.battery_capacity_panel.autosave_checkbox.isChecked():
                     saved_path = self._save_test_json()
-                self.status_panel.log_switch.setChecked(False)
-                self._toggle_logging(False)
+                self._stop_test_logging()
+            self._enable_controls_after_test()
 
             # Always send notification when test stops (even if load-off abort already disabled logging)
             bat_name = self.battery_capacity_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
@@ -2217,15 +2284,20 @@ class MainWindow(QMainWindow):
             self.plot_panel._axis_dropdowns["Y"].setCurrentText("Voltage")
             self.plot_panel._axis_checkboxes["Y"].setChecked(True)
 
+        # Lock UI controls during test
+        self._disable_controls_during_test()
+
         # Get start delay from Settings
         start_delay = self._notification_settings.get("start_delay", 3)
 
-        # Start logging
-        if not self._logging_enabled:
-            self.status_panel.log_switch.setChecked(True)
+        # Start test logging
+        if not self._test_logging:
+            bat_name = self.battery_capacity_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
+            self._start_test_logging(
+                "battery_capacity",
+                f"Battery Capacity: {bat_name} {self._logging_start_time or datetime.now():%Y-%m-%d %H:%M}",
+            )
             if start_delay > 0:
-                # Start logging without turning on load (capture unloaded voltage)
-                self._toggle_logging(True, turn_on_load=False)
                 # Set up countdown timer to turn on load after delay
                 self._start_delay_remaining = start_delay
                 self.battery_capacity_panel.update_start_delay_countdown(start_delay)
@@ -2237,13 +2309,17 @@ class MainWindow(QMainWindow):
                     f"(load on in {start_delay}s)"
                 )
             else:
-                self._toggle_logging(True)
+                # No delay — turn on load immediately
+                if self.device and self.device.is_connected:
+                    self.device.turn_on()
+                    self.control_panel.power_switch.setChecked(True)
+                import time as _time
+                self._logging_started_at = _time.time()
                 self.statusbar.showMessage(
                     f"Test started: {mode_names[discharge_type]} {mode_str}, cutoff {voltage_cutoff}V"
                 )
 
             # Send "started" notification
-            bat_name = self.battery_capacity_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             self._send_notification(
                 "Load Test Bench",
@@ -2299,16 +2375,10 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_automation_pause(self) -> None:
         """Handle pause request from automation panel - stop logging and load, keep data."""
-        # Stop logging (but don't clear data)
-        if self._logging_enabled:
-            self._current_session.end_time = datetime.now()
-            self.database.update_session(self._current_session)
-            self._current_session = None
-            self._logging_enabled = False
-            self._update_test_complete_alert_state(False)  # Notify alert that test paused
+        # Stop test logging (but don't clear data)
+        if self._test_logging:
+            self._stop_test_logging()
             self._enable_controls_after_test()  # Unlock UI controls when paused
-            self._logging_start_time = None
-            self.status_panel.log_switch.setChecked(False)
 
         # Turn off load
         if self.device and self.device.is_connected:
@@ -2320,20 +2390,13 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_automation_resume(self) -> None:
         """Handle resume request from automation panel - restart logging and load."""
-        # Start logging again (without clearing data)
-        if not self._logging_enabled:
-            self._logging_start_time = datetime.now()
-            self._current_session = TestSession(
-                name=f"Manual Log {self._logging_start_time.strftime('%Y-%m-%d %H:%M')}",
-                start_time=self._logging_start_time,
-                test_type="manual",
+        # Restart test logging (without clearing accumulated data)
+        if not self._test_logging:
+            self._start_test_logging(
+                "battery_capacity",
+                f"Battery Capacity Resume {datetime.now():%Y-%m-%d %H:%M}",
             )
-            self.database.create_session(self._current_session)
-            self._logging_enabled = True
-            self._update_test_complete_alert_state(True)  # Notify alert that test resumed
             self._disable_controls_during_test()  # Lock UI controls during resumed test
-            self._last_autosave_time = None  # Reset autosave timer
-            self.status_panel.log_switch.setChecked(True)
 
         # Turn on load
         if self.device and self.device.is_connected:
@@ -2365,6 +2428,8 @@ class MainWindow(QMainWindow):
             if not self._try_auto_connect():
                 self.battery_load_panel._finish_test("Connection Failed")
                 return
+            # Auto-connect succeeded, update device reference on panel
+            self.battery_load_panel.set_device_and_plot(self.device, self.plot_panel)
 
         # Turn off load first to ensure known starting state
         self.device.turn_off()
@@ -2379,6 +2444,9 @@ class MainWindow(QMainWindow):
 
         # Show point markers by default for Battery Load tests
         self.plot_panel.show_points_checkbox.setChecked(True)
+
+        # Lock UI controls during test
+        self._disable_controls_during_test()
 
         # Get start delay from Settings
         start_delay = self._notification_settings.get("start_delay", 3)
@@ -2406,14 +2474,18 @@ class MainWindow(QMainWindow):
 
     def _battery_load_continue_start(self) -> None:
         """Continue battery load test start after delay."""
-        # Start logging (which also turns on the load)
-        if not self._logging_enabled:
-            self.status_panel.log_switch.setChecked(True)
-            self._toggle_logging(True)
+        bat_name = self.battery_load_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
+        if not self._test_logging:
+            self._start_test_logging(
+                "battery_load",
+                f"Battery Load: {bat_name} {datetime.now():%Y-%m-%d %H:%M}",
+            )
+
+        # Signal panel to proceed with device configuration
+        self.battery_load_panel.continue_after_init()
 
         self.statusbar.showMessage("Battery Load test started")
 
-        bat_name = self.battery_load_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         self._send_notification(
             "Load Test Bench",
@@ -2433,7 +2505,7 @@ class MainWindow(QMainWindow):
         saved_path = None
 
         # Stop logging and save data if auto-save is enabled
-        if self._logging_enabled:
+        if self._test_logging or self._current_session:
             # Calculate resistance before saving/displaying
             resistance_ohm = None
             r_squared = None
@@ -2483,8 +2555,8 @@ class MainWindow(QMainWindow):
                 saved_path = self._save_battery_load_json()
                 if saved_path:
                     self.history_panel.refresh()
-            self.status_panel.log_switch.setChecked(False)
-            self._toggle_logging(False)
+            self._stop_test_logging()
+        self._enable_controls_after_test()
 
         # Always send notification when test stops (even if load-off abort already disabled logging)
         bat_name = self.battery_load_panel.battery_info_widget.battery_name_edit.text().strip() or "Battery"
@@ -2596,10 +2668,12 @@ class MainWindow(QMainWindow):
 
     def _charger_load_continue_start(self) -> None:
         """Continue charger load test start after delay."""
-        # Start logging (which also turns on the load)
-        if not self._logging_enabled:
-            self.status_panel.log_switch.setChecked(True)
-            self._toggle_logging(True)
+        if not self._test_logging:
+            charger_name = self.charger_panel.charger_name_edit.text().strip() or "Device"
+            self._start_test_logging(
+                "charger_load",
+                f"Charger Load: {charger_name} {datetime.now():%Y-%m-%d %H:%M}",
+            )
 
         self.statusbar.showMessage("Charger test started")
 
@@ -2666,13 +2740,13 @@ class MainWindow(QMainWindow):
         )
 
         # Stop logging and save data if auto-save is enabled
-        if self._logging_enabled:
+        if self._test_logging or self._current_session:
             if self.charger_panel.autosave_checkbox.isChecked():
                 saved_path = self._save_charger_json()
                 if saved_path:
                     self.history_panel.refresh()
-            self.status_panel.log_switch.setChecked(False)
-            self._toggle_logging(False)
+            self._stop_test_logging()
+        self._enable_controls_after_test()
 
         # Always send notification when test stops (even if load-off abort already disabled logging)
         bat_name = self.charger_panel.charger_name_edit.text().strip() or "Device"
@@ -2801,18 +2875,14 @@ class MainWindow(QMainWindow):
         Data has already been cleared in _on_battery_charger_initialized.
         """
         # Start logging WITHOUT turning on load (panel controls load)
-        if not self._logging_enabled:
-            self._logging_enabled = True
-            self._logging_start_time = datetime.now()
-            self._current_session = TestSession(
-                name=f"Battery Charger Test {self._logging_start_time.strftime('%Y-%m-%d %H:%M')}",
-                start_time=self._logging_start_time,
-                test_type="stepped",
+        if not self._test_logging:
+            charger_name = self.battery_charger_panel.charger_name_edit.text().strip() or "Device"
+            self._start_test_logging(
+                "stepped",
+                f"Battery Charger Test {datetime.now():%Y-%m-%d %H:%M}",
             )
-            # Don't turn on load here - panel manages it
             self.statusbar.showMessage("Logging started")
 
-            charger_name = self.battery_charger_panel.charger_name_edit.text().strip() or "Device"
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             self._send_notification(
                 "Load Test Bench",
@@ -2821,6 +2891,7 @@ class MainWindow(QMainWindow):
             )
         else:
             # Resume logging (for subsequent steps)
+            self._test_logging = True  # Re-enable after pause between steps
             self.statusbar.showMessage("Logging resumed")
 
     @Slot()
@@ -2840,7 +2911,7 @@ class MainWindow(QMainWindow):
         is_final_stop = not self.battery_charger_panel._test_running
 
         saved_path = None
-        if self._logging_enabled and is_final_stop:
+        if self._test_logging and is_final_stop:
             # Final stop - end logging and save
             num_readings = len(self._accumulated_readings)
             # Save test data to JSON if auto-save is enabled
@@ -2848,13 +2919,11 @@ class MainWindow(QMainWindow):
                 saved_path = self._save_battery_charger_json()
                 if saved_path:
                     self.history_panel.refresh()
-            self.status_panel.log_switch.setChecked(False)
-            # Stop logging WITHOUT turning off load (panel controls load)
-            self._logging_enabled = False
-            # Unlock UI controls after test
-            self._enable_controls_after_test()
+            self._stop_test_logging()
 
         if is_final_stop:
+            # Unlock UI controls after test (always, even if logging wasn't enabled)
+            self._enable_controls_after_test()
             # Always send notification on final stop (even if load-off abort already disabled logging)
             charger_name = self.battery_charger_panel.charger_name_edit.text().strip() or "Device"
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -2871,9 +2940,9 @@ class MainWindow(QMainWindow):
                 parts.append(f"Auto-saved {Path(saved_path).name}.")
             parts.append(push_status + ".")
             self.statusbar.showMessage(" ".join(parts))
-        elif self._logging_enabled:
-            # Pause between steps - just stop logging, don't save yet
-            self._logging_enabled = False
+        elif self._test_logging:
+            # Pause between steps - just stop logging temporarily
+            self._test_logging = False
             self.statusbar.showMessage("Logging paused")
 
     @Slot(str)
@@ -3037,11 +3106,10 @@ class MainWindow(QMainWindow):
             # Stop request - save data and turn off logging
             num_readings = len(self._accumulated_readings)
             saved_path = None
-            if self._logging_enabled:
+            if self._test_logging:
                 if self.power_bank_panel.autosave_checkbox.isChecked():
                     saved_path = self._save_power_bank_json()
-                self.status_panel.log_switch.setChecked(False)
-                self._toggle_logging(False)
+                self._stop_test_logging()
 
             # Send abort notification
             pb_name = self.power_bank_panel.power_bank_name_edit.text().strip() or "Power Bank"
@@ -3136,12 +3204,14 @@ class MainWindow(QMainWindow):
         if self._pb_auto_voltage_frozen:
             start_delay = 0  # Auto-voltage already waited with load off
 
-        # Start logging
-        if not self._logging_enabled:
-            self.status_panel.log_switch.setChecked(True)
+        # Start test logging
+        if not self._test_logging:
+            pb_name = self.power_bank_panel.power_bank_name_edit.text().strip() or "Power Bank"
+            self._start_test_logging(
+                "power_bank",
+                f"Power Bank: {pb_name} {datetime.now():%Y-%m-%d %H:%M}",
+            )
             if start_delay > 0:
-                # Start logging without turning on load (capture unloaded voltage)
-                self._toggle_logging(True, turn_on_load=False)
                 # Set up countdown timer to turn on load after delay
                 self._pb_start_delay_remaining = start_delay
                 self.power_bank_panel.update_start_delay_countdown(start_delay)
@@ -3152,13 +3222,11 @@ class MainWindow(QMainWindow):
                     f"Power Bank Capacity test: {load_type} {value_str} — starting in {start_delay} seconds"
                 )
             else:
-                self._toggle_logging(True)
                 self.statusbar.showMessage(
                     f"Power Bank Capacity test started: {load_type} {value_str}"
                 )
 
             # Send "started" notification
-            pb_name = self.power_bank_panel.power_bank_name_edit.text().strip() or "Power Bank"
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             self._send_notification(
                 "Load Test Bench",
@@ -3689,7 +3757,7 @@ class MainWindow(QMainWindow):
             )
 
         # Log data first (before UI update) if enabled
-        if self._logging_enabled and self._current_session:
+        if self._logging_active and self._current_session:
             # Check if enough time has elapsed since last log
             import time
             current_time = time.time()
@@ -3764,7 +3832,7 @@ class MainWindow(QMainWindow):
         self.notifier.check(status)
 
         # Update test progress bar in automation panel
-        if self._logging_enabled:
+        if self._test_logging:
             elapsed = self.plot_panel.get_elapsed_time()
             self.battery_capacity_panel.update_test_progress(elapsed, status.capacity_mah,
                                                       status.voltage_v, status.energy_wh)
@@ -3776,9 +3844,9 @@ class MainWindow(QMainWindow):
 
         self.status_panel.update_status(status)
 
-        # Poll load state during logging — abort test if load is off
-        # This catches both on→off transitions AND load never turning on
-        if self._logging_enabled:
+        # Poll load state during test — abort test if load is off
+        # This only applies to automated tests, not manual logging
+        if self._test_logging and self._current_session:
             import time as _time
             if status.load_on:
                 self._load_off_count = 0  # Reset counter when load is on
@@ -3796,19 +3864,9 @@ class MainWindow(QMainWindow):
                 if self._load_off_count >= self._load_off_abort_threshold:
                     # Load has been off for multiple consecutive polls — abort test
                     num_readings = len(self._accumulated_readings)
-                    self._logging_enabled = False  # Stop immediately to prevent more data
                     self._load_off_count = 0
-                    self._update_test_complete_alert_state(False)
+                    self._stop_test_logging()
                     self._enable_controls_after_test()
-                    self.status_panel.log_switch.setChecked(False)
-                    # End the current session properly so next Start Test works
-                    if self._current_session:
-                        self.database.commit()
-                        self._current_session.end_time = datetime.now()
-                        self.database.update_session(self._current_session)
-                        self._last_completed_session = self._current_session
-                        self._current_session = None
-                    self._logging_start_time = None
 
                     # Determine which test was running before stopping panels
                     pb_was_running = self.power_bank_panel.start_btn.text() == "Abort"
@@ -3826,6 +3884,7 @@ class MainWindow(QMainWindow):
                     if bl_was_running:
                         self.battery_load_panel._test_timer.stop()
                         self.battery_load_panel.start_btn.setText("Start")
+                        self.battery_load_panel.start_btn.setEnabled(True)
                         self.battery_load_panel.status_label.setText("Test Aborted (Load Off)")
                         self.battery_load_panel.progress_bar.setValue(100)
                         self.battery_load_panel._test_running = False
@@ -3834,6 +3893,7 @@ class MainWindow(QMainWindow):
                     if cl_was_running:
                         self.charger_panel._test_timer.stop()
                         self.charger_panel.start_btn.setText("Start")
+                        self.charger_panel.start_btn.setEnabled(True)
                         self.charger_panel.status_label.setText("Test Aborted (Load Off)")
                         self.charger_panel.progress_bar.setValue(100)
                         self.charger_panel._test_running = False
@@ -3870,10 +3930,48 @@ class MainWindow(QMainWindow):
                             self.history_panel.refresh()
 
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    msg = (
-                        f"{test_type} test on {bat_name} aborted (load off) at {now_str}\n"
-                        f"Readings: {num_readings}"
-                    )
+
+                    # Build test-specific summary for notification
+                    if bl_was_running:
+                        runtime_txt = self.battery_load_panel.summary_runtime_item.text()
+                        loadtype_txt = self.battery_load_panel.summary_loadtype_item.text()
+                        loadrange_txt = self.battery_load_panel.summary_loadrange_item.text()
+                        resistance_txt = self.battery_load_panel.summary_resistance_item.text()
+                        msg = (
+                            f"{test_type} test on {bat_name} aborted (load off) at {now_str}\n"
+                            f"Runtime: {runtime_txt}, Load: {loadtype_txt} {loadrange_txt}, "
+                            f"Resistance: {resistance_txt}"
+                        )
+                    elif cl_was_running:
+                        runtime_txt = self.charger_panel.summary_runtime_item.text()
+                        loadtype_txt = self.charger_panel.summary_loadtype_item.text()
+                        loadrange_txt = self.charger_panel.summary_loadrange_item.text()
+                        msg = (
+                            f"{test_type} test on {bat_name} aborted (load off) at {now_str}\n"
+                            f"Runtime: {runtime_txt}, Load: {loadtype_txt} {loadrange_txt}"
+                        )
+                    elif pb_was_running:
+                        runtime_txt = self.power_bank_panel.elapsed_label.text()
+                        capacity_txt = self.power_bank_panel.summary_capacity_item.text()
+                        energy_txt = self.power_bank_panel.summary_energy_item.text()
+                        avg_v_txt = self.power_bank_panel.summary_avg_voltage_item.text()
+                        msg = (
+                            f"{test_type} test on {bat_name} aborted (load off) at {now_str}\n"
+                            f"Runtime: {runtime_txt}, Capacity: {capacity_txt}, "
+                            f"Energy: {energy_txt}, Avg V: {avg_v_txt}"
+                        )
+                    else:
+                        # Battery Capacity
+                        runtime_txt = self.battery_capacity_panel.summary_runtime_item.text()
+                        capacity_txt = self.battery_capacity_panel.summary_capacity_item.text()
+                        energy_txt = self.battery_capacity_panel.summary_energy_item.text()
+                        voltage_txt = self.battery_capacity_panel.summary_voltage_item.text()
+                        msg = (
+                            f"{test_type} test on {bat_name} aborted (load off) at {now_str}\n"
+                            f"Runtime: {runtime_txt}, Capacity: {capacity_txt}, "
+                            f"Energy: {energy_txt}, Median V: {voltage_txt}"
+                        )
+
                     push_status = self._send_notification("Load Test Bench", msg, event="aborted")
                     parts = [f"Test aborted (load off). Logged {num_readings} readings."]
                     if saved_path:
@@ -3883,8 +3981,8 @@ class MainWindow(QMainWindow):
 
         self._prev_load_on = status.load_on
 
-        # Only add data to plot when logging is enabled
-        if self._logging_enabled:
+        # Only add data to plot when logging is active
+        if self._logging_active:
             self.plot_panel.add_data_point(status)
 
         # Update logged time and points count display

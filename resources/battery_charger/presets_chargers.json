@@ -169,6 +169,18 @@
     "number_of_cells": 2,
     "notes": "For EN-EL15 series batteries (Z series, D850)"
   },
+  "Pickle Power DMW-BLC12 Battery Charger": {
+    "name": "DMW-BLC12 Battery Charger",
+    "manufacturer": "Pickle Power",
+    "model": "PP-DC-BLC12",
+    "chemistry": "Li-Ion (2S)",
+    "rated_output_current_a": 0.8,
+    "rated_voltage_v": 8.4,
+    "number_of_cells": 2,
+    "input_voltage_v": "5V USB (Micro-USB)",
+    "charge_termination": "Constant Current/Constant Voltage (CC/CV)",
+    "notes": "For DMW-BLC12, BP-DC12, Sigma BP-51 batteries. Dual-bay USB charger with LED indicators."
+  },
   "DSTE DC-C404200600 (NP-40)": {
     "name": "DC-C404200600",
     "manufacturer": "DSTE",
