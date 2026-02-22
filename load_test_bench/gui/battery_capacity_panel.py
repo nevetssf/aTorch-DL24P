@@ -174,9 +174,10 @@ class BatteryCapacityPanel(QWidget):
         self.cutoff_spin.setDecimals(2)
         self.cutoff_spin.setSingleStep(0.1)
         self.cutoff_spin.setValue(3.0)
+        self.cutoff_spin.setSuffix(" V")
         self.cutoff_spin.setToolTip("Stop test when battery voltage drops below this value")
         self.cutoff_spin.valueChanged.connect(self._on_filename_field_changed)
-        self.params_form.addRow("V Cutoff", self.cutoff_spin)
+        self.params_form.addRow("Cutoff", self.cutoff_spin)
 
         params_panel_layout.addLayout(self.params_form)
 
