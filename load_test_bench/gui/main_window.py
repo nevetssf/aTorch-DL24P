@@ -2269,14 +2269,13 @@ class MainWindow(QMainWindow):
         self.control_panel.cutoff_spin.setValue(voltage_cutoff)
         self.device.set_voltage_cutoff(voltage_cutoff)
 
-        # Set duration if specified - convert to hours/minutes
-        if duration_s > 0:
-            hours = duration_s // 3600
-            minutes = (duration_s % 3600) // 60
-            self.control_panel.discharge_hours_spin.setValue(hours)
-            self.control_panel.discharge_mins_spin.setValue(minutes)
-            if hasattr(self.device, 'set_discharge_time'):
-                self.device.set_discharge_time(hours, minutes)
+        # Always send discharge time to device (0h 0m clears any previous limit)
+        hours = duration_s // 3600 if duration_s > 0 else 0
+        minutes = (duration_s % 3600) // 60 if duration_s > 0 else 0
+        self.control_panel.discharge_hours_spin.setValue(hours)
+        self.control_panel.discharge_mins_spin.setValue(minutes)
+        if hasattr(self.device, 'set_discharge_time'):
+            self.device.set_discharge_time(hours, minutes)
 
         # Configure plot for Battery Capacity test: Time vs Voltage
         self.plot_panel.x_axis_combo.setCurrentText("Time")

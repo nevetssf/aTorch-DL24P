@@ -150,7 +150,23 @@ class BatteryCapacityPanel(QWidget):
         self.value_spin.valueChanged.connect(self._on_filename_field_changed)
         self.value_label = QLabel("Current")
         self.value_label.setMinimumWidth(85)  # Fixed width to prevent layout jumping
-        self.params_form.addRow(self.value_label, self.value_spin)
+
+        # Current row with C-rate buttons
+        current_row = QHBoxLayout()
+        current_row.addWidget(self.value_spin, 1)
+        self.c2_btn = QPushButton("C/2")
+        self.c2_btn.setToolTip("Set current to capacity / 2 (0.5C rate)")
+        self.c2_btn.setFixedWidth(36)
+        self.c2_btn.setEnabled(False)
+        self.c2_btn.clicked.connect(lambda: self._apply_c_rate(2))
+        current_row.addWidget(self.c2_btn)
+        self.c5_btn = QPushButton("C/5")
+        self.c5_btn.setToolTip("Set current to capacity / 5 (0.2C rate)")
+        self.c5_btn.setFixedWidth(36)
+        self.c5_btn.setEnabled(False)
+        self.c5_btn.clicked.connect(lambda: self._apply_c_rate(5))
+        current_row.addWidget(self.c5_btn)
+        self.params_form.addRow(self.value_label, current_row)
 
         # Voltage cutoff
         self.cutoff_spin = QDoubleSpinBox()
@@ -439,8 +455,7 @@ class BatteryCapacityPanel(QWidget):
                 self.value_spin.setValue(test_config["value"])
             if "voltage_cutoff" in test_config:
                 self.cutoff_spin.setValue(test_config["voltage_cutoff"])
-            if "timed" in test_config:
-                self.time_limit_group.setChecked(test_config["timed"])
+            # Time limit checkbox is user-only — don't set from loaded data
             if "duration_seconds" in test_config:
                 self.duration_spin.setValue(test_config["duration_seconds"])
                 self._sync_hours_minutes()
@@ -503,8 +518,30 @@ class BatteryCapacityPanel(QWidget):
     @Slot()
     def _on_battery_info_changed(self) -> None:
         """Handle battery info changes - emit signal to sync with other panels."""
+        self._update_c_rate_buttons()
         if not self._loading_settings:
             self.battery_info_changed.emit()
+
+    def _update_c_rate_buttons(self) -> None:
+        """Enable C-rate buttons only for Li-Ion batteries with capacity > 0 in CC mode."""
+        info = self.battery_info_widget.get_battery_info()
+        is_li_ion = info.get("technology") == "Li-Ion"
+        has_capacity = info.get("nominal_capacity_mah", 0) > 0
+        is_cc_mode = self.type_combo.currentIndex() == 0
+        visible = is_cc_mode
+        enabled = is_li_ion and has_capacity and is_cc_mode
+        self.c2_btn.setVisible(visible)
+        self.c5_btn.setVisible(visible)
+        self.c2_btn.setEnabled(enabled)
+        self.c5_btn.setEnabled(enabled)
+
+    def _apply_c_rate(self, divisor: int) -> None:
+        """Set current to nominal capacity / divisor (C-rate)."""
+        info = self.battery_info_widget.get_battery_info()
+        capacity_mah = info.get("nominal_capacity_mah", 0)
+        if capacity_mah > 0:
+            current_a = (capacity_mah / divisor) / 1000.0
+            self.value_spin.setValue(current_a)
 
     @Slot(int)
     def _on_type_changed(self, index: int) -> None:
@@ -525,6 +562,7 @@ class BatteryCapacityPanel(QWidget):
             self.value_spin.setDecimals(1)
             self.value_spin.setSingleStep(1.0)
             self.value_spin.setValue(10.0)
+        self._update_c_rate_buttons()
 
     @Slot()
     def _on_start_clicked(self) -> None:
@@ -664,7 +702,7 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setEnabled(True)
         self.value_spin.setEnabled(True)
         self.cutoff_spin.setEnabled(True)
-        self.time_limit_group.setCheckable(True)
+        self.time_limit_group.setEnabled(True)
         self.hours_spin.setEnabled(self.timed_checkbox.isChecked())
         self.minutes_spin.setEnabled(self.timed_checkbox.isChecked())
         self.start_delay_spin.setEnabled(True)
@@ -681,12 +719,11 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setEnabled(enabled)
         self.value_spin.setEnabled(enabled)
         self.cutoff_spin.setEnabled(enabled)
+        self.time_limit_group.setEnabled(enabled)
         if enabled:
-            self.time_limit_group.setCheckable(True)
             self.hours_spin.setEnabled(self.timed_checkbox.isChecked())
             self.minutes_spin.setEnabled(self.timed_checkbox.isChecked())
         else:
-            self.time_limit_group.setCheckable(False)
             self.hours_spin.setEnabled(False)
             self.minutes_spin.setEnabled(False)
         self.start_delay_spin.setEnabled(enabled)
@@ -1144,7 +1181,7 @@ class BatteryCapacityPanel(QWidget):
         self.type_combo.setCurrentIndex(data.get("discharge_type", 0))
         self.value_spin.setValue(data.get("value", 0.5))
         self.cutoff_spin.setValue(data.get("voltage_cutoff", 3.0))
-        self.time_limit_group.setChecked(data.get("timed", False))
+        # Time limit checkbox is user-only — presets only set the duration value
         self.duration_spin.setValue(data.get("duration", 3600))
         self._sync_hours_minutes()
 
@@ -1407,6 +1444,7 @@ class BatteryCapacityPanel(QWidget):
             self._loading_settings = False
             # Update filename after loading settings
             self._update_filename()
+            self._update_c_rate_buttons()
 
     def set_battery_info(self, info: dict):
         """Set battery info from a dictionary (compatible with BatteryInfoWidget format).
