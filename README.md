@@ -80,6 +80,9 @@ Both applications are designed for battery testing, characterization, and qualit
 - **Python 3.10+**
 - **Operating System:** Windows, macOS, or Linux
 - **Hardware:** aTorch DL24P electronic load (VID=0x0483, PID=0x5750)
+  - Power connector: Forspzde SV5.5-5, #10 M5, 12-10 AWG (fork pitch ~7mm, terminal width ~2mm per tab)
+    - Each blade is equivalent to a 2.8mm spade terminal
+    - Note: SV5.5-5 is a cable cross-section rating, not a lug dimension — verify actual lug dimensions before ordering
 
 ## Installation
 
