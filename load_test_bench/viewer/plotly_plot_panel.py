@@ -151,7 +151,7 @@ class PlotlyPlotPanel(QWidget):
             color = self._device_colors.get(device_name, '#1f77b4')
 
             # Sort by x-axis so lines don't jump around
-            device_df = device_df.sort_values(self._x_axis)
+            device_df = device_df.sort_values('Time')
 
             # Get X data and apply time scaling if needed
             x_data = device_df[self._x_axis] * time_scale
@@ -224,7 +224,7 @@ class PlotlyPlotPanel(QWidget):
                 color = self._device_colors.get(device_name, '#1f77b4')
 
                 # Sort by x-axis so lines don't jump around
-                device_df = device_df.sort_values(self._x_axis)
+                device_df = device_df.sort_values('Time')
 
                 # Get X data and apply time scaling if needed
                 x_data = device_df[self._x_axis] * time_scale
