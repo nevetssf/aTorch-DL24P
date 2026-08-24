@@ -83,11 +83,53 @@ When re-enabling controls after a test ends/aborts, only the input for the activ
 
 ### GUI Structure (`load_test_bench/gui/`)
 
-- `MainWindow` - Orchestrates device connection, manages `TestRunner`, routes status updates
+- `MainWindow` (`main_window.py`) - Orchestrates device connection, manages `TestRunner`, routes status updates to all panels
 - `ControlPanel` - Connection UI, mode buttons (CC/CP/CV/CR), load on/off, parameter spinboxes
 - `PlotPanel` - Real-time pyqtgraph plots with auto-scaling
 - `StatusPanel` - Live readings display (voltage, current, power, temperature)
-- `AutomationPanel` - Test profiles, start/stop/pause controls
+- `HistoryPanel` - Browses past sessions from the database/JSON files and loads them back into the plot
+- `DatabaseDialog` - Database statistics and purge (Tools → Database Management)
+- `SettingsDialog` / `DeviceSettingsDialog` - App and device settings, including test start delay
+- `DebugWindow` - Raw protocol SEND/RECV log (see Debug Window Optimization below)
+
+**Test panels** (one per test type, each a `QWidget` embedded in the bottom tabs — there is no single generic "AutomationPanel"):
+- `BatteryCapacityPanel` - Discharge tests (CC mode, voltage cutoff, time limit)
+- `BatteryLoadPanel` - Load curve characterization (current/power/resistance sweep)
+- `BatteryChargerPanel` - Charger output characterization
+- `ChargerPanel` - AC adapter / charger load testing
+- `PowerBankPanel` - Power bank capacity and efficiency testing
+- `PlaceholderPanel` - Stand-in for not-yet-implemented test types
+- `BatteryInfoWidget` - Shared battery metadata fields (name, manufacturer, capacity, manufactured date) reused across test panels
+
+Each test panel follows the state-persistence pattern described in "Test Automation Panel State Persistence" below and drives a `TestRunner` (see `load_test_bench/automation/`).
+
+### Test Automation (`load_test_bench/automation/`)
+
+- `TestRunner` (`test_runner.py`) - Drives a running test: state machine (`TestState`), progress tracking (`TestProgress`), voltage-cutoff/time-limit stop conditions, pre-test reset sequence
+- `profiles.py` - `TestProfile` base class and variants (`DischargeProfile`, `CycleProfile`, `TimedProfile`, `SteppedProfile`), serialized as JSON in `profiles/`
+- `scheduler.py` - `Scheduler` / `ScheduledTest` for queuing tests to run automatically
+
+### Alerts (`load_test_bench/alerts/`)
+
+- `conditions.py` - `AlertCondition` subclasses evaluated against live readings: `VoltageAlert`, `TemperatureAlert`, `OvercurrentAlert`, `OvervoltageAlert`, `CapacityAlert`, `TestCompleteAlert`
+- `notifier.py` - `Notifier` dispatches alert results (e.g. system notifications)
+
+### Data Layer (`load_test_bench/data/`)
+
+- `models.py` - `Reading` and `TestSession` dataclasses
+- `database.py` - `Database` class wrapping `tests.db` (SQLite); see "Database Commit Overhead" fix below for the batched-commit pattern
+- `export.py` - CSV/JSON/Excel export from `_accumulated_readings`
+
+### Test Viewer (`load_test_bench/viewer/`)
+
+Standalone app (`python -m load_test_bench.viewer`, entry point `viewer/__main__.py`) for offline analysis of saved test data — no device connection required.
+
+- `ViewerMainWindow` (`viewer/main_window.py`) - Auto-discovers and categorizes JSON test files from the data dir, auto-reloads on file changes
+- `TestListPanel` - Checkbox-based multi-file selection, per-dataset color picking (`ColorButton`), sort/filter by test type
+- `PlotControlsPanel` / `PlotPanelContainer` - X-axis selection (Time, Current, Power, Load R, etc.), Y-axis toggles
+- Rendering backends, selected independently per test type: `SeabornPlotPanel` (matplotlib+seaborn, publication-quality) and `PlotlyPlotPanel`
+- `JsonViewerDialog` / `DataViewerDialog` - Raw JSON / tabular data inspection
+- `DebugConsole` - Viewer-side debug log window
 
 ### Data Flow
 
@@ -211,7 +253,7 @@ def _on_debug_message(self, event_type: str, message: str, data: bytes) -> None:
 
 ## User Data Locations
 
-All user data stored in the data directory (see `load_test_bench/config.py` → `get_data_dir()`):
+All user data stored in the OS-standard data directory (see `load_test_bench/config.py` → `get_data_dir()`, e.g. `~/Library/Application Support/Load Test Bench/` on macOS). On first run, `config.py` auto-migrates any legacy `~/.atorch/` data to this location.
 - `sessions/` - Panel state files (`*_session.json`, restored on app restart)
 - `presets/` - User-saved presets organized by test type (`battery_presets/`, `test_presets/`, etc.)
 - `test_data/` - Auto-saved JSON test results
