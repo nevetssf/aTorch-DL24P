@@ -12,15 +12,16 @@ style: |
 ---
 
 # Load Test Bench
-### Controlling the aTorch DL24P Electronic Load
 
 A cross-platform GUI for USB-HID device control & battery discharge testing
+
+### My first vibe-coded project
 
 ---
 
 ## Agenda
 
-- What is this project?
+- Background and Motivation
 - The hardware
 - Reverse-engineering the USB HID protocol
 - Application architecture
@@ -29,54 +30,33 @@ A cross-platform GUI for USB-HID device control & battery discharge testing
 
 ---
 
-# What is this project
+# Background and Motivation
 
-To test quality of camera batteries and chargers
+I have a lot of camera batteries of unknown usefulness
 
-- Batteries age with use & over time, and lose current output capacity
-- Chargers (even expensive ones!) charge improperly & can be dangerous
+## I needed a way to test LiIon camera battery capacity
 
-Battery
-- Total capacity (mAh)
-- Discharge curve (V vs capacity)
+- Batteries lose capacity with time & use
+- Need to know which were good and which could be tossed
 
-Charger
-- Trickle
-- Constant current
-- Constant voltage
-- Taper off
+## Also needed a way to check battery *chargers*
+
+- LiIon charging is a controlled process, needed to be sure it was being done correctly
 
 ---
 
-# The Hardware
+## Battery Capacity Measurement
 
-# What is this project?
+- Fully charge battery with known-good charger (eg. 1800mAh @ 2x3.7V = 13.3Ah)
+- Discharge at capacity/5 (eg. 360mA)
 
----
+## Battery Charger Test
 
-## Two Applications, One Suite
+- Trickle below 2x3V
+- Constant Current (CC) @ 1A until 8.4V
+- Constant Voltage (CV) until current drops to 100mA
 
-**Test Bench** — `python -m load_test_bench.main`
-Real-time device control + data acquisition (PySide6/Qt)
-
-**Test Viewer** — `python -m load_test_bench.viewer`
-Offline analysis of saved test data — no device needed
-
-Both built for battery testing, characterization, and QC
-with publication-quality plots and full data export (CSV/JSON/Excel)
-
----
-
-## Test Types Supported
-
-- **Battery Capacity** — CC discharge with voltage cutoff & time limit
-- **Battery Load** — load-curve sweeps (current / power / resistance)
-- **Battery Charger** — charger output characterization
-- **Charger Load** — AC adapter load testing
-- **Power Bank Capacity** — capacity + efficiency testing
-
-Each has a dedicated panel, its own state persistence, and its own
-graph configuration in the plot and viewer apps.
+## Commercial load testers exist, but with decent software they're >$1000
 
 ---
 
@@ -84,14 +64,13 @@ graph configuration in the plot and viewer apps.
 
 ## aTorch DL24P
 
-Inexpensive (~$40 on Ali Express) load 180W load sink with 4 modes
+<img src="./images/1.jpeg" height="300">
 
-- **Constant Current**
-- **Constant Voltage**
-- Constant Resistance
-- Constant Power 
+Inexpensive (~$40 on Ali Express) load 180W load sink with 4 modes:
 
-Great hardware, terrible software
+- **Constant Current**, **Constant Voltage**
+- Constant Resistance Constant Power 
+## Great hardware, terrible software
 
 - Windows only
 - Crash-prone
@@ -99,20 +78,36 @@ Great hardware, terrible software
 
 ---
 
-## The aTorch DL24P
+# Claude
 
-- Electronic load: sinks current, measures V / I / P / capacity / temp
-- USB HID device — **VID 0x0483, PID 0x5750**
-- No official cross-platform software — vendor app is Android/Windows only
-- We reverse-engineered / adapted a documented protocol
-  (protocol docs: improwis.com/projects/sw_dl24)
-
-**The problem:** how do you drive it reliably, in real time, from Python,
-on macOS/Windows/Linux, for multi-hour unattended tests?
+- Poor experiences with earlier (Opus <4.5) models during 2025 - couldn't keep thread on large codebases
+- Decided to give Claude 4.5 (November 2025) a try for this project
+  - Limited scope of project
+  - New codebase
+  - Low stakes, just personal hobby project
 
 ---
 
-# USB HID Protocol
+# The Plan
+
+## Create Cross-Platform Load Tester "Workbench"
+- API to control DL24 through USB-C
+- Basic GUI interface to control device (mainly for testing)
+- Fully-integrated automation panels for battery & battery charger testing
+- Stand-alone viewer to review old data
+
+---
+
+# Reverse-enginering the USB Protocol
+
+## The problem
+
+- Software is Windows-only and very limited 
+- Only 3rd party documentation for API, incomplete and inaccurate (improwis.com/projects/sw_dl24)
+
+## Claude's Solution
+- Install Wireguard on PC, issue comadns on PC software, monitor USB traffic
+- Claude analyzes USB traffic and re-creates protocol
 
 ---
 
@@ -166,6 +161,22 @@ Key sub-commands for control:
 
 ---
 
+# The software design
+
+## Two Applications, One Suite
+
+**Test Bench** — `python -m load_test_bench.main`
+Real-time device control + data acquisition (PySide6/Qt)
+
+**Test Viewer** — `python -m load_test_bench.viewer`
+Offline analysis of saved test data — no device needed
+
+Both built for battery testing, characterization, and QC
+with publication-quality plots and full data export (CSV/JSON/Excel)
+
+---
+
+
 # Application Architecture
 
 ---
@@ -186,28 +197,7 @@ Two device classes (`Device` serial, `USBHIDDevice` primary) expose
 
 ---
 
-## Data Flow, End to End
-
-```
-USBHIDDevice._poll_loop()
-        │  parses response → DeviceStatus dataclass
-        ▼
-device callback → status_updated.emit(status)      [background thread]
-        ▼
-MainWindow._on_status_updated()                     [Qt main thread]
-        ▼
-status_updated signal → all panels
-        ▼
-ControlPanel / PlotPanel / StatusPanel update from DeviceStatus
-```
-
-Readings are also queued to a **background DB writer thread** and kept
-in a bounded in-memory deque (`_accumulated_readings`, 48h @ 1Hz) for
-JSON export — never appended to the unbounded session list.
-
----
-
-## State Persistence Pattern
+## Panel State Persistence
 
 Every test panel auto-saves its full configuration to
 `sessions/<panel>_session.json` on every change, and restores it on
@@ -226,54 +216,11 @@ Same pattern, repeated consistently across 5 test panels.
 
 ---
 
-# Threading Model & Lessons Learned
+## Database Logging
 
----
-
-## Rule #1: Never Touch the GUI from a Background Thread
-
-Device polling runs on its own thread. Every device→GUI update goes
-through a Qt **signal**, never a direct call:
-
-```python
-# background thread
-self.status_updated.emit(status)
-
-# main thread
-@Slot(DeviceStatus)
-def _update_ui_status(self, status): ...
-```
-
-GUI-initiated device commands (turn on/off, set params) use a
-**1-second lock timeout** so a slow/suspended USB device fails fast
-instead of freezing the UI.
-
----
-
-## Case Study: The 90-Minute Freeze
-
-Long discharge tests would lock up the GUI after ~30–90 minutes.
-Three compounding causes:
-
-1. **Signal queue overflow** — if one UI update took >0.5s, Qt signals
-   queued faster than they drained; thousands could pile up over hours
-2. **SQLite commit-per-row** — `commit()` after *every* reading (fsync
-   each time) at 1 Hz → 5,400+ commits in 1.5 hours
-3. **Unbounded session list** — `_current_session.readings` grew forever
-
----
-
-## The Fixes
-
-- **Drop, don't queue:** skip emitting a new status if the previous one
-  is still being processed (`_processing_status` flag)
-- **Batch commits:** `add_reading(commit=False)`, explicit
-  `database.commit()` every 10s and at test end
-- **Bounded storage:** replaced the unbounded list with a
-  `maxlen=172800` deque; DB is the permanent record
-- **Slower, steadier polling:** 0.5s → 1.0s interval
-- **Debug window:** only updates its DOM when actually visible
-  (was 21,600 GUI ops/hour when just *closed*)
+- All sessions are logged to a SQLite dB
+- No need for user to save measurementsessions
+- Separate Viewer application can review entire set of sessions
 
 ---
 
@@ -288,20 +235,6 @@ Three compounding causes:
 
 ---
 
-# 7. What's Next
-
-- **Database schema overhaul** — bring `tests.db` schema back in sync
-  with how logging actually works today (bounded deque, batched commits,
-  all 5 test panel types)
-- **Pre-test reset sequence** — load off → clear counters → 5s settle
-  → start, consistently across all panels
-- Parameter-naming cleanup across `DeviceStatus` / JSON export
-- PyInstaller Windows build validation + macOS code signing
-- Gzip-compressed JSON exports for long sessions
-
----
-
 # Questions?
 
 **Repo:** github.com/nevetssf/aTorch-DL24P
-**Protocol reference:** improwis.com/projects/sw_dl24
