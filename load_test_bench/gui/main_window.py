@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
     error_occurred = Signal(str)  # error message
     prepare_needed = Signal()  # device needs USB prepare (no response detected)
 
-    DEBUG_LOG_FILE = "/Users/steve/Projects/atorch/debug.log"
+    DEBUG_LOG_FILE = str(Path(__file__).resolve().parent.parent.parent / "debug.log")
 
     def __init__(self):
         super().__init__()
